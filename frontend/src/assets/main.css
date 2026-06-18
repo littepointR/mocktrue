@@ -1,0 +1,22 @@
+/* Global reset and dark base for the MockTrue shell. */
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  user-select: none;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}

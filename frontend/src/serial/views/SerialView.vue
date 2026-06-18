@@ -5,9 +5,13 @@ import { useSerialStore } from '../stores/serialStore'
 import { useBufferStore } from '../stores/bufferStore'
 import SerialTabContent from './SerialTabContent.vue'
 import PortConfigPanel from './PortConfigPanel.vue'
+import VirtualPairPanel from './VirtualPairPanel.vue'
+import BridgePanel from './BridgePanel.vue'
 
 const serialStore = useSerialStore()
 const bufferStore = useBufferStore()
+
+const sidebarTab = ref('config')
 
 onMounted(() => {
   serialStore.initEventListeners()
@@ -34,7 +38,17 @@ async function handleCloseTab(id: string) {
 <template>
   <div class="serial-view">
     <div class="serial-view__sidebar">
-      <PortConfigPanel />
+      <NTabs v-model:value="sidebarTab" type="line" size="small" justify-content="space-evenly">
+        <NTabPane name="config" tab="串口">
+          <PortConfigPanel />
+        </NTabPane>
+        <NTabPane name="virtual" tab="虚拟">
+          <VirtualPairPanel />
+        </NTabPane>
+        <NTabPane name="bridge" tab="桥接">
+          <BridgePanel />
+        </NTabPane>
+      </NTabs>
     </div>
     <div class="serial-view__main">
       <NTabs
@@ -69,11 +83,27 @@ async function handleCloseTab(id: string) {
   overflow: hidden;
 }
 .serial-view__sidebar {
-  width: 280px;
-  flex: 0 0 280px;
+  width: 320px;
+  flex: 0 0 320px;
   border-right: 1px solid #2d2d2d;
-  overflow-y: auto;
+  overflow: hidden;
   background: #252526;
+  display: flex;
+  flex-direction: column;
+}
+.serial-view__sidebar :deep(.n-tabs) {
+  height: 100%;
+}
+.serial-view__sidebar :deep(.n-tabs-nav) {
+  flex-shrink: 0;
+}
+.serial-view__sidebar :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  overflow: hidden;
+}
+.serial-view__sidebar :deep(.n-tab-pane) {
+  height: 100%;
+  padding: 0;
 }
 .serial-view__main {
   flex: 1;

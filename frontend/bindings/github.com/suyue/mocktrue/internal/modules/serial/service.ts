@@ -25,10 +25,45 @@ import * as port$0 from "./port/models.js";
 import * as $models from "./models.js";
 
 /**
+ * CleanupVirtual stops all virtual pairs and bridges.
+ */
+export function CleanupVirtual(): $CancellablePromise<void> {
+    return $Call.ByID(3380062301);
+}
+
+/**
  * ClosePort closes a serial port and removes its buffer.
  */
 export function ClosePort(id: string): $CancellablePromise<void> {
     return $Call.ByID(358686901, id);
+}
+
+/**
+ * CreateBridge creates a bridge between two serial ports.
+ */
+export function CreateBridge(id: string, port1: string, port2: string, baudRate: number): $CancellablePromise<$models.BridgeInfo | null> {
+    return $Call.ByID(2000913547, id, port1, port2, baudRate);
+}
+
+/**
+ * CreateVirtualPair creates a new virtual serial pair.
+ */
+export function CreateVirtualPair(id: string, port1Name: string, port2Name: string): $CancellablePromise<$models.VirtualPairInfo | null> {
+    return $Call.ByID(3426122829, id, port1Name, port2Name);
+}
+
+/**
+ * DeleteBridge removes a bridge.
+ */
+export function DeleteBridge(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2952555164, id);
+}
+
+/**
+ * DeleteVirtualPair removes a virtual serial pair.
+ */
+export function DeleteVirtualPair(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1660406268, id);
 }
 
 /**
@@ -39,10 +74,24 @@ export function EnumeratePorts(): $CancellablePromise<port$0.PortInfo[] | null> 
 }
 
 /**
+ * ListBridges returns all active bridges.
+ */
+export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> {
+    return $Call.ByID(2577893816);
+}
+
+/**
  * ListPorts returns a snapshot of all open handles.
  */
 export function ListPorts(): $CancellablePromise<manager$0.HandleStatus[] | null> {
     return $Call.ByID(2409741650);
+}
+
+/**
+ * ListVirtualPairs returns all virtual serial pairs.
+ */
+export function ListVirtualPairs(): $CancellablePromise<$models.VirtualPairInfo[] | null> {
+    return $Call.ByID(3694945770);
 }
 
 /**

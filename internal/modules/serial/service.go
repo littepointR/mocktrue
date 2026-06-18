@@ -9,12 +9,14 @@ import (
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	"github.com/suyue/mocktrue/internal/modules/serial/virtualserial"
 )
 
 // Service is the serial module's facade exposed to the frontend.
 type Service struct {
 	bus     *eventbus.EventBus
 	manager *manager.PortManager
+	vmgr    *virtualserial.Manager
 	buffers map[string]*buffer.RingBuffer // keyed by handle ID
 }
 
@@ -23,6 +25,7 @@ func NewService(bus *eventbus.EventBus) *Service {
 	return &Service{
 		bus:     bus,
 		manager: manager.NewManager(bus),
+		vmgr:    virtualserial.NewManager(),
 		buffers: make(map[string]*buffer.RingBuffer),
 	}
 }
@@ -96,4 +99,122 @@ func (s *Service) Send(req SendRequest) (int, error) {
 	_ = req.Mode // TODO: handle hex decode in later stage
 	// TODO: actually write to the port via manager
 	return len(req.Content), nil
+}
+
+// ===== Virtual Serial Pair API =====
+
+// VirtualPairInfo represents a virtual serial pair for the frontend.
+type VirtualPairInfo struct {
+	ID    string
+	Port1 string
+	Port2 string
+}
+
+// CreateVirtualPair creates a new virtual serial pair.
+func (s *Service) CreateVirtualPair(ctx context.Context, id, port1Name, port2Name string) (*VirtualPairInfo, error) {
+	if id == "" {
+		return nil, errors.New(errors.CodeInvalid, "id must not be empty")
+	}
+	if port1Name == "" || port2Name == "" {
+		return nil, errors.New(errors.CodeInvalid, "port names must not be empty")
+	}
+
+	pair, err := s.vmgr.CreatePair(ctx, id, port1Name, port2Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &VirtualPairInfo{
+		ID:    pair.ID,
+		Port1: pair.Port1,
+		Port2: pair.Port2,
+	}, nil
+}
+
+// DeleteVirtualPair removes a virtual serial pair.
+func (s *Service) DeleteVirtualPair(id string) error {
+	if id == "" {
+		return errors.New(errors.CodeInvalid, "id must not be empty")
+	}
+	return s.vmgr.DeletePair(id)
+}
+
+// ListVirtualPairs returns all virtual serial pairs.
+func (s *Service) ListVirtualPairs() []VirtualPairInfo {
+	pairs := s.vmgr.ListPairs()
+	result := make([]VirtualPairInfo, 0, len(pairs))
+	for _, p := range pairs {
+		result = append(result, VirtualPairInfo{
+			ID:    p.ID,
+			Port1: p.Port1,
+			Port2: p.Port2,
+		})
+	}
+	return result
+}
+
+// ===== Bridge API =====
+
+// BridgeInfo represents a serial bridge for the frontend.
+type BridgeInfo struct {
+	ID       string
+	Port1    string
+	Port2    string
+	BaudRate int
+}
+
+// CreateBridge creates a bridge between two serial ports.
+func (s *Service) CreateBridge(id, port1, port2 string, baudRate int) (*BridgeInfo, error) {
+	if id == "" {
+		return nil, errors.New(errors.CodeInvalid, "id must not be empty")
+	}
+	if port1 == "" || port2 == "" {
+		return nil, errors.New(errors.CodeInvalid, "port names must not be empty")
+	}
+	if port1 == port2 {
+		return nil, errors.New(errors.CodeInvalid, "cannot bridge a port to itself")
+	}
+	if baudRate <= 0 {
+		baudRate = 115200
+	}
+
+	bridge, err := s.vmgr.CreateBridge(id, port1, port2, baudRate)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BridgeInfo{
+		ID:       bridge.ID,
+		Port1:    bridge.Port1,
+		Port2:    bridge.Port2,
+		BaudRate: bridge.BaudRate,
+	}, nil
+}
+
+// DeleteBridge removes a bridge.
+func (s *Service) DeleteBridge(id string) error {
+	if id == "" {
+		return errors.New(errors.CodeInvalid, "id must not be empty")
+	}
+	return s.vmgr.DeleteBridge(id)
+}
+
+// ListBridges returns all active bridges.
+func (s *Service) ListBridges() []BridgeInfo {
+	bridges := s.vmgr.ListBridges()
+	result := make([]BridgeInfo, 0, len(bridges))
+	for _, b := range bridges {
+		result = append(result, BridgeInfo{
+			ID:       b.ID,
+			Port1:    b.Port1,
+			Port2:    b.Port2,
+			BaudRate: b.BaudRate,
+		})
+	}
+	return result
+}
+
+// CleanupVirtual stops all virtual pairs and bridges.
+func (s *Service) CleanupVirtual() {
+	s.vmgr.Cleanup()
 }

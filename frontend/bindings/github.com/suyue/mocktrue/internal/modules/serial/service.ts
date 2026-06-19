@@ -137,6 +137,13 @@ export function QueryPage(portID: string, offset: number, length: number): $Canc
 }
 
 /**
+ * ResetCounters clears RX and TX byte counters for an open port handle.
+ */
+export function ResetCounters(portID: string): $CancellablePromise<void> {
+    return $Call.ByID(4017649972, portID);
+}
+
+/**
  * Send sends data to the specified port.
  */
 export function Send(req: $models.SendRequest): $CancellablePromise<number> {

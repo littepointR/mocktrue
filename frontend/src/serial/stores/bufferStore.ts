@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { serialEvents, type DataEvent } from '../services/serialEvents'
 import { toByteArray, type BytePayload } from '../utils/bytes'
+import { useSerialStore } from './serialStore'
 
 export interface BufferChunk {
   timestamp: number
@@ -15,7 +16,8 @@ export const useBufferStore = defineStore('buffer', () => {
 
   function appendData(portId: string, data: BytePayload, timestamp = Date.now()) {
     const existing = buffers.value.get(portId) ?? new Uint8Array(0)
-    const newData = new Uint8Array(toByteArray(data))
+    const byteArray = toByteArray(data)
+    const newData = new Uint8Array(byteArray)
     if (newData.length === 0) return
 
     const combined = new Uint8Array(existing.length + newData.length)
@@ -32,6 +34,7 @@ export const useBufferStore = defineStore('buffer', () => {
 
     const existingChunks = chunks.value.get(portId) ?? []
     chunks.value.set(portId, [...existingChunks, { timestamp, data: newData }])
+    useSerialStore().addRxBytes(portId, byteArray.length)
   }
 
   function getBuffer(portId: string): Uint8Array {

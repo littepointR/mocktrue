@@ -64,6 +64,15 @@ export async function injectWailsMock(page: Page) {
         if (handle) handle.TxBytes += byteLength;
         return byteLength;
       },
+      4017649972: (id: string) => {
+        const handle = mockState.handles.find(h => h.ID === id);
+        if (!handle) {
+          throw new Error(`handle not found: ${id}`);
+        }
+        handle.RxBytes = 0;
+        handle.TxBytes = 0;
+        return null;
+      },
       3426122829: (id: string, p1: string, p2: string) => {
         if (mockState.virtualPairs.some(pair => pair.ID === id)) {
           throw new Error('pair ID already exists');

@@ -108,6 +108,22 @@ func (m *PortManager) Write(id string, data []byte) (int, error) {
 	return h.write(data)
 }
 
+// ResetCounters clears RX and TX byte counters for an open handle.
+func (m *PortManager) ResetCounters(id string) error {
+	if id == "" {
+		return errors.New(errors.CodeInvalid, "handle ID must not be empty")
+	}
+
+	m.mu.RLock()
+	h, ok := m.handles[id]
+	m.mu.RUnlock()
+	if !ok {
+		return errors.New(errors.CodeNotFound, fmt.Sprintf("handle not found: %s", id))
+	}
+	h.resetCounters()
+	return nil
+}
+
 // List returns a snapshot of all open handles. Returns empty slice (not nil)
 // if no handles are open.
 func (m *PortManager) List() []HandleStatus {

@@ -3,6 +3,7 @@ import {
   OpenPort,
   ClosePort,
   ListPorts,
+  ResetCounters,
 } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 
 import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
@@ -45,6 +46,13 @@ export class SerialService {
   async listPorts(): Promise<HandleStatus[]> {
     const result = await ListPorts()
     return result ?? []
+  }
+
+  /**
+   * Reset RX/TX counters for an open serial port handle.
+   */
+  async resetCounters(id: string): Promise<void> {
+    await ResetCounters(id)
   }
 }
 

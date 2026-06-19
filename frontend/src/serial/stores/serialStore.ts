@@ -130,6 +130,32 @@ export const useSerialStore = defineStore('serial', () => {
     })
   }
 
+  function addRxBytes(id: string, byteCount: number) {
+    const handle = handles.value.get(id)
+    if (!handle) return
+    handles.value.set(id, {
+      ...handle,
+      RxBytes: handle.RxBytes + byteCount,
+    })
+  }
+
+  async function resetCounters(id: string) {
+    const handle = handles.value.get(id)
+    if (!handle) return
+    try {
+      await serialService.resetCounters(id)
+      handles.value.set(id, {
+        ...handle,
+        RxBytes: 0,
+        TxBytes: 0,
+      })
+      error.value = null
+    } catch (e: any) {
+      error.value = e?.message ?? 'Failed to reset counters'
+      throw e
+    }
+  }
+
   async function refreshHandles() {
     try {
       const list = await serialService.listPorts()
@@ -200,7 +226,9 @@ export const useSerialStore = defineStore('serial', () => {
     closePort,
     updatePortConfig,
     setActivePort,
+    addRxBytes,
     addTxBytes,
+    resetCounters,
     clearError,
     initEventListeners,
     stopStatsPolling,

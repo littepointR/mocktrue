@@ -3,6 +3,7 @@ import { onUnmounted, ref, watch } from 'vue'
 import { NInput, NButton, NSelect, NInputNumber, NSwitch } from 'naive-ui'
 import { Send } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 import { useSerialStore } from '../stores/serialStore'
+import { asciiToHexText, formatHexInput, hexTextToAscii } from '../utils/bytes'
 
 const props = defineProps<{
   handleId: string
@@ -17,6 +18,7 @@ const sendHistory = ref<Array<{ id: number; content: string; mode: 'ascii' | 'he
 const error = ref<string | null>(null)
 let nextHistoryId = 1
 let autoSendTimer: number | null = null
+let skipNextSendDataWatch = false
 
 async function sendContent(content: string, mode = sendMode.value, clearEditor = false) {
   if (!props.handleId || !content) return
@@ -63,7 +65,7 @@ function startAutoSend() {
   stopAutoSend()
   if (!autoSend.value || !sendData.value) return
 
-  const interval = Math.max(100, sendIntervalMs.value || 100)
+  const interval = Math.max(10, sendIntervalMs.value || 10)
   autoSendTimer = window.setInterval(() => {
     void sendContent(sendData.value, sendMode.value, false)
   }, interval)
@@ -74,12 +76,50 @@ watch([autoSend, sendIntervalMs], () => {
 })
 
 watch(sendData, (value) => {
+  if (skipNextSendDataWatch) {
+    skipNextSendDataWatch = false
+    return
+  }
+
+  if (sendMode.value === 'hex') {
+    const formatted = formatHexInput(value)
+    if (formatted !== value) {
+      setSendData(formatted)
+      syncAutoSendForContent(formatted)
+      return
+    }
+  }
+
+  syncAutoSendForContent(value)
+})
+
+function syncAutoSendForContent(value: string) {
   if (!value && autoSend.value) {
     autoSend.value = false
   } else if (autoSend.value) {
     startAutoSend()
   }
+}
+
+watch(sendMode, (mode, previousMode) => {
+  if (mode === previousMode) return
+  try {
+    if (mode === 'hex') {
+      setSendData(asciiToHexText(sendData.value))
+    } else {
+      setSendData(hexTextToAscii(sendData.value))
+    }
+    error.value = null
+  } catch (e: any) {
+    error.value = e?.message ?? 'Convert send content failed'
+  }
 })
+
+function setSendData(value: string) {
+  if (sendData.value === value) return
+  skipNextSendDataWatch = true
+  sendData.value = value
+}
 
 onUnmounted(stopAutoSend)
 </script>
@@ -90,6 +130,7 @@ onUnmounted(stopAutoSend)
       <div class="send-panel__toolbar">
         <NSelect
           v-model:value="sendMode"
+          class="send-panel__mode"
           :options="[
             { label: 'ASCII', value: 'ascii' },
             { label: 'HEX', value: 'hex' },
@@ -102,8 +143,8 @@ onUnmounted(stopAutoSend)
           <NInputNumber
             v-model:value="sendIntervalMs"
             size="small"
-            :min="100"
-            :step="100"
+            :min="10"
+            :step="10"
             :show-button="false"
           />
           <span>ms</span>

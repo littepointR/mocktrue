@@ -91,11 +91,28 @@ test.describe('Serial Basic E2E', () => {
   test('should show RX/TX statistics', async ({ page }) => {
     await openPort(page, '/tmp/ttyV0');
 
+    await emitSerialData(page, 'port-1', 'rx');
     await page.getByPlaceholder('输入要发送的数据').fill('hello');
     await page.getByRole('button', { name: '发送' }).click();
 
-    await expect(page.locator('.stats-panel')).toContainText('RX:', { timeout: 10000 });
+    await expect(page.locator('.stats-panel')).toContainText('RX: 2 字节', { timeout: 500 });
     await expect(page.locator('.stats-panel')).toContainText('TX: 5 字节', { timeout: 10000 });
+  });
+
+  test('should reset RX and TX counters', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
+
+    await emitSerialData(page, 'port-1', 'rx');
+    await page.getByPlaceholder('输入要发送的数据').fill('tx');
+    await page.getByRole('button', { name: '发送' }).click();
+
+    const statsPanel = page.locator('.stats-panel');
+    await expect(statsPanel).toContainText('RX: 2 字节', { timeout: 10000 });
+    await expect(statsPanel).toContainText('TX: 2 字节', { timeout: 10000 });
+
+    await page.getByRole('button', { name: '复位计数' }).click();
+    await expect(statsPanel).toContainText('RX: 0 字节', { timeout: 10000 });
+    await expect(statsPanel).toContainText('TX: 0 字节', { timeout: 10000 });
   });
 
   test('should show send history queue and resend by clicking history item', async ({ page }) => {
@@ -124,6 +141,28 @@ test.describe('Serial Basic E2E', () => {
     await historyItem.click();
     await expect(historyItem).toHaveCount(1);
     await expect(page.locator('.stats-panel')).toContainText('TX: 18 字节', { timeout: 10000 });
+  });
+
+  test('should format HEX input and convert content when switching send modes', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
+
+    const editor = page.locator('.send-panel__editor textarea');
+    const modeSelect = page.locator('.send-panel__mode .n-base-selection');
+
+    await editor.fill('Hi');
+    await modeSelect.click();
+    await page.locator('.n-base-select-option').filter({ hasText: 'HEX' }).click();
+    await expect(editor).toHaveValue('48 69');
+
+    await editor.fill('48656c6C6f');
+    await expect(editor).toHaveValue('48 65 6c 6c 6f');
+
+    await page.getByRole('button', { name: '发送' }).click();
+    await expect(page.locator('.stats-panel')).toContainText('TX: 5 字节', { timeout: 10000 });
+
+    await modeSelect.click();
+    await page.locator('.n-base-select-option').filter({ hasText: 'ASCII' }).click();
+    await expect(editor).toHaveValue('Hello');
   });
 
   test('should resize receive and send areas by dragging divider', async ({ page }) => {

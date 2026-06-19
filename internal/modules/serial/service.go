@@ -202,6 +202,11 @@ func (s *Service) Send(req SendRequest) (int, error) {
 	return s.manager.Write(req.PortID, data)
 }
 
+// ResetCounters clears RX and TX byte counters for an open port handle.
+func (s *Service) ResetCounters(portID string) error {
+	return s.manager.ResetCounters(portID)
+}
+
 // ===== Virtual Serial Pair API =====
 
 // VirtualPortInfo represents a user-facing virtual serial port. The backing

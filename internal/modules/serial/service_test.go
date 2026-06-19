@@ -61,6 +61,67 @@ func TestServiceListPortsEmpty(t *testing.T) {
 	}
 }
 
+func TestServiceResetCountersRejectsMissingHandle(t *testing.T) {
+	t.Parallel()
+	svc := NewService(eventbus.New())
+	if err := svc.ResetCounters("ghost"); err == nil {
+		t.Fatalf("ResetCounters must reject missing handle")
+	}
+}
+
+func TestServiceResetCountersClearsOpenHandleStats(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+	pair, err := port.StartVirtualPair(context.Background())
+	if err != nil {
+		t.Skipf("socat not available: %v", err)
+	}
+	defer pair.Stop()
+
+	svc := NewService(eventbus.New())
+	handle, err := svc.OpenPort(context.Background(), manager.OpenRequest{
+		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+	})
+	if err != nil {
+		t.Fatalf("OpenPort: %v", err)
+	}
+	defer svc.ClosePort(handle.ID)
+
+	if _, err := svc.Send(SendRequest{PortID: handle.ID, Content: "tx", Mode: "ascii"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	conn, err := port.OpenForTest(pair.Port2, 115200)
+	if err != nil {
+		t.Fatalf("OpenForTest: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("rx")); err != nil {
+		t.Fatalf("Write rx: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	before := svc.ListPorts()
+	if len(before) != 1 {
+		t.Fatalf("ListPorts before reset len = %d, want 1", len(before))
+	}
+	if before[0].RxBytes == 0 || before[0].TxBytes == 0 {
+		t.Fatalf("counters before reset = rx %d tx %d, want both non-zero", before[0].RxBytes, before[0].TxBytes)
+	}
+
+	if err := svc.ResetCounters(handle.ID); err != nil {
+		t.Fatalf("ResetCounters: %v", err)
+	}
+
+	after := svc.ListPorts()
+	if len(after) != 1 {
+		t.Fatalf("ListPorts after reset len = %d, want 1", len(after))
+	}
+	if after[0].RxBytes != 0 || after[0].TxBytes != 0 {
+		t.Fatalf("counters after reset = rx %d tx %d, want 0/0", after[0].RxBytes, after[0].TxBytes)
+	}
+}
+
 func TestServiceQueryPageNonExistent(t *testing.T) {
 	t.Parallel()
 	bus := eventbus.New()

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { NForm, NFormItem, NSelect, NButton, NAlert, NDivider } from 'naive-ui'
+import { NForm, NFormItem, NSelect, NButton, NAlert } from 'naive-ui'
 import { useSerialStore } from '../stores/serialStore'
 
 const store = useSerialStore()
+const emit = defineEmits<{
+  opened: [handleId: string]
+}>()
 
 const selectedPort = ref('')
 const baudRate = ref(115200)
@@ -59,7 +62,7 @@ async function handleOpen() {
 
   loading.value = true
   try {
-    await store.openPort(selectedPort.value, baudRate.value, {
+    const handleId = await store.openPort(selectedPort.value, baudRate.value, {
       dataBits: dataBits.value,
       stopBits: stopBits.value,
       parity: parity.value,
@@ -67,6 +70,7 @@ async function handleOpen() {
     })
     // 重置表单
     selectedPort.value = ''
+    emit('opened', handleId)
   } catch (e) {
     console.error('Failed to open port:', e)
   } finally {
@@ -86,10 +90,6 @@ async function handleRefresh() {
 
 <template>
   <div class="port-config-form">
-    <div class="port-config-form__header">
-      <h3>串口配置</h3>
-    </div>
-
     <NAlert v-if="store.error" type="error" closable @close="store.clearError()" style="margin: 12px">
       {{ store.error }}
     </NAlert>
@@ -161,14 +161,6 @@ async function handleRefresh() {
           打开串口
         </NButton>
       </NForm>
-
-      <NDivider style="margin: 16px 0;" />
-
-      <div class="port-config-form__help">
-        <p style="font-size: 12px; color: #858585; margin: 0;">
-          打开串口后将在右侧创建新标签页
-        </p>
-      </div>
     </div>
   </div>
 </template>
@@ -179,22 +171,9 @@ async function handleRefresh() {
   flex-direction: column;
   height: 100%;
 }
-.port-config-form__header {
-  padding: 12px 16px;
-  border-bottom: 1px solid #2d2d2d;
-}
-.port-config-form__header h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #d4d4d4;
-}
 .port-config-form__content {
   flex: 1;
-  padding: 16px;
+  padding: 12px;
   overflow-y: auto;
-}
-.port-config-form__help {
-  padding-top: 8px;
 }
 </style>

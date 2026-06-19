@@ -29,6 +29,7 @@ func NewManager() *Manager {
 func (m *Manager) CreatePair(ctx context.Context, pairID, port1Name, port2Name string) (*VirtualPair, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	_ = ctx
 
 	if _, exists := m.pairs[pairID]; exists {
 		return nil, errors.New(errors.CodeConflict, "pair ID already exists")
@@ -41,7 +42,7 @@ func (m *Manager) CreatePair(ctx context.Context, pairID, port1Name, port2Name s
 	// Remove old symlinks if they exist
 	exec.Command("rm", "-f", port1Path, port2Path).Run()
 
-	cmd := exec.CommandContext(ctx, "socat", "-d", "-d",
+	cmd := exec.Command("socat", "-d", "-d",
 		fmt.Sprintf("pty,raw,echo=0,link=%s", port1Path),
 		fmt.Sprintf("pty,raw,echo=0,link=%s", port2Path))
 
@@ -84,6 +85,20 @@ func (m *Manager) DeletePair(pairID string) error {
 	return nil
 }
 
+// CreatePort creates a user-facing virtual serial port. A hidden peer is
+// created internally because PTYs are backed by pairs on Unix-like systems.
+func (m *Manager) CreatePort(ctx context.Context, portID, portName string) (*VirtualPair, error) {
+	if portName == "" {
+		return nil, errors.New(errors.CodeInvalid, "port name must not be empty")
+	}
+	pair, err := m.CreatePair(ctx, portID, portName, portName+"-peer")
+	if err != nil {
+		return nil, err
+	}
+	pair.port2Hidden = true
+	return pair, nil
+}
+
 // ListPairs returns all virtual serial pairs.
 func (m *Manager) ListPairs() []*VirtualPair {
 	m.mu.RLock()
@@ -105,13 +120,24 @@ func (m *Manager) CreateBridge(bridgeID, port1, port2 string, baudRate int) (*Br
 		return nil, errors.New(errors.CodeConflict, "bridge ID already exists")
 	}
 
-	bridge := NewBridge(bridgeID, port1, port2, baudRate)
+	bridgePort1 := m.bridgeEndpointLocked(port1)
+	bridgePort2 := m.bridgeEndpointLocked(port2)
+	bridge := NewBridgeWithEndpoints(bridgeID, port1, port2, bridgePort1, bridgePort2, baudRate)
 	if err := bridge.Start(); err != nil {
 		return nil, err
 	}
 
 	m.bridges[bridgeID] = bridge
 	return bridge, nil
+}
+
+func (m *Manager) bridgeEndpointLocked(portName string) string {
+	for _, pair := range m.pairs {
+		if pair.port2Hidden && pair.Port1 == portName {
+			return pair.Port2
+		}
+	}
+	return portName
 }
 
 // DeleteBridge removes a bridge.

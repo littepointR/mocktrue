@@ -3,14 +3,15 @@ import { startVirtualPair, stopVirtualPair, writeToPort, VirtualPair } from './f
 import { generatePattern, generateModbusFrame, generateAA55Frame } from './fixtures/patterns';
 
 
-// These tests require the real Wails backend; skipped under static vite-preview CI mode.
+// These tests describe an end-to-end future workflow that combines real Wails
+// serial I/O with UI surfaces not present in the current serial panel.
 const hasBackend = process.env.MOCKTRUE_E2E_BACKEND === '1';
 
 test.describe('Full Regression E2E', () => {
   let virtualPair: VirtualPair;
 
   test.beforeAll(() => {
-    test.skip(!hasBackend, 'skipped: set MOCKTRUE_E2E_BACKEND=1 and run wails3 task dev');
+    test.skip(!hasBackend, 'skipped: future full-stack workflow; requires implemented protocol/PCAP UI plus MOCKTRUE_E2E_BACKEND=1');
     virtualPair = startVirtualPair();
   });
 

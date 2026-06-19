@@ -4,7 +4,11 @@ import type { ModuleFrontend } from '../core/module/types'
 export const serialModule: ModuleFrontend = {
   id: 'serial',
   activity: { icon: 'serial', title: '串口调试' },
-  views: [{ id: 'serial.connect', title: '连接', component: 'serial/ConnectView' }],
+  views: [
+    { id: 'serial.open', title: '打开串口', component: 'serial/OpenPort' },
+    { id: 'serial.virtual', title: '添加虚拟串口', component: 'serial/VirtualPort' },
+    { id: 'serial.bridge', title: '添加串口桥接', component: 'serial/Bridge' },
+  ],
   async onActivate() {
     // Initialize Store event listeners
     const { useSerialStore } = await import('./stores/serialStore')

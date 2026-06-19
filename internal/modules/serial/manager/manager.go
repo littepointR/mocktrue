@@ -6,18 +6,18 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/core/errors"
+	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 )
 
 // PortManager manages multiple concurrent serial port handles.
 // All methods are safe for concurrent use.
 type PortManager struct {
-	mu       sync.RWMutex
-	handles  map[string]*Handle
-	bus      *eventbus.EventBus
-	nextID   atomic.Int64
+	mu      sync.RWMutex
+	handles map[string]*Handle
+	bus     *eventbus.EventBus
+	nextID  atomic.Int64
 }
 
 // NewManager constructs a PortManager that emits events on the given bus.
@@ -75,6 +75,37 @@ func (m *PortManager) Close(id string) error {
 	h.stop()
 	delete(m.handles, id)
 	return nil
+}
+
+// CloseAll stops and removes every open handle. It is idempotent and intended
+// for module shutdown.
+func (m *PortManager) CloseAll() {
+	m.mu.Lock()
+	handles := m.handles
+	m.handles = make(map[string]*Handle)
+	m.mu.Unlock()
+
+	for _, h := range handles {
+		h.stop()
+	}
+}
+
+// Write sends bytes through an open handle and updates its TX statistics.
+func (m *PortManager) Write(id string, data []byte) (int, error) {
+	if id == "" {
+		return 0, errors.New(errors.CodeInvalid, "handle ID must not be empty")
+	}
+	if len(data) == 0 {
+		return 0, errors.New(errors.CodeInvalid, "data must not be empty")
+	}
+
+	m.mu.RLock()
+	h, ok := m.handles[id]
+	m.mu.RUnlock()
+	if !ok {
+		return 0, errors.New(errors.CodeNotFound, fmt.Sprintf("handle not found: %s", id))
+	}
+	return h.write(data)
 }
 
 // List returns a snapshot of all open handles. Returns empty slice (not nil)

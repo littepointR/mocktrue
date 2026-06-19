@@ -8,6 +8,8 @@ import type { ModuleContribution, ModuleFrontend } from './module/types'
 class ModuleRegistry {
   private modules = new Map<string, ModuleFrontend>()
   private activeId = ref<string | null>(null)
+  private activeViewId = ref<string | null>(null)
+  private activeViewRevision = ref(0)
 
   /** Register a frontend module. Throws on empty or duplicate id. */
   register(m: ModuleFrontend): void {
@@ -27,6 +29,10 @@ class ModuleRegistry {
 
   /** The active module id (reactive). */
   readonly active = computed(() => this.activeId.value)
+  /** The active sidebar view id for the active module (reactive). */
+  readonly activeView = computed(() => this.activeViewId.value)
+  /** Increments every time a sidebar view is selected, including reselects. */
+  readonly activeViewVersion = computed(() => this.activeViewRevision.value)
 
   /** Get the currently active module frontend, or null. */
   activeModule(): ModuleFrontend | null {
@@ -39,7 +45,20 @@ class ModuleRegistry {
     const prev = this.activeId.value ? this.modules.get(this.activeId.value) ?? null : null
     prev?.onDeactivate?.()
     this.activeId.value = id
+    this.activeViewId.value = id ? this.modules.get(id)?.views[0]?.id ?? null : null
+    this.activeViewRevision.value += 1
     if (id) this.modules.get(id)?.onActivate?.()
+  }
+
+  /** Select a view contributed by the active module. */
+  setActiveView(viewId: string): void {
+    const active = this.activeModule()
+    if (!active) return
+    if (!active.views.some(view => view.id === viewId)) {
+      throw new Error(`unknown view for active module: ${viewId}`)
+    }
+    this.activeViewId.value = viewId
+    this.activeViewRevision.value += 1
   }
 
   /**

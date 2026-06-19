@@ -1,85 +1,158 @@
 import { test, expect } from '@playwright/test';
-import { startVirtualPair, stopVirtualPair, writeToPort, VirtualPair } from './fixtures/vserial.helper';
+import { injectWailsMock } from './fixtures/wails-mock.helper';
+import { emitSerialData, openPort } from './fixtures/app.helper';
 
-// These tests require the real Wails backend (wails3 task dev with a GUI
-// environment). They are skipped under the static vite-preview CI mode,
-// where @wailsio/runtime service calls are unavailable. Run locally with
-// `wails3 task dev` + a display to exercise the full stack.
-
-const hasBackend = process.env.MOCKTRUE_E2E_BACKEND === '1';
-
-test.describe('Serial Basic E2E (requires Wails backend)', () => {
-  test.beforeAll(() => {
-    test.skip(!hasBackend, 'skipped: set MOCKTRUE_E2E_BACKEND=1 and run wails3 task dev');
-  });
-
-  let virtualPair: VirtualPair;
-
-  test.beforeAll(() => {
-    virtualPair = startVirtualPair();
-  });
-
-  test.afterAll(() => {
-    if (virtualPair) stopVirtualPair(virtualPair);
+test.describe('Serial Basic E2E', () => {
+  test.beforeEach(async ({ page }) => {
+    await injectWailsMock(page);
   });
 
   test('should open port and send ASCII data', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.activity-bar');
+    await openPort(page, '/tmp/ttyV0');
 
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
+    const tabConfig = page.locator('.serial-tab-config');
+    await expect(tabConfig).toBeVisible();
+    await expect(tabConfig).toContainText('/tmp/ttyV0');
+    await tabConfig.getByRole('button', { name: /串口配置/ }).click();
+    await expect(tabConfig).toContainText('115200');
+    await expect(tabConfig).toContainText('数据位');
 
-    await page.waitForSelector('.port-config');
-    await page.locator('select').first().selectOption(virtualPair.port1);
-    await page.locator('select').nth(1).selectOption('115200');
-    await page.locator('button:has-text("打开")').click();
-    await page.waitForTimeout(500);
-
-    await page.locator('input[placeholder="输入要发送的数据"]').fill('hello');
-    await page.locator('button:has-text("发送")').click();
-    await page.waitForTimeout(200);
+    await page.getByPlaceholder('输入要发送的数据').fill('hello');
+    await page.getByRole('button', { name: '发送' }).click();
 
     await expect(page.locator('.data-display')).toBeVisible();
+    await expect(page.locator('.stats-panel')).toContainText('TX: 5 字节', { timeout: 10000 });
   });
 
-  test('should receive data and display it', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.activity-bar');
+  test('should edit serial parameters inside an opened tab', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
 
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
+    const tabConfig = page.locator('.serial-tab-config');
+    await tabConfig.getByRole('button', { name: /串口配置/ }).click();
 
-    await page.locator('select').first().selectOption(virtualPair.port2);
-    await page.locator('select').nth(1).selectOption('115200');
-    await page.locator('button:has-text("打开")').click();
-    await page.waitForTimeout(500);
+    await tabConfig.locator('.serial-tab-config__field').filter({ hasText: '波特率' }).locator('.n-base-selection').click();
+    await page.locator('.n-base-select-option').filter({ hasText: '9600' }).click();
+    await page.getByRole('button', { name: '应用配置' }).click();
 
-    writeToPort(virtualPair.port1, 'test data');
-    await page.waitForTimeout(1000);
+    await expect(tabConfig).toContainText('9600 bps', { timeout: 10000 });
+    await tabConfig.getByRole('button', { name: /串口配置/ }).click();
+    await expect(tabConfig.locator('.serial-tab-config__field').filter({ hasText: '波特率' }).locator('.n-base-selection')).toContainText('9600');
+  });
 
-    const content = await page.locator('.data-display').textContent();
-    expect(content).toContain('test data');
+  test('should show received data from mocked runtime events', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
+
+    await emitSerialData(page, 'port-1', 'test data');
+
+    await expect(page.locator('.data-display')).toContainText('test data', { timeout: 10000 });
+  });
+
+  test('should show received data from Wails base64 byte events', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
+
+    await emitSerialData(page, 'port-1', 'base64 data', 'base64');
+
+    await expect(page.locator('.data-display')).toContainText('base64 data', { timeout: 10000 });
+  });
+
+  test('should toggle receive timestamps', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
+
+    await emitSerialData(page, 'port-1', 'timestamped');
+
+    const display = page.locator('.data-display');
+    await expect(display).toContainText('timestamped', { timeout: 10000 });
+    await expect(display.locator('.ascii-timestamp')).toBeVisible();
+
+    await page.locator('.data-display__timestamp-control').getByRole('switch').click();
+    await expect(display.locator('.ascii-timestamp')).toHaveCount(0);
+    await expect(display).toContainText('timestamped');
+  });
+
+  test('should toggle receive auto scroll', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
+
+    const scrollContainer = page.locator('.data-display__content');
+    const autoScrollSwitch = page.locator('.data-display__autoscroll-control').getByRole('switch');
+    await expect(autoScrollSwitch).toBeVisible();
+
+    await autoScrollSwitch.click();
+    await scrollContainer.evaluate((el) => { el.scrollTop = 0; });
+    await emitSerialData(page, 'port-1', `${Array.from({ length: 80 }, (_, i) => `locked-${i}`).join('\n')}\n`);
+    await expect(page.locator('.data-display')).toContainText('locked-79', { timeout: 10000 });
+    await expect(scrollContainer).toHaveJSProperty('scrollTop', 0);
+
+    await autoScrollSwitch.click();
+    await emitSerialData(page, 'port-1', `${Array.from({ length: 80 }, (_, i) => `follow-${i}`).join('\n')}\n`);
+    await expect(page.locator('.data-display')).toContainText('follow-79', { timeout: 10000 });
+    await expect.poll(async () => scrollContainer.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
   });
 
   test('should show RX/TX statistics', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.activity-bar');
+    await openPort(page, '/tmp/ttyV0');
 
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
+    await page.getByPlaceholder('输入要发送的数据').fill('hello');
+    await page.getByRole('button', { name: '发送' }).click();
 
-    await page.locator('select').first().selectOption(virtualPair.port1);
-    await page.locator('select').nth(1).selectOption('115200');
-    await page.locator('button:has-text("打开")').click();
-    await page.waitForTimeout(500);
+    await expect(page.locator('.stats-panel')).toContainText('RX:', { timeout: 10000 });
+    await expect(page.locator('.stats-panel')).toContainText('TX: 5 字节', { timeout: 10000 });
+  });
 
-    await page.locator('input[placeholder="输入要发送的数据"]').fill('hello');
-    await page.locator('button:has-text("发送")').click();
-    await page.waitForTimeout(500);
+  test('should show send history queue and resend by clicking history item', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
 
-    const statsText = await page.locator('.stats-panel').textContent();
-    expect(statsText).toContain('RX:');
-    expect(statsText).toContain('TX:');
+    const editor = page.locator('.send-panel__editor textarea');
+    const history = page.locator('.send-panel__history');
+    await expect(editor).toBeVisible();
+
+    const editorBox = await editor.boundingBox();
+    expect(editorBox).not.toBeNull();
+    expect(editorBox!.height).toBeGreaterThan(70);
+
+    await editor.fill('repeat');
+    await page.getByRole('button', { name: '发送' }).click();
+
+    const historyItem = history.locator('.send-panel__history-item').filter({ hasText: 'repeat' });
+    await expect(historyItem).toBeVisible();
+    await expect(editor).toHaveValue('repeat');
+    await expect(page.locator('.stats-panel')).toContainText('TX: 6 字节', { timeout: 10000 });
+
+    await page.getByRole('button', { name: '发送' }).click();
+    await expect(historyItem).toHaveCount(1);
+    await expect(page.locator('.stats-panel')).toContainText('TX: 12 字节', { timeout: 10000 });
+
+    await historyItem.click();
+    await expect(historyItem).toHaveCount(1);
+    await expect(page.locator('.stats-panel')).toContainText('TX: 18 字节', { timeout: 10000 });
+  });
+
+  test('should resize receive and send areas by dragging divider', async ({ page }) => {
+    await openPort(page, '/tmp/ttyV0');
+
+    const display = page.locator('.serial-tab-content__display');
+    const send = page.locator('.serial-tab-content__send');
+    const divider = page.locator('.serial-tab-content__resize-handle');
+
+    await expect(divider).toBeVisible();
+    const displayBefore = await display.boundingBox();
+    const sendBefore = await send.boundingBox();
+    const dividerBox = await divider.boundingBox();
+
+    expect(displayBefore).not.toBeNull();
+    expect(sendBefore).not.toBeNull();
+    expect(dividerBox).not.toBeNull();
+
+    await page.mouse.move(dividerBox!.x + dividerBox!.width / 2, dividerBox!.y + dividerBox!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dividerBox!.x + dividerBox!.width / 2, dividerBox!.y - 80);
+    await page.mouse.up();
+
+    const displayAfter = await display.boundingBox();
+    const sendAfter = await send.boundingBox();
+
+    expect(displayAfter).not.toBeNull();
+    expect(sendAfter).not.toBeNull();
+    expect(displayAfter!.height).toBeLessThan(displayBefore!.height - 40);
+    expect(sendAfter!.height).toBeGreaterThan(sendBefore!.height + 40);
   });
 });

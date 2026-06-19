@@ -48,7 +48,8 @@ func (h *Handle) Status() *HandleStatus {
 
 // start launches the background read loop.
 func (h *Handle) start(parent context.Context) {
-	ctx, cancel := context.WithCancel(parent)
+	_ = parent
+	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	go h.readLoop(ctx)
 }
@@ -62,6 +63,17 @@ func (h *Handle) stop() {
 		h.cancel()
 	}
 	_ = h.port.Close()
+}
+
+// write sends bytes to the underlying serial port and updates TX stats.
+func (h *Handle) write(data []byte) (int, error) {
+	n, err := h.port.Write(data)
+	if n > 0 {
+		h.mu.Lock()
+		h.txBytes += int64(n)
+		h.mu.Unlock()
+	}
+	return n, err
 }
 
 // readLoop reads bytes from the port and emits DataEvents. It runs until

@@ -5,7 +5,7 @@ import { Events } from '@wailsio/runtime'
  */
 export interface DataEvent {
   PortID: string
-  Data: number[]
+  Data: number[] | Uint8Array | string | null
 }
 
 /**

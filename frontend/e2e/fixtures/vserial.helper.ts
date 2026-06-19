@@ -1,5 +1,8 @@
-import { execSync, spawn, ChildProcess } from 'child_process';
+import { execFileSync, spawn, ChildProcess } from 'child_process';
 import { existsSync } from 'fs';
+import { writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
 
 export interface VirtualPair {
   port1: string;
@@ -12,12 +15,13 @@ export interface VirtualPair {
  * Returns the two port paths and the socat process.
  */
 export function startVirtualPair(): VirtualPair {
-  const port1 = '/tmp/ttyV0';
-  const port2 = '/tmp/ttyV1';
+  const suffix = `${process.pid}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const port1 = `/tmp/mocktrue-${suffix}-a`;
+  const port2 = `/tmp/mocktrue-${suffix}-b`;
 
   // Remove old symlinks
   try {
-    execSync(`rm -f ${port1} ${port2}`);
+    execFileSync('rm', ['-f', port1, port2]);
   } catch (e) {
     // Ignore errors
   }
@@ -25,11 +29,15 @@ export function startVirtualPair(): VirtualPair {
   // Start socat in background
   const socat = spawn('socat', [
     '-d', '-d',
-    'pty,raw,echo=0,link=/tmp/ttyV0',
-    'pty,raw,echo=0,link=/tmp/ttyV1',
+    `pty,raw,echo=0,link=${port1}`,
+    `pty,raw,echo=0,link=${port2}`,
   ], {
     stdio: 'pipe',
     detached: true,
+  });
+  let stderr = '';
+  socat.stderr?.on('data', chunk => {
+    stderr += String(chunk);
   });
 
   // Wait for symlinks to appear
@@ -38,11 +46,11 @@ export function startVirtualPair(): VirtualPair {
     if (existsSync(port1) && existsSync(port2)) {
       return { port1, port2, process: socat };
     }
-    execSync('sleep 0.05');
+    execFileSync('sleep', ['0.05']);
   }
 
   socat.kill();
-  throw new Error('Timeout waiting for socat symlinks');
+  throw new Error(`Timeout waiting for socat symlinks: ${stderr.trim()}`);
 }
 
 /**
@@ -52,7 +60,7 @@ export function stopVirtualPair(pair: VirtualPair) {
   if (pair.process) {
     pair.process.kill();
     try {
-      execSync(`rm -f ${pair.port1} ${pair.port2}`);
+      execFileSync('rm', ['-f', pair.port1, pair.port2]);
     } catch (e) {
       // Ignore cleanup errors
     }
@@ -63,7 +71,11 @@ export function stopVirtualPair(pair: VirtualPair) {
  * Write data to a serial port (used for testing).
  */
 export function writeToPort(portPath: string, data: string) {
-  execSync(`echo -n "${data}" > ${portPath}`);
+  execFileSync('sh', ['-c', 'cat "$1" > "$2"', 'sh', writeTempData(data), portPath]);
+}
+
+export function writeBytesToPort(portPath: string, data: Buffer) {
+  execFileSync('sh', ['-c', 'cat "$1" > "$2"', 'sh', writeTempData(data), portPath]);
 }
 
 /**
@@ -71,11 +83,17 @@ export function writeToPort(portPath: string, data: string) {
  */
 export function readFromPort(portPath: string, timeoutMs: number = 1000): string {
   try {
-    return execSync(`timeout ${timeoutMs / 1000} cat ${portPath} 2>/dev/null || true`, {
+    return execFileSync('sh', ['-c', 'timeout "$1" cat "$2" 2>/dev/null || true', 'sh', String(timeoutMs / 1000), portPath], {
       encoding: 'utf-8',
       timeout: timeoutMs + 500,
     }).trim();
   } catch (e) {
     return '';
   }
+}
+
+function writeTempData(data: string | Buffer): string {
+  const file = path.join(tmpdir(), `mocktrue-e2e-${process.pid}-${Date.now()}-${Math.random()}`);
+  writeFileSync(file, data);
+  return file;
 }

@@ -4,6 +4,7 @@ import { NDataTable } from 'naive-ui'
 import { Events } from '@wailsio/runtime'
 import { useSerialStore } from '../stores/serialStore'
 import { QueryPage } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+import { toByteArray } from '../utils/bytes'
 
 interface RowData {
   offset: number
@@ -45,7 +46,7 @@ onMounted(() => {
     const evt = event.data
     if (!evt || evt.PortID !== store.activePortId) return
 
-    const data = Array.from(evt.Data ?? []) as number[]
+    const data = toByteArray(evt.Data)
     const ts = formatTimestamp()
     const hex = formatHex(data)
     const ascii = formatAscii(data)

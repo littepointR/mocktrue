@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { serialService } from '../services/serialService'
-import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models'
-import type { HandleStatus } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models'
+import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
+import type { HandleStatus } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models.js'
+import type { SerialConfig } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
 
 export const useSerialStore = defineStore('serial', () => {
   // State
@@ -42,6 +43,15 @@ export const useSerialStore = defineStore('serial', () => {
       flowMode?: string
     }
   ): Promise<string> {
+    const existing = Array.from(handles.value.values()).find(h =>
+      h.IsOpen && h.Config.PortName === portName
+    )
+    if (existing) {
+      activePortId.value = existing.ID
+      error.value = null
+      return existing.ID
+    }
+
     try {
       const request = {
         Config: {
@@ -85,8 +95,39 @@ export const useSerialStore = defineStore('serial', () => {
     }
   }
 
+  async function updatePortConfig(id: string, nextConfig: SerialConfig): Promise<string> {
+    const current = handles.value.get(id)
+    if (!current) {
+      throw new Error(`unknown port handle: ${id}`)
+    }
+
+    try {
+      await serialService.closePort(id)
+      handles.value.delete(id)
+
+      const status = await serialService.openPort({ Config: nextConfig })
+      handles.value.set(status.ID, status)
+      activePortId.value = status.ID
+      error.value = null
+      startStatsPolling()
+      return status.ID
+    } catch (e: any) {
+      error.value = e?.message ?? 'Failed to update port config'
+      throw e
+    }
+  }
+
   function setActivePort(id: string | null) {
     activePortId.value = id
+  }
+
+  function addTxBytes(id: string, byteCount: number) {
+    const handle = handles.value.get(id)
+    if (!handle) return
+    handles.value.set(id, {
+      ...handle,
+      TxBytes: handle.TxBytes + byteCount,
+    })
   }
 
   async function refreshHandles() {
@@ -157,7 +198,9 @@ export const useSerialStore = defineStore('serial', () => {
     refreshHandles,
     openPort,
     closePort,
+    updatePortConfig,
     setActivePort,
+    addTxBytes,
     clearError,
     initEventListeners,
     stopStatsPolling,

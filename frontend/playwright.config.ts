@@ -1,13 +1,19 @@
 import { defineConfig } from '@playwright/test';
 
+const isWailsMode = process.env.MOCKTRUE_E2E_MODE === 'wails';
+const vitePort = Number(process.env.WAILS_VITE_PORT) || 9245;
+const baseURL = isWailsMode ? `http://localhost:${vitePort}` : 'http://localhost:4173';
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30000,
   retries: 0,
+  fullyParallel: false,
+  workers: isWailsMode ? 1 : undefined,
   use: {
-    // Vite preview serves the built frontend on localhost:4173
-    baseURL: 'http://localhost:4173',
+    baseURL,
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
   },
   projects: [
     {
@@ -15,13 +21,12 @@ export default defineConfig({
       use: { browserName: 'chromium' },
     },
   ],
-  // Start vite preview to serve the built frontend for UI E2E tests.
-  // The Wails @wailsio/runtime calls will fail in this mode (no backend),
-  // but UI shell/layout/interaction tests can run against the static build.
   webServer: {
-    command: 'pnpm run build && pnpm run preview',
-    port: 4173,
-    timeout: 60000,
-    reuseExistingServer: true,
+    command: isWailsMode
+      ? 'PATH="$PATH:$HOME/go/bin" wails3 task dev'
+      : 'pnpm run build && pnpm run preview',
+    port: isWailsMode ? vitePort : 4173,
+    timeout: isWailsMode ? 120000 : 60000,
+    reuseExistingServer: !isWailsMode,
   },
 });

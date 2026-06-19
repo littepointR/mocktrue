@@ -21,9 +21,10 @@ build-linux:
 build-windows:
 	GOOS=windows GOARCH=amd64 go build -o $(BUILD_DIR)/$(APP_NAME)-windows-amd64.exe .
 
-# Run all tests
+# Run all default tests, including real socat-backed integration tests.
 test:
 	go test ./...
+	go test -tags integration -timeout 120s ./tests/go/integration ./tests/automation/integration
 
 # Run tests with race detector
 test-race:
@@ -48,7 +49,7 @@ clean:
 
 # Generate Wails bindings
 bindings:
-	wails3 generate bindings -d ./frontend/bindings ./...
+	wails3 task darwin:common:generate:bindings
 
 # Build frontend
 frontend:

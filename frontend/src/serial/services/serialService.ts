@@ -3,10 +3,10 @@ import {
   OpenPort,
   ClosePort,
   ListPorts,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service'
+} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 
-import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models'
-import type { HandleStatus, OpenRequest } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models'
+import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
+import type { HandleStatus, OpenRequest } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models.js'
 
 /**
  * SerialService encapsulates all serial port API calls.

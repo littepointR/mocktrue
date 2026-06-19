@@ -8,8 +8,6 @@ import (
 	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/core/logging"
 	"github.com/suyue/mocktrue/internal/core/module"
-	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
-	"github.com/suyue/mocktrue/internal/modules/serial/manager"
 )
 
 // Module implements module.Module for the serial debugging feature.
@@ -48,12 +46,7 @@ func (m *Module) Init(ctx context.Context, deps module.Deps) error {
 	_ = ctx
 	m.bus = deps.Bus
 	m.log = deps.Logger.Named("serial")
-	// Wire the service with the event bus if it was created without one
-	if m.svc.bus == nil {
-		m.svc.bus = deps.Bus
-		m.svc.manager = manager.NewManager(deps.Bus)
-		m.svc.buffers = make(map[string]*buffer.RingBuffer)
-	}
+	m.svc.init(deps.Bus)
 	m.log.Info("serial module init")
 	return nil
 }
@@ -77,14 +70,21 @@ func (m *Module) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop is a no-op (ports are closed individually via ClosePort).
+// Stop releases all runtime resources owned by the serial module.
 func (m *Module) Stop(ctx context.Context) error {
 	_ = ctx
 	if m.log != nil {
 		m.log.Info("serial module stop")
 	}
+	if m.svc != nil {
+		m.svc.cleanup()
+	}
 	return nil
 }
 
 // Dispose releases resources. Idempotent and safe before Init.
-func (m *Module) Dispose() {}
+func (m *Module) Dispose() {
+	if m.svc != nil {
+		m.svc.cleanup()
+	}
+}

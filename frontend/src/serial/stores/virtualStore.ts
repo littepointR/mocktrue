@@ -1,18 +1,17 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import {
-  CreateVirtualPair,
-  DeleteVirtualPair,
-  ListVirtualPairs,
+  CreateVirtualPort,
+  DeleteVirtualPort,
+  ListVirtualPorts,
   CreateBridge,
   DeleteBridge,
   ListBridges,
 } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 
-export interface VirtualPair {
+export interface VirtualPort {
   ID: string
-  Port1: string
-  Port2: string
+  Port: string
 }
 
 export interface Bridge {
@@ -24,18 +23,18 @@ export interface Bridge {
 
 export const useVirtualStore = defineStore('virtual', () => {
   // State
-  const pairs = ref<VirtualPair[]>([])
+  const virtualPorts = ref<VirtualPort[]>([])
   const bridges = ref<Bridge[]>([])
   const error = ref<string | null>(null)
 
   // Actions
-  async function refreshPairs() {
+  async function refreshVirtualPorts() {
     try {
-      const list = await ListVirtualPairs()
-      pairs.value = (list as VirtualPair[]) ?? []
+      const list = await ListVirtualPorts()
+      virtualPorts.value = (list as VirtualPort[]) ?? []
       error.value = null
     } catch (e: any) {
-      error.value = e?.message ?? 'Failed to list virtual pairs'
+      error.value = e?.message ?? 'Failed to list virtual ports'
     }
   }
 
@@ -49,24 +48,24 @@ export const useVirtualStore = defineStore('virtual', () => {
     }
   }
 
-  async function createPair(id: string, port1Name: string, port2Name: string) {
+  async function createVirtualPort(id: string, portName: string) {
     try {
-      await CreateVirtualPair(id, port1Name, port2Name)
-      await refreshPairs()
+      await CreateVirtualPort(id, portName)
+      await refreshVirtualPorts()
       error.value = null
     } catch (e: any) {
-      error.value = e?.message ?? 'Failed to create pair'
+      error.value = e?.message ?? 'Failed to create virtual port'
       throw e
     }
   }
 
-  async function deletePair(id: string) {
+  async function deleteVirtualPort(id: string) {
     try {
-      await DeleteVirtualPair(id)
-      await refreshPairs()
+      await DeleteVirtualPort(id)
+      await refreshVirtualPorts()
       error.value = null
     } catch (e: any) {
-      error.value = e?.message ?? 'Failed to delete pair'
+      error.value = e?.message ?? 'Failed to delete virtual port'
       throw e
     }
   }
@@ -98,13 +97,13 @@ export const useVirtualStore = defineStore('virtual', () => {
   }
 
   return {
-    pairs,
+    virtualPorts,
     bridges,
     error,
-    refreshPairs,
+    refreshVirtualPorts,
     refreshBridges,
-    createPair,
-    deletePair,
+    createVirtualPort,
+    deleteVirtualPort,
     createBridge,
     deleteBridge,
     clearError,

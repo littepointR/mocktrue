@@ -2,6 +2,11 @@
 import { computed, defineAsyncComponent } from 'vue'
 import { useRegistry } from '../core/registry'
 
+defineProps<{
+  activeViewId: string | null
+  activeViewVersion: number
+}>()
+
 const registry = useRegistry()
 const activeModuleId = computed(() => registry.active.value)
 
@@ -18,7 +23,12 @@ const activeComponent = computed(() => {
 
 <template>
   <div class="editor-groups">
-    <component :is="activeComponent" v-if="activeComponent" />
+    <component
+      :is="activeComponent"
+      v-if="activeComponent"
+      :active-view-id="activeViewId"
+      :active-view-version="activeViewVersion"
+    />
     <div v-else class="editor-groups__placeholder">
       <p>选择左侧模块开始</p>
     </div>

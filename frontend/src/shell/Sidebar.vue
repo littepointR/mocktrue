@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import type { ModuleContribution } from '../core/module/types'
 
-defineProps<{ contributions: ModuleContribution[]; activeId: string | null }>()
+defineProps<{
+  contributions: ModuleContribution[]
+  activeId: string | null
+  activeViewId: string | null
+}>()
+
+defineEmits<{
+  selectView: [viewId: string]
+}>()
 </script>
 
 <template>
@@ -9,14 +17,17 @@ defineProps<{ contributions: ModuleContribution[]; activeId: string | null }>()
     <template v-for="c in contributions" :key="c.moduleId">
       <div v-if="c.moduleId === activeId" class="sidebar__group">
         <div class="sidebar__title">{{ c.activity.title }}</div>
-        <div
+        <button
           v-for="v in c.views"
           :key="v.id"
           class="sidebar__item"
+          :class="{ 'is-active': v.id === activeViewId }"
           :title="v.title"
+          type="button"
+          @click="$emit('selectView', v.id)"
         >
           {{ v.title }}
-        </div>
+        </button>
       </div>
     </template>
     <div v-if="!activeId" class="sidebar__empty">选择一个模块</div>
@@ -39,11 +50,18 @@ defineProps<{ contributions: ModuleContribution[]; activeId: string | null }>()
   padding: 4px 16px;
 }
 .sidebar__item {
+  display: block;
+  width: 100%;
   padding: 6px 16px;
+  border: 0;
+  background: transparent;
   color: #d4d4d4;
   cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
-.sidebar__item:hover {
+.sidebar__item:hover,
+.sidebar__item.is-active {
   background: #094771;
 }
 .sidebar__empty {

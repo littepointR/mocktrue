@@ -127,3 +127,55 @@ func TestReadLoopWithSocat(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 }
+
+func TestReadLoopSurvivesRequestContextCancellation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+	pair, err := port.StartVirtualPair(context.Background())
+	if err != nil {
+		t.Skipf("socat not available: %v", err)
+	}
+	defer pair.Stop()
+
+	bus := eventbus.New()
+	mgr := NewManager(bus)
+
+	received := make(chan DataEvent, 1)
+	bus.Subscribe("serial:data", func(data any) {
+		if evt, ok := data.(DataEvent); ok {
+			received <- evt
+		}
+	})
+
+	reqCtx, cancel := context.WithCancel(context.Background())
+	handle, err := mgr.Open(reqCtx, OpenRequest{
+		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+	})
+	if err != nil {
+		t.Fatalf("Open %s failed: %v", pair.Port1, err)
+	}
+	defer mgr.Close(handle.ID)
+
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	conn, err := port.OpenForTest(pair.Port2, 115200)
+	if err != nil {
+		t.Fatalf("OpenForTest %s failed: %v", pair.Port2, err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("alive")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	select {
+	case evt := <-received:
+		if string(evt.Data) != "alive" {
+			t.Fatalf("DataEvent.Data = %q, want %q", evt.Data, "alive")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout waiting for DataEvent after request context cancellation")
+	}
+}

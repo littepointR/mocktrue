@@ -11,6 +11,8 @@ import { useRegistry } from './core/registry'
 const registry = useRegistry()
 const contributions = computed(() => registry.list())
 const activeId = registry.active
+const activeViewId = registry.activeView
+const activeViewVersion = registry.activeViewVersion
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -45,8 +47,16 @@ const themeOverrides: GlobalThemeOverrides = {
           :active-id="activeId"
           @select="registry.setActive($event)"
         />
-        <Sidebar :contributions="contributions" :active-id="activeId" />
-        <EditorGroups />
+        <Sidebar
+          :contributions="contributions"
+          :active-id="activeId"
+          :active-view-id="activeViewId"
+          @select-view="registry.setActiveView($event)"
+        />
+        <EditorGroups
+          :active-view-id="activeViewId"
+          :active-view-version="activeViewVersion"
+        />
       </div>
       <Panel />
       <StatusBar :active-id="activeId" />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { NSelect, NSpace, NSwitch } from 'naive-ui'
 import { useBufferStore } from '../stores/bufferStore'
 
@@ -14,13 +14,36 @@ const bufferStore = useBufferStore()
 const viewMode = ref<ViewMode>('ascii')
 const layoutMode = ref<LayoutMode>('combined')
 const showTimestamp = ref(true)
+const autoScroll = ref(true)
+const contentEl = ref<HTMLElement | null>(null)
 
 const buffer = computed(() => bufferStore.getBuffer(props.handleId))
+const chunks = computed(() => bufferStore.getChunks(props.handleId))
+const decoder = new TextDecoder()
 
 const displayText = computed(() => {
-  const decoder = new TextDecoder()
   return decoder.decode(buffer.value)
 })
+
+const asciiLines = computed(() => {
+  if (!showTimestamp.value) {
+    return [{ key: 'combined', text: displayText.value, timestamp: '' }]
+  }
+  return chunks.value.map((chunk, index) => ({
+    key: `${chunk.timestamp}-${index}`,
+    text: decoder.decode(chunk.data),
+    timestamp: formatTimestamp(chunk.timestamp),
+  }))
+})
+
+function formatTimestamp(timestamp: number): string {
+  const date = new Date(timestamp)
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mm = String(date.getMinutes()).padStart(2, '0')
+  const ss = String(date.getSeconds()).padStart(2, '0')
+  const ms = String(date.getMilliseconds()).padStart(3, '0')
+  return `${hh}:${mm}:${ss}.${ms}`
+}
 
 function formatHex(data: Uint8Array): string {
   return Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ')
@@ -43,6 +66,18 @@ const hexLines = computed(() => {
   }
   return result
 })
+
+watch(
+  () => buffer.value.length,
+  async () => {
+    if (!autoScroll.value) return
+    await nextTick()
+    const el = contentEl.value
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  }
+)
 </script>
 
 <template>
@@ -68,15 +103,34 @@ const hexLines = computed(() => {
           size="tiny"
           style="width: 80px"
         />
-        <span style="font-size: 12px; color: #858585">时间戳</span>
-        <NSwitch v-model:value="showTimestamp" size="small" />
+        <span class="data-display__switch-control data-display__timestamp-control">
+          <span>时间戳</span>
+          <NSwitch v-model:value="showTimestamp" size="small" />
+        </span>
+        <span class="data-display__switch-control data-display__autoscroll-control">
+          <span>自动滚动</span>
+          <NSwitch v-model:value="autoScroll" size="small" />
+        </span>
       </NSpace>
     </div>
 
-    <div class="data-display__content" :class="{ 'split': layoutMode === 'split' }">
+    <div
+      ref="contentEl"
+      class="data-display__content"
+      :class="{ 'split': layoutMode === 'split' }"
+    >
       <!-- ASCII View -->
       <div v-if="viewMode === 'ascii'" class="data-view">
-        <pre class="ascii-content">{{ displayText }}</pre>
+        <div class="ascii-content">
+          <div
+            v-for="line in asciiLines"
+            :key="line.key"
+            class="ascii-line"
+          >
+            <span v-if="showTimestamp" class="ascii-timestamp">{{ line.timestamp }}</span>
+            <span class="ascii-text">{{ line.text }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- HEX Classic View -->
@@ -108,6 +162,13 @@ const hexLines = computed(() => {
   border-bottom: 1px solid #2d2d2d;
   background: #252526;
 }
+.data-display__switch-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #858585;
+  font-size: 12px;
+}
 .data-display__content {
   flex: 1;
   overflow-y: auto;
@@ -129,6 +190,19 @@ const hexLines = computed(() => {
   color: #4ec9b0;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+.ascii-line {
+  min-height: 18px;
+}
+.ascii-timestamp {
+  display: inline-block;
+  margin-right: 8px;
+  color: #858585;
+  user-select: none;
+}
+.ascii-text {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .hex-row {
   padding: 2px 0;

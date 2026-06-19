@@ -1,79 +1,60 @@
 import { test, expect } from '@playwright/test';
-import { startVirtualPair, stopVirtualPair, writeToPort, VirtualPair } from './fixtures/vserial.helper';
-
-const hasBackend = process.env.MOCKTRUE_E2E_BACKEND === '1';
+import {
+  createVirtualPort,
+  emitSerialData,
+  openPort,
+  openSerialModule,
+  openSidebarTab,
+  selectNaiveOption,
+} from './fixtures/app.helper';
+import { injectWailsMock } from './fixtures/wails-mock.helper';
 
 test.describe('Virtual Serial and Flow Control E2E', () => {
-  let virtualPair: VirtualPair;
-
-  test.beforeAll(() => {
-    test.skip(!hasBackend, 'skipped: set MOCKTRUE_E2E_BACKEND=1 and run wails3 task dev');
-    virtualPair = startVirtualPair();
+  test.beforeEach(async ({ page }) => {
+    await injectWailsMock(page);
   });
 
-  test.afterAll(() => {
-    if (virtualPair) stopVirtualPair(virtualPair);
+  test('should create virtual port from UI', async ({ page }) => {
+    await createVirtualPort(page, 'vport-e2e', 'ttyE2E');
+
+    await openSidebarTab(page, '串口');
+    await page.getByRole('button', { name: '刷新' }).click();
+    await selectNaiveOption(page, '.port-config-form', '/tmp/ttyE2E');
+    await expect(page.locator('.port-config-form').getByRole('button', { name: '打开串口' })).toBeEnabled();
   });
 
-  test('should create virtual pair from UI', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.activity-bar');
+  test('should reuse existing tab when opening the same virtual port again', async ({ page }) => {
+    await createVirtualPort(page, 'vport-reopen', 'ttyReopen');
 
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
+    await openSidebarTab(page, '串口');
+    await page.getByRole('button', { name: '刷新' }).click();
+    await selectNaiveOption(page, '.port-config-form', '/tmp/ttyReopen');
+    await page.locator('.port-config-form').getByRole('button', { name: '打开串口' }).click();
+    await expect(page.locator('.n-tabs-tab').filter({ hasText: '/tmp/ttyReopen' })).toHaveCount(1);
 
-    const virtualButton = page.locator('button:has-text("虚拟串口")');
-    if (await virtualButton.isVisible()) {
-      await virtualButton.click();
-      await page.waitForTimeout(1000);
-
-      const portSelect = page.locator('select').first();
-      const options = await portSelect.locator('option').allTextContents();
-      expect(options.some(opt => opt.includes('ttyV'))).toBeTruthy();
-    }
+    await openSidebarTab(page, '串口');
+    await selectNaiveOption(page, '.port-config-form', '/tmp/ttyReopen');
+    await page.locator('.port-config-form').getByRole('button', { name: '打开串口' }).click();
+    await expect(page.locator('.n-tabs-tab').filter({ hasText: '/tmp/ttyReopen' })).toHaveCount(1);
+    await expect(page.locator('.n-alert').filter({ hasText: 'port already open' })).toHaveCount(0);
   });
 
   test('should handle large data throughput', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.activity-bar');
+    await openPort(page, '/tmp/ttyV0');
 
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
+    const largeData = 'A'.repeat(32 * 1024);
+    await emitSerialData(page, 'port-1', largeData);
 
-    await page.locator('select').first().selectOption(virtualPair.port2);
-    await page.locator('select').nth(1).selectOption('115200');
-    await page.locator('button:has-text("打开")').click();
-    await page.waitForTimeout(500);
-
-    const largeData = 'A'.repeat(1024 * 1024);
-    writeToPort(virtualPair.port1, largeData);
-
-    await page.waitForTimeout(2000);
-
-    const statsPanel = page.locator('.stats-panel');
-    const statsText = await statsPanel.textContent();
-    expect(statsText).toContain('RX:');
-
-    const rxMatch = statsText?.match(/RX:\s*(\d+)/);
-    if (rxMatch) {
-      const rxBytes = parseInt(rxMatch[1]);
-      expect(rxBytes).toBeGreaterThan(1000000);
-    }
+    await expect(page.locator('.stats-panel')).toContainText('RX: 32768 字节', { timeout: 10000 });
+    await expect(page.locator('.ascii-content')).toContainText('A'.repeat(200));
   });
 
   test('should show flow control options', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.activity-bar');
+    await openSerialModule(page);
+    await openSidebarTab(page, '串口');
 
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
-
-    const flowSelect = page.locator('select').last();
-    await expect(flowSelect).toBeVisible();
-
-    const options = await flowSelect.locator('option').allTextContents();
-    expect(options.some(opt => opt.includes('无'))).toBeTruthy();
-    expect(options.some(opt => opt.includes('硬件'))).toBeTruthy();
-    expect(options.some(opt => opt.includes('软件'))).toBeTruthy();
+    await selectNaiveOption(page, '.port-config-form', '硬件', 5);
+    await selectNaiveOption(page, '.port-config-form', '软件', 5);
+    await selectNaiveOption(page, '.port-config-form', '无', 5);
   });
 });

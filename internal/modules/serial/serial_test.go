@@ -5,6 +5,10 @@ import (
 	"testing"
 
 	mterrors "github.com/suyue/mocktrue/internal/core/errors"
+	"github.com/suyue/mocktrue/internal/core/eventbus"
+	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
+	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	"github.com/suyue/mocktrue/internal/modules/serial/port"
 )
 
 func TestIDAndManifest(t *testing.T) {
@@ -40,6 +44,77 @@ func TestServicesWrappedReturnsOneService(t *testing.T) {
 	}
 	if _, ok := wrapped[0].Instance().(*Service); !ok {
 		t.Fatalf("wrapped instance must be *serial.Service, got %T", wrapped[0].Instance())
+	}
+}
+
+func TestModuleInitWiresEmptyService(t *testing.T) {
+	t.Parallel()
+	m := New()
+	deps := testDeps()
+	if err := m.Init(context.Background(), deps); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	if m.svc.bus != deps.Bus {
+		t.Fatalf("service bus was not wired from deps")
+	}
+	if m.svc.manager == nil {
+		t.Fatalf("service manager must be initialized")
+	}
+	if m.svc.vmgr == nil {
+		t.Fatalf("virtual serial manager must be initialized")
+	}
+	if m.svc.buffers == nil {
+		t.Fatalf("buffers map must be initialized")
+	}
+}
+
+func TestNewServiceNilBusIsUsable(t *testing.T) {
+	t.Parallel()
+	svc := NewService(nil)
+	if svc.bus == nil {
+		t.Fatalf("nil bus must be replaced with an event bus")
+	}
+	got, err := svc.Ping(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("Ping failed: %v", err)
+	}
+	if got != "pong:hi" {
+		t.Fatalf("Ping = %q, want pong:hi", got)
+	}
+}
+
+func TestServiceInitDoesNotReplaceExistingBus(t *testing.T) {
+	t.Parallel()
+	first := eventbus.New()
+	second := eventbus.New()
+	svc := NewService(first)
+	svc.init(second)
+	if svc.bus != first {
+		t.Fatalf("service bus was replaced by a later init")
+	}
+}
+
+func TestServiceInitSubscribesExistingBus(t *testing.T) {
+	t.Parallel()
+	first := eventbus.New()
+	second := eventbus.New()
+	svc := &Service{bus: first}
+	svc.init(second)
+
+	svc.mu.Lock()
+	svc.buffers["port-1"] = buffer.NewRing(1024)
+	svc.mu.Unlock()
+	first.Publish("serial:data", manager.DataEvent{
+		PortID: "port-1",
+		Data:   []byte("from existing bus"),
+	})
+
+	snap, err := svc.QueryPage("port-1", 0, 1024)
+	if err != nil {
+		t.Fatalf("QueryPage failed: %v", err)
+	}
+	if string(snap.Data) != "from existing bus" {
+		t.Fatalf("buffer data = %q, want existing bus event", snap.Data)
 	}
 }
 
@@ -91,5 +166,62 @@ func TestStartStopAfterInit(t *testing.T) {
 	if err := m.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	m.Dispose()
+}
+
+func TestModuleStopCleansSerialResources(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+
+	m := New()
+	if err := m.Init(context.Background(), testDeps()); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	pair, err := port.StartVirtualPair(context.Background())
+	if err != nil {
+		t.Skipf("socat not available: %v", err)
+	}
+	defer pair.Stop()
+
+	handle, err := m.svc.OpenPort(context.Background(), manager.OpenRequest{
+		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+	})
+	if err != nil {
+		t.Fatalf("OpenPort: %v", err)
+	}
+	m.svc.mu.Lock()
+	m.svc.buffers[handle.ID] = buffer.NewRing(1024)
+	m.svc.mu.Unlock()
+
+	if _, err := m.svc.CreateVirtualPort(context.Background(), "shutdown-vport", "shutdownVPort"); err != nil {
+		t.Fatalf("CreateVirtualPort: %v", err)
+	}
+
+	if len(m.svc.ListPorts()) == 0 {
+		t.Fatalf("expected an open serial handle before Stop")
+	}
+	if len(m.svc.ListVirtualPorts()) == 0 {
+		t.Fatalf("expected a virtual port before Stop")
+	}
+
+	if err := m.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	if got := len(m.svc.ListPorts()); got != 0 {
+		t.Fatalf("open handles after Stop = %d, want 0", got)
+	}
+	if got := len(m.svc.ListVirtualPorts()); got != 0 {
+		t.Fatalf("virtual ports after Stop = %d, want 0", got)
+	}
+	m.svc.mu.RLock()
+	bufferCount := len(m.svc.buffers)
+	m.svc.mu.RUnlock()
+	if bufferCount != 0 {
+		t.Fatalf("buffers after Stop = %d, want 0", bufferCount)
+	}
+
 	m.Dispose()
 }

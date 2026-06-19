@@ -9,5 +9,6 @@ export {
 export type {
     BridgeInfo,
     SendRequest,
-    VirtualPairInfo
+    VirtualPairInfo,
+    VirtualPortInfo
 } from "./models.js";

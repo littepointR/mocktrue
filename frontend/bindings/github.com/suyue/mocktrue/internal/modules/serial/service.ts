@@ -53,6 +53,13 @@ export function CreateVirtualPair(id: string, port1Name: string, port2Name: stri
 }
 
 /**
+ * CreateVirtualPort creates a user-facing virtual serial port.
+ */
+export function CreateVirtualPort(id: string, portName: string): $CancellablePromise<$models.VirtualPortInfo | null> {
+    return $Call.ByID(4156784338, id, portName);
+}
+
+/**
  * DeleteBridge removes a bridge.
  */
 export function DeleteBridge(id: string): $CancellablePromise<void> {
@@ -64,6 +71,13 @@ export function DeleteBridge(id: string): $CancellablePromise<void> {
  */
 export function DeleteVirtualPair(id: string): $CancellablePromise<void> {
     return $Call.ByID(1660406268, id);
+}
+
+/**
+ * DeleteVirtualPort removes a user-facing virtual serial port.
+ */
+export function DeleteVirtualPort(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2248938995, id);
 }
 
 /**
@@ -92,6 +106,13 @@ export function ListPorts(): $CancellablePromise<manager$0.HandleStatus[] | null
  */
 export function ListVirtualPairs(): $CancellablePromise<$models.VirtualPairInfo[] | null> {
     return $Call.ByID(3694945770);
+}
+
+/**
+ * ListVirtualPorts returns all user-facing virtual serial ports.
+ */
+export function ListVirtualPorts(): $CancellablePromise<$models.VirtualPortInfo[] | null> {
+    return $Call.ByID(1806471203);
 }
 
 /**

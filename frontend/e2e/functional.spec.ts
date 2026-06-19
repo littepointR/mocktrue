@@ -1,70 +1,82 @@
 import { test, expect } from '@playwright/test';
+import { openSerialModule, openSidebarTab } from './fixtures/app.helper';
 
 test.describe('Functional Tests', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.waitForTimeout(1000);
+    await openSerialModule(page);
   });
 
-  test('should display port config panel when serial icon is clicked', async ({ page }) => {
-    // Click serial icon
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
-    await page.waitForTimeout(500);
+  test('should display port config panel when serial module is active', async ({ page }) => {
+    const sidebar = page.locator('.sidebar');
+    await expect(sidebar.locator('.sidebar__item').filter({ hasText: '打开串口' })).toBeVisible();
+    await expect(sidebar.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' })).toBeVisible();
+    await expect(sidebar.locator('.sidebar__item').filter({ hasText: '添加串口桥接' })).toBeVisible();
 
-    // Check port config form is visible
+    await openSidebarTab(page, '串口');
     const portConfigForm = page.locator('.port-config-form');
     await expect(portConfigForm).toBeVisible();
 
-    // Check form elements
-    const portSelect = page.locator('text=端口').locator('..').locator('.n-base-selection');
-    await expect(portSelect).toBeVisible();
+    await expect(portConfigForm).toContainText('端口');
+    await expect(portConfigForm).toContainText('波特率');
+    await expect(portConfigForm.locator('.n-base-selection')).toHaveCount(6);
+    await expect(page.getByRole('button', { name: '刷新' })).toBeVisible();
 
-    const baudRateSelect = page.locator('text=波特率').locator('..').locator('.n-base-selection');
-    await expect(baudRateSelect).toBeVisible();
-
-    const openButton = page.locator('button:has-text("打开串口")');
+    const openButton = portConfigForm.getByRole('button', { name: '打开串口' });
     await expect(openButton).toBeVisible();
-    await expect(openButton).toBeDisabled(); // Disabled until port is selected
+    await expect(openButton).toBeDisabled();
   });
 
-  test('should show empty state message initially', async ({ page }) => {
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
-    await page.waitForTimeout(500);
+  test('should keep operation pane and tab content area separate', async ({ page }) => {
+    const operationPanel = page.locator('.serial-view__operation-panel');
+    const mainArea = page.locator('.serial-view__main');
+    await expect(operationPanel).toHaveCount(1);
+    await expect(mainArea).toBeVisible();
+    await expect(page.locator('.serial-view__empty')).toBeVisible();
+    await expect(page.locator('.port-config-form')).toHaveCount(0);
 
-    const emptyMessage = page.locator('text=在左侧配置并打开串口');
-    await expect(emptyMessage).toBeVisible();
+    const sidebar = page.locator('.sidebar');
+    await sidebar.locator('.sidebar__item').filter({ hasText: '打开串口' }).click();
+    await expect(operationPanel.locator('.port-config-form')).toBeVisible();
+    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
+    let operationBox = await operationPanel.boundingBox();
+    expect(operationBox?.width).toBeGreaterThan(250);
+
+    await sidebar.locator('.sidebar__item').filter({ hasText: '打开串口' }).click();
+    await expect(operationPanel.locator('.port-config-form')).toHaveCount(0);
+    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
+    operationBox = await operationPanel.boundingBox();
+    expect(operationBox?.width ?? 0).toBeLessThan(2);
+
+    await sidebar.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' }).click();
+    await expect(operationPanel.locator('.virtual-pair-panel')).toBeVisible();
+    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
+
+    await sidebar.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' }).click();
+    await expect(operationPanel.locator('.virtual-pair-panel')).toHaveCount(0);
+
+    await sidebar.locator('.sidebar__item').filter({ hasText: '添加串口桥接' }).click();
+    await expect(operationPanel.locator('.bridge-panel')).toBeVisible();
+    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
+
+    await sidebar.locator('.sidebar__item').filter({ hasText: '添加串口桥接' }).click();
+    await expect(operationPanel.locator('.bridge-panel')).toHaveCount(0);
+    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
   });
 
   test('should have proper layout dimensions', async ({ page }) => {
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
-    await page.waitForTimeout(500);
+    await expect(page.locator('.serial-view__sidebar')).toHaveCount(0);
 
-    // Check sidebar width
-    const sidebar = page.locator('.serial-view__sidebar');
-    const sidebarBox = await sidebar.boundingBox();
-    expect(sidebarBox?.width).toBeCloseTo(280, 5);
-
-    // Check main area takes remaining space
     const mainArea = page.locator('.serial-view__main');
     const mainBox = await mainArea.boundingBox();
     expect(mainBox).toBeTruthy();
-    expect(mainBox!.width).toBeGreaterThan(500);
+    expect(mainBox!.width).toBeGreaterThan(700);
   });
 
   test('should have correct dark theme colors', async ({ page }) => {
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
-    await page.waitForTimeout(500);
-
-    // Check sidebar background
-    const sidebar = page.locator('.serial-view__sidebar');
+    const sidebar = page.locator('.sidebar');
     const bgColor = await sidebar.evaluate(el => getComputedStyle(el).backgroundColor);
     expect(bgColor).toBe('rgb(37, 37, 38)'); // #252526
 
-    // Check border color
     const borderColor = await sidebar.evaluate(el => getComputedStyle(el).borderRightColor);
     expect(borderColor).toBe('rgb(45, 45, 45)'); // #2d2d2d
   });
@@ -76,34 +88,23 @@ test.describe('Functional Tests', () => {
   });
 
   test('should be responsive to window resize', async ({ page }) => {
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
-    await page.waitForTimeout(500);
-
-    // Initial size
     let appShell = await page.locator('.app-shell').boundingBox();
     expect(appShell?.width).toBeCloseTo(1280, 5);
 
-    // Resize
     await page.setViewportSize({ width: 1600, height: 900 });
-    await page.waitForTimeout(500);
+    await expect(page.locator('.app-shell')).toHaveJSProperty('clientWidth', 1600);
 
-    // New size
     appShell = await page.locator('.app-shell').boundingBox();
     expect(appShell?.width).toBeCloseTo(1600, 5);
 
-    // Sidebar should maintain fixed width
-    const sidebar = page.locator('.serial-view__sidebar');
+    const sidebar = page.locator('.sidebar');
     const sidebarBox = await sidebar.boundingBox();
-    expect(sidebarBox?.width).toBeCloseTo(280, 5);
+    expect(sidebarBox?.width).toBeCloseTo(200, 5);
   });
 
   test('should display all form fields', async ({ page }) => {
-    const serialIcon = page.locator('.activity-bar__item').first();
-    await serialIcon.click();
-    await page.waitForTimeout(500);
-
-    // Check all labels
+    await openSidebarTab(page, '串口');
+    await expect(page.locator('.sidebar__item').filter({ hasText: '打开串口' })).toBeVisible();
     await expect(page.locator('text=端口')).toBeVisible();
     await expect(page.locator('text=波特率')).toBeVisible();
     await expect(page.locator('text=数据位')).toBeVisible();
@@ -111,7 +112,6 @@ test.describe('Functional Tests', () => {
     await expect(page.locator('text=校验')).toBeVisible();
     await expect(page.locator('text=流控')).toBeVisible();
 
-    // Check refresh button
-    await expect(page.locator('button:has-text("刷新")')).toBeVisible();
+    await expect(page.getByRole('button', { name: '刷新' })).toBeVisible();
   });
 });

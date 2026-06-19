@@ -10,7 +10,9 @@
     "preview": "vite preview --port 4173",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:mock": "playwright test",
+    "e2e:wails": "MOCKTRUE_E2E_MODE=wails playwright test"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.29",

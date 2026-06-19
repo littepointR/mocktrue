@@ -11,11 +11,12 @@ import (
 
 // VirtualPair holds the two ends of a socat-created virtual serial pair.
 type VirtualPair struct {
-	ID    string
-	Port1 string
-	Port2 string
-	cmd   *exec.Cmd
-	mu    sync.Mutex
+	ID          string
+	Port1       string
+	Port2       string
+	port2Hidden bool
+	cmd         *exec.Cmd
+	mu          sync.Mutex
 }
 
 // NewVirtualPair creates a socat virtual serial pair. Returns the two port
@@ -59,6 +60,7 @@ func (vp *VirtualPair) Stop() {
 		vp.cmd.Process.Kill()
 		vp.cmd.Wait()
 	}
+	_ = exec.Command("rm", "-f", vp.Port1, vp.Port2).Run()
 }
 
 // PortNames returns the two port paths.

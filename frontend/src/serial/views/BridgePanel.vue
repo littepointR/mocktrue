@@ -18,7 +18,7 @@ const loading = ref(false)
 
 onMounted(() => {
   virtualStore.refreshBridges()
-  virtualStore.refreshPairs()
+  virtualStore.refreshVirtualPorts()
   serialStore.refreshPorts()
 })
 
@@ -27,20 +27,25 @@ const baudOptions = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].
   value: v,
 }))
 
-// 可用端口：物理串口 + 虚拟串口对中的所有端口
+// 可用端口：物理串口 + 用户创建的虚拟串口
 const portOptions = computed(() => {
-  const physicalPorts = serialStore.ports.map(p => ({
+  const allPorts = serialStore.ports.map(p => ({
     label: p.FriendlyName || p.Name,
     value: p.Name,
   }))
 
-  const virtualPorts: Array<{ label: string; value: string }> = []
-  virtualStore.pairs.forEach(pair => {
-    virtualPorts.push({ label: `${pair.Port1} (虚拟)`, value: pair.Port1 })
-    virtualPorts.push({ label: `${pair.Port2} (虚拟)`, value: pair.Port2 })
-  })
+  allPorts.push(...virtualStore.virtualPorts.map(port => ({
+    label: `${port.Port} (虚拟)`,
+    value: port.Port,
+  })))
 
-  return [...physicalPorts, ...virtualPorts]
+  const seen = new Set<string>()
+  return allPorts.filter(port => {
+    if (seen.has(port.value))
+      return false
+    seen.add(port.value)
+    return true
+  })
 })
 
 async function handleCreateBridge() {
@@ -74,7 +79,7 @@ function generateDefaultId() {
 async function handleRefresh() {
   await Promise.all([
     virtualStore.refreshBridges(),
-    virtualStore.refreshPairs(),
+    virtualStore.refreshVirtualPorts(),
     serialStore.refreshPorts(),
   ])
 }

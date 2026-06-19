@@ -25,10 +25,19 @@ export interface SendRequest {
 }
 
 /**
- * VirtualPairInfo represents a virtual serial pair for the frontend.
+ * VirtualPairInfo represents a virtual serial pair for tests and bridge setup.
  */
 export interface VirtualPairInfo {
     "ID": string;
     "Port1": string;
     "Port2": string;
+}
+
+/**
+ * VirtualPortInfo represents a user-facing virtual serial port. The backing
+ * peer is intentionally hidden from the frontend.
+ */
+export interface VirtualPortInfo {
+    "ID": string;
+    "Port": string;
 }

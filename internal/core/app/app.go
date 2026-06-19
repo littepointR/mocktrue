@@ -5,12 +5,13 @@ import (
 	"embed"
 	"io/fs"
 	"log/slog"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
-	mterrors "github.com/suyue/mocktrue/internal/core/errors"
 	"github.com/suyue/mocktrue/internal/core/config"
+	mterrors "github.com/suyue/mocktrue/internal/core/errors"
 	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/core/logging"
 	"github.com/suyue/mocktrue/internal/core/module"
@@ -32,14 +33,15 @@ func assetsFS(assets embed.FS, dir string) fs.FS {
 
 // Options bundles the inputs needed to assemble the MockTrue application.
 type Options struct {
-	Name        string
-	Description string
-	Assets      embed.FS // embedded frontend/dist, provided by main
-	AssetsDir   string   // embed root, e.g. "frontend/dist"
-	Logger      *logging.Logger
-	Paths       *platform.Paths
-	Config      *config.Schema
-	Registry    *module.ModuleRegistry
+	Name          string
+	Description   string
+	Assets        embed.FS // embedded frontend/dist, provided by main
+	AssetsDir     string   // embed root, e.g. "frontend/dist"
+	Logger        *logging.Logger
+	Paths         *platform.Paths
+	Config        *config.Schema
+	Registry      *module.ModuleRegistry
+	ExtraServices []application.Service
 }
 
 // Build constructs the Wails *application.App from a module registry. It
@@ -65,10 +67,12 @@ func Build(o Options) (*application.App, *eventbus.EventBus, error) {
 
 	bus := eventbus.New()
 
+	services := append(o.Registry.AllServicesWrapped(), o.ExtraServices...)
+
 	app := application.New(application.Options{
 		Name:        o.Name,
 		Description: o.Description,
-		Services:    o.Registry.AllServicesWrapped(),
+		Services:    services,
 		Assets: application.AssetOptions{
 			// BundledAssetFileServer injects /wails/runtime.js so the
 			// frontend @wailsio/runtime works.
@@ -80,6 +84,12 @@ func Build(o Options) (*application.App, *eventbus.EventBus, error) {
 	})
 
 	bus.BridgeToFrontend(&appBridge{app: app})
+
+	var shutdownOnce sync.Once
+	shutdownModules := func() {
+		shutdownRegistryOnce(&shutdownOnce, o.Registry, o.Logger)
+	}
+	app.OnShutdown(shutdownModules)
 
 	// Drive module lifecycle from ApplicationStarted (v3 has no OnStartup).
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
@@ -104,6 +114,16 @@ func Build(o Options) (*application.App, *eventbus.EventBus, error) {
 	})
 
 	return app, bus, nil
+}
+
+func shutdownRegistryOnce(once *sync.Once, registry *module.ModuleRegistry, logger *logging.Logger) {
+	once.Do(func() {
+		ctx := context.Background()
+		if err := registry.StopAll(ctx); err != nil {
+			logger.Error("module stop failed", slog.Any("err", err))
+		}
+		registry.DisposeAll()
+	})
 }
 
 // appBridge adapts *application.App to eventbus.Bridge.

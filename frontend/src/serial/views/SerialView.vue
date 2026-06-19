@@ -167,9 +167,8 @@ function handleTabPointerUp(event: PointerEvent) {
   const deltaX = Math.abs(event.clientX - dragged.startX)
   const deltaY = Math.abs(event.clientY - dragged.startY)
   const didDrag = deltaX > 4 || deltaY > 4
-  const target = document
-    .elementFromPoint(event.clientX, event.clientY)
-    ?.closest<HTMLElement>('[data-editor-group-id]')
+  const dropElement = document.elementFromPoint(event.clientX, event.clientY)
+  const target = dropElement?.closest<HTMLElement>('[data-editor-group-id]')
 
   stopTabDrag()
 
@@ -186,7 +185,9 @@ function handleTabPointerUp(event: PointerEvent) {
   const rect = target.getBoundingClientRect()
   const x = event.clientX - rect.left
   const y = event.clientY - rect.top
-  const edge = closestDropEdge(x, y, rect.width, rect.height)
+  const edge = dropElement?.closest('.editor-tabs, .editor-tab')
+    ? 'center'
+    : closestDropEdge(x, y, rect.width, rect.height)
 
   if (edge === 'center') {
     if (dragged.sourceGroupId !== targetGroupId) {
@@ -208,9 +209,8 @@ function stopTabDrag() {
 }
 
 function updateDropPreview(clientX: number, clientY: number) {
-  const target = document
-    .elementFromPoint(clientX, clientY)
-    ?.closest<HTMLElement>('[data-editor-group-id]')
+  const dropElement = document.elementFromPoint(clientX, clientY)
+  const target = dropElement?.closest<HTMLElement>('[data-editor-group-id]')
   const layout = document.querySelector<HTMLElement>('.editor-layout')
   if (!target || !layout) {
     dropPreview.value = null
@@ -221,7 +221,9 @@ function updateDropPreview(clientX: number, clientY: number) {
   const layoutRect = layout.getBoundingClientRect()
   const x = clientX - rect.left
   const y = clientY - rect.top
-  const edge = closestDropEdge(x, y, rect.width, rect.height)
+  const edge = dropElement?.closest('.editor-tabs, .editor-tab')
+    ? 'center'
+    : closestDropEdge(x, y, rect.width, rect.height)
   const previewRect = getPreviewRect(rect, edge)
 
   dropPreview.value = {
@@ -531,6 +533,20 @@ function commitLayout(nextLayout: EditorLayoutTreeNode, activeGroupId: string, a
   background-size: 180px 100%;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   opacity: 0.95;
+  animation: drop-preview-shimmer 1.2s linear infinite;
+  transition:
+    left 0.14s ease,
+    top 0.14s ease,
+    width 0.14s ease,
+    height 0.14s ease;
+}
+@keyframes drop-preview-shimmer {
+  from {
+    background-position: -180px 0;
+  }
+  to {
+    background-position: 180px 0;
+  }
 }
 .serial-view__empty {
   flex: 1;

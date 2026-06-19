@@ -60,6 +60,45 @@ test.describe('Multi-Port Parallel E2E', () => {
     await expect(page.locator('.editor-group').nth(1).locator('.editor-tab').filter({ hasText: '/tmp/ttyV1' })).toBeVisible();
   });
 
+  test('should merge split editor groups by dragging a tab back onto another tab header', async ({ page }) => {
+    await openPorts(page, ['/tmp/ttyV0', '/tmp/ttyV1']);
+
+    const tab = page.locator('.editor-tab').filter({ hasText: '/tmp/ttyV1' });
+    const main = page.locator('.serial-view__main');
+    await expect(tab).toBeVisible();
+
+    const tabBox = await tab.boundingBox();
+    const mainBox = await main.boundingBox();
+    expect(tabBox).not.toBeNull();
+    expect(mainBox).not.toBeNull();
+
+    await page.mouse.move(tabBox!.x + tabBox!.width / 2, tabBox!.y + tabBox!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(mainBox!.x + mainBox!.width - 12, mainBox!.y + mainBox!.height / 2);
+    await page.mouse.up();
+
+    await expect(page.locator('.editor-group')).toHaveCount(2);
+
+    const sourceGroup = page.locator('.editor-group').filter({ has: page.locator('.editor-tab', { hasText: '/tmp/ttyV1' }) }).first();
+    const targetGroup = page.locator('.editor-group').filter({ has: page.locator('.editor-tab', { hasText: '/tmp/ttyV0' }) }).first();
+    const sourceTab = sourceGroup.locator('.editor-tab').filter({ hasText: '/tmp/ttyV1' });
+    const targetTab = targetGroup.locator('.editor-tab').filter({ hasText: '/tmp/ttyV0' });
+    const sourceTabBox = await sourceTab.boundingBox();
+    const targetTabBox = await targetTab.boundingBox();
+    expect(sourceTabBox).not.toBeNull();
+    expect(targetTabBox).not.toBeNull();
+
+    await page.mouse.move(sourceTabBox!.x + sourceTabBox!.width / 2, sourceTabBox!.y + sourceTabBox!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(targetTabBox!.x + targetTabBox!.width / 2, targetTabBox!.y + targetTabBox!.height / 2);
+    await page.mouse.up();
+
+    await expect(page.locator('.editor-group')).toHaveCount(1);
+    const mergedGroup = page.locator('.editor-group').first();
+    await expect(mergedGroup.locator('.editor-tab').filter({ hasText: '/tmp/ttyV0' })).toBeVisible();
+    await expect(mergedGroup.locator('.editor-tab').filter({ hasText: '/tmp/ttyV1' })).toBeVisible();
+  });
+
   test('should show skeleton preview while dragging a tab to split', async ({ page }) => {
     await openPorts(page, ['/tmp/ttyV0', '/tmp/ttyV1']);
 
@@ -79,6 +118,17 @@ test.describe('Multi-Port Parallel E2E', () => {
     const preview = page.locator('.editor-drop-preview');
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute('data-edge', 'right');
+    await expect(preview).toHaveCSS('animation-name', /^drop-preview-shimmer/);
+    await expect(preview).toHaveCSS('animation-duration', '1.2s');
+    const transition = await preview.evaluate(element => {
+      const style = getComputedStyle(element);
+      return {
+        properties: style.transitionProperty.split(',').map(property => property.trim()),
+        duration: style.transitionDuration,
+      };
+    });
+    expect(transition.properties).toEqual(expect.arrayContaining(['left', 'top', 'width', 'height']));
+    expect(transition.duration).toContain('0.14s');
 
     const previewBox = await preview.boundingBox();
     expect(previewBox).not.toBeNull();

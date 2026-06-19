@@ -17,6 +17,17 @@ vi.mock('../services/serialEvents', () => ({
   },
 }))
 
+vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js', () => ({
+  ListMonitors: vi.fn(async () => []),
+  QueryMonitorFrames: vi.fn(async () => ({ Frames: [], Total: 0, NextOffset: 0 })),
+  StartMonitor: vi.fn(async () => null),
+  StopMonitor: vi.fn(async () => undefined),
+  DeleteMonitor: vi.fn(async () => undefined),
+  ExportMonitor: vi.fn(async () => ''),
+  SetMonitorAutoSave: vi.fn(async () => null),
+  ClearMonitorFrames: vi.fn(async () => undefined),
+}))
+
 describe('SerialView workspace layout', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -89,4 +100,5 @@ const stubs = {
   PortConfigPanel: true,
   VirtualPairPanel: true,
   BridgePanel: true,
+  MonitorPanel: true,
 }

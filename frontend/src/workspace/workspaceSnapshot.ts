@@ -2,6 +2,7 @@ import type { SettingsSnapshot } from '../settings/stores/settingsStore'
 import type { SerialConfig } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
 import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
 import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
+import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 
 export const workspaceKind = 'mocktrue.workspace.v1'
 
@@ -29,6 +30,7 @@ export interface WorkspaceSnapshot {
     virtualPorts: VirtualPort[]
     bridges: Bridge[]
     buffers: Record<string, WorkspaceBufferChunk[]>
+    monitors: MonitorWorkspaceState
     workspace: SerialWorkspaceState
   }
 }

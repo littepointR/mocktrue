@@ -4,6 +4,7 @@ import { useBufferStore } from '../serial/stores/bufferStore'
 import type { SerializableBufferChunk } from '../serial/stores/bufferStore'
 import { useVirtualStore } from '../serial/stores/virtualStore'
 import { useSerialWorkspaceStore } from '../serial/stores/workspaceStore'
+import { useMonitorStore } from '../serial/stores/monitorStore'
 import {
   base64ToBytes,
   bytesToBase64,
@@ -27,6 +28,7 @@ export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
   const bufferStore = useBufferStore()
   const virtualStore = useVirtualStore()
   const workspaceStore = useSerialWorkspaceStore()
+  const monitorStore = useMonitorStore()
 
   return {
     kind: workspaceKind,
@@ -43,6 +45,7 @@ export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
       virtualPorts: virtualStore.virtualPorts.map(port => ({ ...port })),
       bridges: virtualStore.bridges.map(bridge => ({ ...bridge })),
       buffers: exportBuffers(bufferStore.exportChunks()),
+      monitors: monitorStore.exportState(),
       workspace: workspaceStore.exportState(),
     },
   }
@@ -56,9 +59,11 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   const bufferStore = useBufferStore()
   const virtualStore = useVirtualStore()
   const workspaceStore = useSerialWorkspaceStore()
+  const monitorStore = useMonitorStore()
 
   await captureError(errors, 'serial.closeAll', () => serialStore.closeAllPorts())
   await captureError(errors, 'virtual.cleanup', () => virtualStore.cleanupAllResources())
+  monitorStore.restoreState()
   serialStore.clearLocalHandles()
   bufferStore.clearAll()
   workspaceStore.resetWorkspace()
@@ -90,6 +95,7 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   }
 
   bufferStore.restoreChunks(importBuffers(snapshot.serial.buffers, handleMap))
+  monitorStore.restoreState(snapshot.serial.monitors)
   workspaceStore.restoreState(snapshot.serial.workspace, handleMap)
   serialStore.setActivePort(remapID(snapshot.serial.activePortId, handleMap))
 

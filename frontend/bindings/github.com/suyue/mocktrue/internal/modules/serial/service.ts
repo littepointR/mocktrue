@@ -18,6 +18,9 @@ import * as buffer$0 from "./buffer/models.js";
 import * as manager$0 from "./manager/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as monitor$0 from "./monitor/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as port$0 from "./port/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -29,6 +32,13 @@ import * as $models from "./models.js";
  */
 export function CleanupVirtual(): $CancellablePromise<void> {
     return $Call.ByID(3380062301);
+}
+
+/**
+ * ClearMonitorFrames clears captured monitor frames and counters.
+ */
+export function ClearMonitorFrames(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2442853029, id);
 }
 
 /**
@@ -74,6 +84,13 @@ export function DeleteBridge(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * DeleteMonitor stops and removes a monitor session.
+ */
+export function DeleteMonitor(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2925886253, id);
+}
+
+/**
  * DeleteVirtualPair removes a virtual serial pair.
  */
 export function DeleteVirtualPair(id: string): $CancellablePromise<void> {
@@ -102,10 +119,24 @@ export function EnumeratePorts(): $CancellablePromise<port$0.PortInfo[] | null> 
 }
 
 /**
+ * ExportMonitor exports monitor frames to a file.
+ */
+export function ExportMonitor(req: monitor$0.ExportRequest): $CancellablePromise<string> {
+    return $Call.ByID(948382730, req);
+}
+
+/**
  * ListBridges returns all active bridges.
  */
 export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> {
     return $Call.ByID(2577893816);
+}
+
+/**
+ * ListMonitors returns all serial monitor sessions.
+ */
+export function ListMonitors(): $CancellablePromise<monitor$0.SessionInfo[] | null> {
+    return $Call.ByID(3764334461);
 }
 
 /**
@@ -151,6 +182,13 @@ export function Ping(msg: string): $CancellablePromise<string> {
 }
 
 /**
+ * QueryMonitorFrames returns a filtered page of monitor frames.
+ */
+export function QueryMonitorFrames(req: monitor$0.QueryRequest): $CancellablePromise<monitor$0.FramePage | null> {
+    return $Call.ByID(1659843558, req);
+}
+
+/**
  * QueryPage returns a snapshot of the buffer for a given port handle.
  */
 export function QueryPage(portID: string, offset: number, length: number): $CancellablePromise<buffer$0.Snapshot | null> {
@@ -176,4 +214,25 @@ export function RestoreCounters(portID: string, rxBytes: number, txBytes: number
  */
 export function Send(req: $models.SendRequest): $CancellablePromise<number> {
     return $Call.ByID(304932660, req);
+}
+
+/**
+ * SetMonitorAutoSave updates automatic persistence for a monitor session.
+ */
+export function SetMonitorAutoSave(req: monitor$0.AutoSaveRequest): $CancellablePromise<monitor$0.SessionInfo | null> {
+    return $Call.ByID(3025389754, req);
+}
+
+/**
+ * StartMonitor starts a bridge-based serial monitor session.
+ */
+export function StartMonitor(req: monitor$0.StartRequest): $CancellablePromise<monitor$0.SessionInfo | null> {
+    return $Call.ByID(3071407328, req);
+}
+
+/**
+ * StopMonitor stops a monitor session while keeping captured frames available.
+ */
+export function StopMonitor(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2368061992, id);
 }

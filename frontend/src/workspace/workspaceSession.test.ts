@@ -7,6 +7,7 @@ import { useSerialStore } from '../serial/stores/serialStore'
 import { useBufferStore } from '../serial/stores/bufferStore'
 import { useVirtualStore } from '../serial/stores/virtualStore'
 import { useSerialWorkspaceStore } from '../serial/stores/workspaceStore'
+import { useMonitorStore } from '../serial/stores/monitorStore'
 
 const serialServiceMock = vi.hoisted(() => ({
   openPort: vi.fn(async () => ({
@@ -37,6 +38,14 @@ const serialBindingsMock = vi.hoisted(() => ({
   DeleteBridge: vi.fn(async () => undefined),
   ListBridges: vi.fn(async () => []),
   CleanupVirtual: vi.fn(async () => undefined),
+  StartMonitor: vi.fn(async () => null),
+  StopMonitor: vi.fn(async () => undefined),
+  DeleteMonitor: vi.fn(async () => undefined),
+  ListMonitors: vi.fn(async () => []),
+  QueryMonitorFrames: vi.fn(async () => ({ Frames: [], Total: 0, NextOffset: 0 })),
+  ExportMonitor: vi.fn(async () => ''),
+  SetMonitorAutoSave: vi.fn(async () => null),
+  ClearMonitorFrames: vi.fn(async () => undefined),
 }))
 
 vi.mock('../serial/services/serialService', () => ({
@@ -67,6 +76,12 @@ describe('workspace session snapshot', () => {
     virtual.bridges = [{ ID: 'br-1', Port1: 'ttyV0', Port2: '/tmp/ttyA', BaudRate: 115200 }]
     useBufferStore().appendData('port-1', [1, 2, 3], 123)
     useSerialWorkspaceStore().updateTabState('port-1', { sendHeight: 240 })
+    useMonitorStore().restoreState({
+      activeMonitorId: 'mon-1',
+      filters: { 'mon-1': { direction: 'all', search: 'aa', displayMode: 'hex', modbusFunction: 0 } },
+      sessions: [],
+      frames: {},
+    })
 
     const snapshot = buildWorkspaceSnapshot()
 
@@ -75,6 +90,7 @@ describe('workspace session snapshot', () => {
     expect(snapshot.serial.handles[0].id).toBe('port-1')
     expect(snapshot.serial.virtualPorts[0].ID).toBe('vp-1')
     expect(Array.from(base64ToBytes(snapshot.serial.buffers['port-1'][0].data))).toEqual([1, 2, 3])
+    expect(snapshot.serial.monitors.activeMonitorId).toBe('mon-1')
     expect(snapshot.serial.workspace.tabStates['port-1'].sendHeight).toBe(240)
   })
 
@@ -96,6 +112,12 @@ describe('workspace session snapshot', () => {
         buffers: {
           'old-port': [{ timestamp: 123, data: 'AQID' }],
         },
+        monitors: {
+          activeMonitorId: 'mon-1',
+          filters: { 'mon-1': { direction: 'all', search: '01 03', displayMode: 'hex', modbusFunction: 3 } },
+          sessions: [],
+          frames: {},
+        },
         workspace: {
           selectedOperation: null,
           editorLayout: { type: 'group', id: 'group-1', tabs: ['old-port'] },
@@ -112,6 +134,7 @@ describe('workspace session snapshot', () => {
     expect(useSerialStore().handles.has('new-port')).toBe(true)
     expect(useSerialStore().activePortId).toBe('new-port')
     expect(Array.from(useBufferStore().getBuffer('new-port'))).toEqual([1, 2, 3])
+    expect(useMonitorStore().activeMonitorId).toBe('mon-1')
     expect(useSerialWorkspaceStore().editorLayout).toEqual({ type: 'group', id: 'group-1', tabs: ['new-port'] })
     expect(serialServiceMock.restoreCounters).toHaveBeenCalledWith('new-port', 3, 2)
     expect(serialBindingsMock.CreateVirtualPort).toHaveBeenCalledWith('vp-1', 'ttyV0')

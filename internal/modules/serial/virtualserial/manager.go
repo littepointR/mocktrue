@@ -140,6 +140,15 @@ func (m *Manager) bridgeEndpointLocked(portName string) string {
 	return portName
 }
 
+// EndpointFor returns the actual device endpoint to open for a public virtual
+// port name. User-facing single virtual ports expose Port1 while their hidden
+// peer is opened internally for bridges and monitors.
+func (m *Manager) EndpointFor(portName string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.bridgeEndpointLocked(portName)
+}
+
 // DeleteBridge removes a bridge.
 func (m *Manager) DeleteBridge(bridgeID string) error {
 	m.mu.Lock()

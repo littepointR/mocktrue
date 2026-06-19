@@ -4,6 +4,7 @@ import { Splitpanes, Pane } from 'splitpanes'
 import 'splitpanes/dist/splitpanes.css'
 import type { EditorLayoutNode, EditorTabInfo } from './editorLayout'
 import SerialTabContent from './SerialTabContent.vue'
+import MonitorTabContent from './MonitorTabContent.vue'
 
 const props = defineProps<{
   node: EditorLayoutNode
@@ -83,8 +84,12 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
     </div>
     <div class="editor-group__content">
       <SerialTabContent
-        v-if="activeByGroup[node.id]"
-        :handle-id="activeByGroup[node.id]!"
+        v-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'serial'"
+        :handle-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
+      />
+      <MonitorTabContent
+        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'monitor'"
+        :monitor-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
       />
     </div>
   </div>

@@ -18,4 +18,6 @@ export type EditorLayoutNode = EditorGroupNode | EditorSplitNode
 export interface EditorTabInfo {
   id: string
   name: string
+  kind: 'serial' | 'monitor'
+  sourceId: string
 }

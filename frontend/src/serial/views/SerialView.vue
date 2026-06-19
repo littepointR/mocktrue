@@ -12,7 +12,9 @@ import type {
 import PortConfigPanel from './PortConfigPanel.vue'
 import VirtualPairPanel from './VirtualPairPanel.vue'
 import BridgePanel from './BridgePanel.vue'
+import MonitorPanel from './MonitorPanel.vue'
 import { useSerialWorkspaceStore, type SerialOperation } from '../stores/workspaceStore'
+import { useMonitorStore } from '../stores/monitorStore'
 
 const props = defineProps<{
   activeViewId: string | null
@@ -21,6 +23,7 @@ const props = defineProps<{
 
 const serialStore = useSerialStore()
 const bufferStore = useBufferStore()
+const monitorStore = useMonitorStore()
 const workspaceStore = useSerialWorkspaceStore()
 
 const editorLayout = computed({
@@ -51,18 +54,30 @@ onMounted(() => {
   serialStore.initEventListeners()
   bufferStore.initEventListeners()
   serialStore.refreshHandles()
+  monitorStore.refreshSessions()
 })
 
 onUnmounted(() => {
   bufferStore.cleanup()
   serialStore.stopStatsPolling()
+  monitorStore.cleanup()
   stopTabDrag()
 })
 
-const tabs = computed(() => serialStore.openHandles.map(h => ({
-  id: h.ID,
-  name: h.Config.PortName,
-})))
+const tabs = computed(() => [
+  ...serialStore.openHandles.map(h => ({
+    id: h.ID,
+    name: h.Config.PortName,
+    kind: 'serial' as const,
+    sourceId: h.ID,
+  })),
+  ...monitorStore.sessionList.map(session => ({
+    id: monitorTabId(session.ID),
+    name: session.Name || `监控 ${session.PortA} ⇄ ${session.PortB}`,
+    kind: 'monitor' as const,
+    sourceId: session.ID,
+  })),
+])
 
 function operationFromView(viewId: string | null): SerialOperation | null {
   switch (viewId) {
@@ -70,6 +85,8 @@ function operationFromView(viewId: string | null): SerialOperation | null {
       return 'virtual'
     case 'serial.bridge':
       return 'bridge'
+    case 'serial.monitor':
+      return 'monitor'
     case 'serial.open':
       return 'open'
     default:
@@ -119,12 +136,21 @@ watch(
 )
 
 async function handleCloseTab(id: string) {
+  if (isMonitorTabId(id)) {
+    await monitorStore.deleteMonitor(monitorIdFromTabId(id))
+    return
+  }
   await serialStore.closePort(id)
   bufferStore.clearBuffer(id)
 }
 
 function handlePortOpened() {
   selectedOperation.value = null
+}
+
+function handleMonitorStarted(id: string) {
+  selectedOperation.value = null
+  monitorStore.setActiveMonitor(id)
 }
 
 function nextGroupId(): string {
@@ -145,7 +171,11 @@ function createSplit(direction: EditorSplitDirection, children: EditorLayoutTree
 
 function setActiveTab(groupId: string, handleId: string) {
   activeByGroup.value = { ...activeByGroup.value, [groupId]: handleId }
-  serialStore.setActivePort(handleId)
+  if (isMonitorTabId(handleId)) {
+    monitorStore.setActiveMonitor(monitorIdFromTabId(handleId))
+  } else {
+    serialStore.setActivePort(handleId)
+  }
 }
 
 function handleTabPointerDown(event: PointerEvent, groupId: string, handleId: string) {
@@ -450,7 +480,23 @@ function commitLayout(nextLayout: EditorLayoutTreeNode, activeGroupId: string, a
   }
   editorLayout.value = nextLayout
   activeByGroup.value = active
-  serialStore.setActivePort(activeHandleId)
+  if (isMonitorTabId(activeHandleId)) {
+    monitorStore.setActiveMonitor(monitorIdFromTabId(activeHandleId))
+  } else {
+    serialStore.setActivePort(activeHandleId)
+  }
+}
+
+function monitorTabId(id: string): string {
+  return `monitor:${id}`
+}
+
+function isMonitorTabId(id: string): boolean {
+  return id.startsWith('monitor:')
+}
+
+function monitorIdFromTabId(id: string): string {
+  return id.replace(/^monitor:/, '')
 }
 </script>
 
@@ -466,6 +512,10 @@ function commitLayout(nextLayout: EditorLayoutTreeNode, activeGroupId: string, a
       />
       <VirtualPairPanel v-else-if="selectedOperation === 'virtual'" />
       <BridgePanel v-else-if="selectedOperation === 'bridge'" />
+      <MonitorPanel
+        v-else-if="selectedOperation === 'monitor'"
+        @started="handleMonitorStarted"
+      />
     </div>
     <div class="serial-view__main">
       <div

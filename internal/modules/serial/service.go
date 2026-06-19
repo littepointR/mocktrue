@@ -11,6 +11,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 	"github.com/suyue/mocktrue/internal/modules/serial/virtualserial"
 )
@@ -20,6 +21,7 @@ type Service struct {
 	mu         sync.RWMutex
 	bus        *eventbus.EventBus
 	manager    *manager.PortManager
+	monitors   *monitor.Manager
 	vmgr       *virtualserial.Manager
 	buffers    map[string]*buffer.RingBuffer // keyed by handle ID
 	subscribed bool
@@ -43,6 +45,9 @@ func (s *Service) init(bus *eventbus.EventBus) {
 	activeBus := s.bus
 	if s.manager == nil {
 		s.manager = manager.NewManager(activeBus)
+	}
+	if s.monitors == nil {
+		s.monitors = monitor.NewManager()
 	}
 	if s.vmgr == nil {
 		s.vmgr = virtualserial.NewManager()
@@ -150,6 +155,9 @@ func (s *Service) ClosePort(id string) error {
 func (s *Service) cleanup() {
 	if s.manager != nil {
 		s.manager.CloseAll()
+	}
+	if s.monitors != nil {
+		s.monitors.Cleanup()
 	}
 	if s.vmgr != nil {
 		s.vmgr.Cleanup()
@@ -263,6 +271,58 @@ func (s *Service) ResetCounters(portID string) error {
 // RestoreCounters sets RX and TX byte counters for an open port handle.
 func (s *Service) RestoreCounters(portID string, rxBytes int64, txBytes int64) error {
 	return s.manager.RestoreCounters(portID, rxBytes, txBytes)
+}
+
+// StartMonitor starts a bridge-based serial monitor session.
+func (s *Service) StartMonitor(ctx context.Context, req monitor.StartRequest) (*monitor.SessionInfo, error) {
+	if s.findOpenHandle(req.PortA) != nil || s.findOpenHandle(req.PortB) != nil {
+		return nil, errors.New(errors.CodeConflict, "monitor port already open in serial terminal")
+	}
+	req.EndpointA = s.monitorEndpoint(req.PortA)
+	req.EndpointB = s.monitorEndpoint(req.PortB)
+	return s.monitors.Start(ctx, req)
+}
+
+// StopMonitor stops a monitor session while keeping captured frames available.
+func (s *Service) StopMonitor(id string) error {
+	return s.monitors.Stop(id)
+}
+
+// DeleteMonitor stops and removes a monitor session.
+func (s *Service) DeleteMonitor(id string) error {
+	return s.monitors.Delete(id)
+}
+
+// ListMonitors returns all serial monitor sessions.
+func (s *Service) ListMonitors() []monitor.SessionInfo {
+	return s.monitors.List()
+}
+
+// QueryMonitorFrames returns a filtered page of monitor frames.
+func (s *Service) QueryMonitorFrames(req monitor.QueryRequest) (*monitor.FramePage, error) {
+	return s.monitors.Query(req)
+}
+
+// ExportMonitor exports monitor frames to a file.
+func (s *Service) ExportMonitor(req monitor.ExportRequest) (string, error) {
+	return s.monitors.Export(req)
+}
+
+// SetMonitorAutoSave updates automatic persistence for a monitor session.
+func (s *Service) SetMonitorAutoSave(req monitor.AutoSaveRequest) (*monitor.SessionInfo, error) {
+	return s.monitors.SetAutoSave(req)
+}
+
+// ClearMonitorFrames clears captured monitor frames and counters.
+func (s *Service) ClearMonitorFrames(id string) error {
+	return s.monitors.ClearFrames(id)
+}
+
+func (s *Service) monitorEndpoint(portName string) string {
+	if s.vmgr == nil {
+		return portName
+	}
+	return s.vmgr.EndpointFor(portName)
 }
 
 // ===== Virtual Serial Pair API =====

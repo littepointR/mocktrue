@@ -41,6 +41,7 @@ export const useSerialStore = defineStore('serial', () => {
       stopBits?: string
       parity?: string
       flowMode?: string
+      readBufKB?: number
     }
   ): Promise<string> {
     const existing = Array.from(handles.value.values()).find(h =>
@@ -61,7 +62,7 @@ export const useSerialStore = defineStore('serial', () => {
           StopBits: options?.stopBits ?? '1',
           Parity: options?.parity ?? 'none',
           FlowMode: options?.flowMode ?? 'none',
-          ReadBufKB: 32,
+          ReadBufKB: options?.readBufKB ?? 32,
         },
       }
       const status = await serialService.openPort(request)

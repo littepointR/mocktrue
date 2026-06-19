@@ -20,8 +20,8 @@ const visible = ref(true)
 .panel {
   height: 150px;
   flex: 0 0 150px;
-  background: #252526;
-  border-top: 1px solid #2d2d2d;
+  background: var(--app-surface, #252526);
+  border-top: 1px solid var(--app-border, #2d2d2d);
   display: flex;
   flex-direction: column;
 }
@@ -30,17 +30,17 @@ const visible = ref(true)
   align-items: center;
   justify-content: space-between;
   padding: 4px 12px;
-  border-bottom: 1px solid #2d2d2d;
+  border-bottom: 1px solid var(--app-border, #2d2d2d);
 }
 .panel__title {
   font-size: 11px;
   text-transform: uppercase;
-  color: #858585;
+  color: var(--app-text-muted, #858585);
 }
 .panel__close {
   background: none;
   border: none;
-  color: #858585;
+  color: var(--app-text-muted, #858585);
   cursor: pointer;
   font-size: 12px;
 }
@@ -50,7 +50,7 @@ const visible = ref(true)
   overflow-y: auto;
 }
 .panel__placeholder {
-  color: #858585;
+  color: var(--app-text-muted, #858585);
   font-size: 12px;
 }
 </style>

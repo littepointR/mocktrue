@@ -2,18 +2,20 @@
 import { ref, computed, onMounted } from 'vue'
 import { NForm, NFormItem, NSelect, NButton, NAlert } from 'naive-ui'
 import { useSerialStore } from '../stores/serialStore'
+import { useSettingsStore } from '../../settings/stores/settingsStore'
 
 const store = useSerialStore()
+const settingsStore = useSettingsStore()
 const emit = defineEmits<{
   opened: [handleId: string]
 }>()
 
 const selectedPort = ref('')
-const baudRate = ref(115200)
-const dataBits = ref(8)
-const stopBits = ref('1')
-const parity = ref('none')
-const flowMode = ref('none')
+const baudRate = ref(settingsStore.serial.BaudRate)
+const dataBits = ref(settingsStore.serial.DataBits)
+const stopBits = ref(settingsStore.serial.StopBits)
+const parity = ref(settingsStore.serial.Parity)
+const flowMode = ref(settingsStore.serial.FlowMode)
 const loading = ref(false)
 
 const baudOptions = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, 1000000, 2000000, 4000000].map(v => ({
@@ -67,6 +69,7 @@ async function handleOpen() {
       stopBits: stopBits.value,
       parity: parity.value,
       flowMode: flowMode.value,
+      readBufKB: settingsStore.serial.ReadBufKB,
     })
     // 重置表单
     selectedPort.value = ''

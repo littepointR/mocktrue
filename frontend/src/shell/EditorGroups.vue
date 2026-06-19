@@ -11,9 +11,11 @@ const registry = useRegistry()
 const activeModuleId = computed(() => registry.active.value)
 
 const SerialView = defineAsyncComponent(() => import('../serial/views/SerialView.vue'))
+const SettingsView = defineAsyncComponent(() => import('../settings/views/SettingsView.vue'))
 
 const moduleComponents: Record<string, any> = {
   serial: SerialView,
+  settings: SettingsView,
 }
 
 const activeComponent = computed(() => {
@@ -42,14 +44,14 @@ const activeComponent = computed(() => {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--app-bg, #1e1e1e);
 }
 .editor-groups__placeholder {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #858585;
+  color: var(--app-text-muted, #858585);
   font-size: 14px;
 }
 </style>

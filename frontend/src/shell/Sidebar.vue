@@ -38,15 +38,15 @@ defineEmits<{
 .sidebar {
   width: 200px;
   flex: 0 0 200px;
-  background: #252526;
-  border-right: 1px solid #2d2d2d;
+  background: var(--app-surface, #252526);
+  border-right: 1px solid var(--app-border, #2d2d2d);
   padding: 8px 0;
   overflow-y: auto;
 }
 .sidebar__title {
   font-size: 11px;
   text-transform: uppercase;
-  color: #858585;
+  color: var(--app-text-muted, #858585);
   padding: 4px 16px;
 }
 .sidebar__item {
@@ -55,18 +55,18 @@ defineEmits<{
   padding: 6px 16px;
   border: 0;
   background: transparent;
-  color: #d4d4d4;
+  color: var(--app-text, #d4d4d4);
   cursor: pointer;
   font: inherit;
   text-align: left;
 }
 .sidebar__item:hover,
 .sidebar__item.is-active {
-  background: #094771;
+  background: var(--app-active, #094771);
 }
 .sidebar__empty {
   padding: 16px;
-  color: #858585;
+  color: var(--app-text-muted, #858585);
   font-size: 12px;
 }
 </style>

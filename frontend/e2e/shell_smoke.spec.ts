@@ -43,6 +43,15 @@ test.describe('App Shell Smoke', () => {
     await expect(statusBar).toContainText('MockTrue v0.1.0');
   });
 
+  test('should display live CPU and memory usage in the status bar', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.status-bar', { timeout: 10000 });
+
+    const metrics = page.locator('.status-bar__metrics');
+    await expect(metrics).toContainText(/CPU \d+\.\d%/);
+    await expect(metrics).toContainText(/内存 (\d+(\.\d)? (B|KB|MB|GB)|0 B)/);
+  });
+
   test('should show sidebar views when activating the serial module', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.activity-bar', { timeout: 10000 });
@@ -53,7 +62,9 @@ test.describe('App Shell Smoke', () => {
 
     // The sidebar should now show the serial module's views
     await expect(page.locator('.sidebar__title')).toContainText('串口调试');
-    await expect(page.locator('.sidebar__item')).toContainText('连接');
+    await expect(page.locator('.sidebar__item').filter({ hasText: '打开串口' })).toBeVisible();
+    await expect(page.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' })).toBeVisible();
+    await expect(page.locator('.sidebar__item').filter({ hasText: '添加串口桥接' })).toBeVisible();
   });
 
   test('should update status bar with active module id', async ({ page }) => {

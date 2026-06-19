@@ -11,6 +11,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/logging"
 	"github.com/suyue/mocktrue/internal/core/module"
 	"github.com/suyue/mocktrue/internal/core/platform"
+	runtimemetrics "github.com/suyue/mocktrue/internal/core/runtime"
 	"github.com/suyue/mocktrue/internal/modules/serial"
 )
 
@@ -50,6 +51,9 @@ func main() {
 		Paths:       paths,
 		Config:      cfg,
 		Registry:    reg,
+		ExtraServices: []application.Service{
+			application.NewService(runtimemetrics.NewService()),
+		},
 	})
 	if err != nil {
 		log.Fatalf("build app: %v", err)

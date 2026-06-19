@@ -17,4 +17,25 @@ describe('StatusBar', () => {
     expect(wrapper.find('.status-bar__metrics').text()).toContain('CPU 12.3%')
     expect(wrapper.find('.status-bar__metrics').text()).toContain('内存 52.0 MB')
   })
+
+  it('renders MCP server status when provided', async () => {
+    const wrapper = mount(StatusBar, {
+      props: {
+        activeId: 'serial',
+        runtimeMetrics: {
+          CPUPercent: 0,
+          MemoryBytes: 0,
+        },
+        mcpStatus: {
+          Enabled: true,
+          Running: true,
+          Address: '127.0.0.1:39391',
+          Path: '/mcp',
+          Error: '',
+        },
+      },
+    })
+
+    expect(wrapper.find('.status-bar__mcp').text()).toContain('MCP 127.0.0.1:39391')
+  })
 })

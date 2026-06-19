@@ -56,6 +56,11 @@ func (m *Module) Services() []any {
 	return []any{m.svc}
 }
 
+// Service returns the module's shared serial service instance.
+func (m *Module) Service() *Service {
+	return m.svc
+}
+
 // ServicesWrapped returns the service wrapped for Wails binding.
 func (m *Module) ServicesWrapped() []application.Service {
 	return []application.Service{application.NewService(m.svc)}

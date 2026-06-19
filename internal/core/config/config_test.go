@@ -24,6 +24,12 @@ func TestLoadParsesValidTOML(t *testing.T) {
 	path := filepath.Join(dir, "config.toml")
 	content := `
 app = { name = "MockTrue", version = "0.1.0" }
+[mcp]
+enabled = true
+host = "127.0.0.1"
+port = 39391
+path = "/mcp"
+allow_local_origins = true
 [window]
 width = 1200
 height = 800
@@ -41,8 +47,31 @@ baudrate = 115200
 	if cfg.App.Name != "MockTrue" || cfg.Window.Width != 1200 || cfg.Window.Theme != "dark" {
 		t.Fatalf("parsed config wrong: %+v", cfg)
 	}
+	if !cfg.MCP.Enabled || cfg.MCP.Host != "127.0.0.1" || cfg.MCP.Port != 39391 || cfg.MCP.Path != "/mcp" || !cfg.MCP.AllowLocalOrigins {
+		t.Fatalf("parsed mcp config wrong: %+v", cfg.MCP)
+	}
 	if cfg.Modules.Serial["baudrate"] != int64(115200) {
 		t.Fatalf("serial baudrate = %v, want 115200", cfg.Modules.Serial["baudrate"])
+	}
+}
+
+func TestDefaultIncludesLocalMCPServer(t *testing.T) {
+	t.Parallel()
+	cfg := Default()
+	if !cfg.MCP.Enabled {
+		t.Fatalf("default MCP server must be enabled")
+	}
+	if cfg.MCP.Host != "127.0.0.1" {
+		t.Fatalf("default MCP host = %q, want 127.0.0.1", cfg.MCP.Host)
+	}
+	if cfg.MCP.Port != 39391 {
+		t.Fatalf("default MCP port = %d, want 39391", cfg.MCP.Port)
+	}
+	if cfg.MCP.Path != "/mcp" {
+		t.Fatalf("default MCP path = %q, want /mcp", cfg.MCP.Path)
+	}
+	if !cfg.MCP.AllowLocalOrigins {
+		t.Fatalf("default MCP local origin allowance must be true")
 	}
 }
 

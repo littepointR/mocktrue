@@ -12,6 +12,7 @@ import (
 // Schema is the application configuration model.
 type Schema struct {
 	App     AppConfig     `toml:"app"`
+	MCP     MCPConfig     `toml:"mcp"`
 	Window  WindowConfig  `toml:"window"`
 	Serial  SerialConfig  `toml:"serial"`
 	Modules ModulesConfig `toml:"modules"`
@@ -23,6 +24,15 @@ type AppConfig struct {
 	Version string `toml:"version"`
 }
 
+// MCPConfig controls the local Model Context Protocol server.
+type MCPConfig struct {
+	Enabled           bool   `toml:"enabled"`
+	Host              string `toml:"host"`
+	Port              int    `toml:"port"`
+	Path              string `toml:"path"`
+	AllowLocalOrigins bool   `toml:"allow_local_origins"`
+}
+
 // WindowConfig holds persisted window defaults.
 type WindowConfig struct {
 	Width  int    `toml:"width"`
@@ -32,8 +42,8 @@ type WindowConfig struct {
 
 // SerialConfig holds serial module configuration.
 type SerialConfig struct {
-	Presets      []PortPreset   `toml:"presets"`
-	QuickButtons []QuickButton  `toml:"quick_buttons"`
+	Presets      []PortPreset  `toml:"presets"`
+	QuickButtons []QuickButton `toml:"quick_buttons"`
 }
 
 // PortPreset represents a saved port configuration.
@@ -63,7 +73,14 @@ type ModulesConfig struct {
 // Default returns the built-in default configuration.
 func Default() *Schema {
 	return &Schema{
-		App:    AppConfig{Name: "MockTrue", Version: "0.1.0"},
+		App: AppConfig{Name: "MockTrue", Version: "0.1.0"},
+		MCP: MCPConfig{
+			Enabled:           true,
+			Host:              "127.0.0.1",
+			Port:              39391,
+			Path:              "/mcp",
+			AllowLocalOrigins: true,
+		},
 		Window: WindowConfig{Width: 1280, Height: 800, Theme: "dark"},
 		Serial: SerialConfig{
 			Presets: []PortPreset{

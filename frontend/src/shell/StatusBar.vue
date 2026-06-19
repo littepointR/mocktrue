@@ -1,18 +1,29 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getRuntimeMetrics, type RuntimeMetrics } from '../core/runtimeMetrics'
+import { onMCPStatus, type MCPStatus } from '../core/mcpStatus'
 
 const props = defineProps<{
   activeId: string | null
   runtimeMetrics?: RuntimeMetrics | null
+  mcpStatus?: MCPStatus | null
 }>()
 
 const sampledMetrics = ref<RuntimeMetrics | null>(props.runtimeMetrics ?? null)
+const sampledMCPStatus = ref<MCPStatus | null>(props.mcpStatus ?? null)
 let pollTimer: number | null = null
+let cancelMCPStatus: (() => void) | null = null
 
 const metrics = computed(() => props.runtimeMetrics ?? sampledMetrics.value)
+const mcpStatus = computed(() => props.mcpStatus ?? sampledMCPStatus.value)
 const cpuText = computed(() => `${formatPercent(metrics.value?.CPUPercent ?? 0)}`)
 const memoryText = computed(() => formatBytes(metrics.value?.MemoryBytes ?? 0))
+const mcpText = computed(() => {
+  const status = mcpStatus.value
+  if (!status?.Enabled) return null
+  if (status.Running) return `MCP ${status.Address}${status.Path}`
+  return status.Error ? `MCP 错误` : 'MCP 停止'
+})
 
 watch(
   () => props.runtimeMetrics,
@@ -22,15 +33,22 @@ watch(
 )
 
 onMounted(() => {
-  if (props.runtimeMetrics) return
-  refreshMetrics()
-  pollTimer = window.setInterval(refreshMetrics, 1000)
+  if (!props.runtimeMetrics) {
+    refreshMetrics()
+    pollTimer = window.setInterval(refreshMetrics, 1000)
+  }
+  if (!props.mcpStatus) {
+    cancelMCPStatus = onMCPStatus(status => {
+      sampledMCPStatus.value = status
+    })
+  }
 })
 
 onUnmounted(() => {
   if (pollTimer !== null) {
     window.clearInterval(pollTimer)
   }
+  cancelMCPStatus?.()
 })
 
 async function refreshMetrics() {
@@ -62,6 +80,7 @@ function formatBytes(value: number): string {
     <span class="status-bar__left">MockTrue v0.1.0</span>
     <span class="status-bar__right">
       <span class="status-bar__metrics">CPU {{ cpuText }} · 内存 {{ memoryText }}</span>
+      <span v-if="mcpText" class="status-bar__mcp">{{ mcpText }}</span>
       <span class="status-bar__active">{{ activeId ?? '—' }}</span>
     </span>
   </div>
@@ -89,6 +108,9 @@ function formatBytes(value: number): string {
 .status-bar__metrics {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.status-bar__mcp {
+  white-space: nowrap;
 }
 .status-bar__active {
   white-space: nowrap;

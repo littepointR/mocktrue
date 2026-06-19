@@ -12,6 +12,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/module"
 	"github.com/suyue/mocktrue/internal/core/platform"
 	runtimemetrics "github.com/suyue/mocktrue/internal/core/runtime"
+	"github.com/suyue/mocktrue/internal/modules/mcpserver"
 	"github.com/suyue/mocktrue/internal/modules/serial"
 )
 
@@ -38,8 +39,12 @@ func main() {
 	}
 
 	reg := module.NewRegistry()
-	if err := reg.Register(serial.New()); err != nil {
+	serialModule := serial.New()
+	if err := reg.Register(serialModule); err != nil {
 		log.Fatalf("register serial module: %v", err)
+	}
+	if err := reg.Register(mcpserver.New(serialModule.Service())); err != nil {
+		log.Fatalf("register mcp server module: %v", err)
 	}
 
 	app, _, err := coreapp.Build(coreapp.Options{

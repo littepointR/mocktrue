@@ -18,19 +18,26 @@ import (
 	"github.com/suyue/mocktrue/internal/modules/serial"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 )
 
 type fakeSerialService struct {
-	ports        []port.PortInfo
-	handles      []manager.HandleStatus
-	lastSend     serial.SendRequest
-	resetPortID  string
-	queryPortID  string
-	queryOffset  int64
-	queryLength  int
-	virtualPorts []serial.VirtualPortInfo
-	bridges      []serial.BridgeInfo
+	ports         []port.PortInfo
+	handles       []manager.HandleStatus
+	lastSend      serial.SendRequest
+	resetPortID   string
+	queryPortID   string
+	queryOffset   int64
+	queryLength   int
+	virtualPorts  []serial.VirtualPortInfo
+	bridges       []serial.BridgeInfo
+	monitors      []monitor.SessionInfo
+	startMonitor  serial.AutoVirtualMonitorRequest
+	stopMonitor   string
+	deleteMonitor string
+	clearMonitor  string
+	queryMonitor  monitor.QueryRequest
 }
 
 func (f *fakeSerialService) EnumeratePorts(context.Context) ([]port.PortInfo, error) {
@@ -93,6 +100,60 @@ func (f *fakeSerialService) ListBridges() []serial.BridgeInfo {
 }
 
 func (f *fakeSerialService) CleanupVirtual() {}
+
+func (f *fakeSerialService) StartAutoVirtualMonitor(_ context.Context, req serial.AutoVirtualMonitorRequest) (*monitor.SessionInfo, error) {
+	f.startMonitor = req
+	session := &monitor.SessionInfo{
+		ID:                req.ID,
+		Name:              req.Name,
+		Provider:          monitor.ProviderBridge,
+		PortA:             req.Port,
+		PortB:             "/tmp/mocktrue-monitor",
+		ExternalPort:      "/tmp/mocktrue-monitor",
+		AutoVirtualPortID: "auto-monitor",
+		Config:            req.Config,
+		Encoding:          req.Encoding,
+		Status:            monitor.StatusRunning,
+	}
+	f.monitors = append(f.monitors, *session)
+	return session, nil
+}
+
+func (f *fakeSerialService) StopMonitor(id string) error {
+	f.stopMonitor = id
+	return nil
+}
+
+func (f *fakeSerialService) DeleteMonitor(id string) error {
+	f.deleteMonitor = id
+	return nil
+}
+
+func (f *fakeSerialService) ListMonitors() []monitor.SessionInfo {
+	return f.monitors
+}
+
+func (f *fakeSerialService) QueryMonitorFrames(req monitor.QueryRequest) (*monitor.FramePage, error) {
+	f.queryMonitor = req
+	return &monitor.FramePage{
+		Frames: []monitor.Frame{{
+			Seq:         1,
+			Direction:   monitor.DirectionAToB,
+			Port:        "/tmp/source",
+			Length:      2,
+			DisplayText: "OK",
+			DisplayHex:  "4f 4b",
+			Encoding:    "utf-8",
+		}},
+		Total:      1,
+		NextOffset: 1,
+	}, nil
+}
+
+func (f *fakeSerialService) ClearMonitorFrames(id string) error {
+	f.clearMonitor = id
+	return nil
+}
 
 func TestOriginGuardAllowsMissingAndLocalOrigins(t *testing.T) {
 	t.Parallel()
@@ -167,6 +228,12 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 		"serial_create_virtual_port",
 		"serial_create_bridge",
 		"serial_cleanup_virtual",
+		"serial_start_monitor",
+		"serial_list_monitors",
+		"serial_query_monitor_frames",
+		"serial_stop_monitor",
+		"serial_delete_monitor",
+		"serial_clear_monitor_frames",
 	} {
 		if !names[want] {
 			t.Fatalf("tools/list missing %s in %#v", want, names)
@@ -191,6 +258,62 @@ func TestSerialSendToolCallsSerialService(t *testing.T) {
 	}
 	if svc.lastSend.PortID != "port-1" || svc.lastSend.Content != "4869" || svc.lastSend.Mode != "hex" {
 		t.Fatalf("last send = %+v", svc.lastSend)
+	}
+}
+
+func TestSerialMonitorToolsCallSerialService(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSerialService{}
+	handler := mcpHTTPHandler(newMCPServer(svc), true)
+
+	start := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":3,
+		"method":"tools/call",
+		"params":{"name":"serial_start_monitor","arguments":{"id":"mon-1","name":"监控","port":"/tmp/source","baud_rate":9600,"encoding":"utf-8"}}
+	}`)
+	monitorResult := start["structuredContent"].(map[string]any)["monitor"].(map[string]any)
+	if monitorResult["ID"] != "mon-1" || monitorResult["ExternalPort"] != "/tmp/mocktrue-monitor" {
+		t.Fatalf("monitor result = %#v", monitorResult)
+	}
+	if svc.startMonitor.ID != "mon-1" || svc.startMonitor.Port != "/tmp/source" || svc.startMonitor.Config.BaudRate != 9600 {
+		t.Fatalf("start monitor request = %+v", svc.startMonitor)
+	}
+
+	query := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":4,
+		"method":"tools/call",
+		"params":{"name":"serial_query_monitor_frames","arguments":{"monitor_id":"mon-1","direction":"a_to_b","search":"OK","limit":20}}
+	}`)
+	page := query["structuredContent"].(map[string]any)["page"].(map[string]any)
+	if page["Total"].(float64) != 1 {
+		t.Fatalf("page = %#v", page)
+	}
+	if svc.queryMonitor.MonitorID != "mon-1" || svc.queryMonitor.Direction != monitor.DirectionAToB || svc.queryMonitor.Search != "OK" || svc.queryMonitor.Limit != 20 {
+		t.Fatalf("query monitor request = %+v", svc.queryMonitor)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":5,
+		"method":"tools/call",
+		"params":{"name":"serial_clear_monitor_frames","arguments":{"monitor_id":"mon-1"}}
+	}`)
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":6,
+		"method":"tools/call",
+		"params":{"name":"serial_stop_monitor","arguments":{"monitor_id":"mon-1"}}
+	}`)
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":7,
+		"method":"tools/call",
+		"params":{"name":"serial_delete_monitor","arguments":{"monitor_id":"mon-1"}}
+	}`)
+	if svc.clearMonitor != "mon-1" || svc.stopMonitor != "mon-1" || svc.deleteMonitor != "mon-1" {
+		t.Fatalf("monitor operations = clear:%q stop:%q delete:%q", svc.clearMonitor, svc.stopMonitor, svc.deleteMonitor)
 	}
 }
 

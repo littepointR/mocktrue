@@ -18,6 +18,7 @@ import (
 	"github.com/suyue/mocktrue/internal/modules/serial"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 )
 
@@ -40,6 +41,12 @@ type SerialRuntime interface {
 	DeleteBridge(string) error
 	ListBridges() []serial.BridgeInfo
 	CleanupVirtual()
+	StartAutoVirtualMonitor(context.Context, serial.AutoVirtualMonitorRequest) (*monitor.SessionInfo, error)
+	StopMonitor(string) error
+	DeleteMonitor(string) error
+	ListMonitors() []monitor.SessionInfo
+	QueryMonitorFrames(monitor.QueryRequest) (*monitor.FramePage, error)
+	ClearMonitorFrames(string) error
 }
 
 type noArgs struct{}
@@ -91,6 +98,31 @@ type bridgeArgs struct {
 	Port1    string `json:"port1"`
 	Port2    string `json:"port2"`
 	BaudRate int    `json:"baud_rate,omitempty"`
+}
+
+type startMonitorArgs struct {
+	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
+	Port      string `json:"port"`
+	BaudRate  int    `json:"baud_rate,omitempty"`
+	DataBits  int    `json:"data_bits,omitempty"`
+	StopBits  string `json:"stop_bits,omitempty"`
+	Parity    string `json:"parity,omitempty"`
+	FlowMode  string `json:"flow_mode,omitempty"`
+	ReadBufKB int    `json:"read_buf_kb,omitempty"`
+	Encoding  string `json:"encoding,omitempty"`
+}
+
+type monitorIDArgs struct {
+	MonitorID string `json:"monitor_id"`
+}
+
+type queryMonitorFramesArgs struct {
+	MonitorID string `json:"monitor_id"`
+	Offset    int64  `json:"offset,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Search    string `json:"search,omitempty"`
 }
 
 func newMCPServer(serialService SerialRuntime) *mcp.Server {
@@ -249,6 +281,66 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 	addWriteTool[noArgs, map[string]any](server, "serial_cleanup_virtual", "Clean up virtual serial ports, pairs, bridges, and open handles.", true, func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
 		serialService.CleanupVirtual()
 		return nil, map[string]any{"cleaned": true}, nil
+	})
+
+	addWriteTool[startMonitorArgs, map[string]any](server, "serial_start_monitor", "Start monitoring one serial port and expose an auto-created virtual port for external tools.", false, func(ctx context.Context, req *mcp.CallToolRequest, args startMonitorArgs) (*mcp.CallToolResult, map[string]any, error) {
+		session, err := serialService.StartAutoVirtualMonitor(ctx, serial.AutoVirtualMonitorRequest{
+			ID:   args.ID,
+			Name: args.Name,
+			Port: args.Port,
+			Config: port.SerialConfig{
+				BaudRate:  args.BaudRate,
+				DataBits:  args.DataBits,
+				StopBits:  args.StopBits,
+				Parity:    args.Parity,
+				FlowMode:  args.FlowMode,
+				ReadBufKB: args.ReadBufKB,
+			},
+			Encoding: args.Encoding,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"monitor": session}, nil
+	})
+
+	addWriteTool[monitorIDArgs, map[string]any](server, "serial_stop_monitor", "Stop a serial monitor and release its auto-created virtual port.", true, func(ctx context.Context, req *mcp.CallToolRequest, args monitorIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.StopMonitor(args.MonitorID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"stopped": true}, nil
+	})
+
+	addWriteTool[monitorIDArgs, map[string]any](server, "serial_delete_monitor", "Delete a serial monitor and its captured frames.", true, func(ctx context.Context, req *mcp.CallToolRequest, args monitorIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.DeleteMonitor(args.MonitorID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"deleted": true}, nil
+	})
+
+	addReadTool[noArgs, map[string]any](server, "serial_list_monitors", "List serial monitor sessions.", func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"monitors": serialService.ListMonitors()}, nil
+	})
+
+	addReadTool[queryMonitorFramesArgs, map[string]any](server, "serial_query_monitor_frames", "Read a filtered page of captured serial monitor frames.", func(ctx context.Context, req *mcp.CallToolRequest, args queryMonitorFramesArgs) (*mcp.CallToolResult, map[string]any, error) {
+		page, err := serialService.QueryMonitorFrames(monitor.QueryRequest{
+			MonitorID: args.MonitorID,
+			Offset:    args.Offset,
+			Limit:     args.Limit,
+			Direction: args.Direction,
+			Search:    args.Search,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"page": page}, nil
+	})
+
+	addWriteTool[monitorIDArgs, map[string]any](server, "serial_clear_monitor_frames", "Clear captured frames and counters for a serial monitor.", true, func(ctx context.Context, req *mcp.CallToolRequest, args monitorIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.ClearMonitorFrames(args.MonitorID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"cleared": true}, nil
 	})
 }
 

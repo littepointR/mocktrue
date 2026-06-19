@@ -1,10 +1,19 @@
 import { mount } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
 import { __resetRegistryForTest, useRegistry } from './core/registry'
 import { serialModule } from './serial'
 import { settingsModule, useSettingsStore } from './settings'
+import { useWorkspaceFileStore } from './workspace/stores/workspaceFileStore'
+
+vi.mock('../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js', () => ({
+  LoadLastWorkspace: vi.fn(async () => ({ Found: false, Path: '', Content: '' })),
+  DefaultWorkspacePath: vi.fn(async () => '/tmp/default.mocktrue.json'),
+  SaveWorkspace: vi.fn(async () => undefined),
+  ReadWorkspace: vi.fn(async () => null),
+}))
 
 describe('App settings effects', () => {
   beforeEach(() => {
@@ -26,6 +35,32 @@ describe('App settings effects', () => {
 
     expect(wrapper.find('.app-shell').classes()).toContain('app-shell--light')
   })
+
+  it('marks the status bar dirty after workspace changes', async () => {
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+
+    useSettingsStore().updateGlobal({ Theme: 'light' })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('footer').text()).toBe('dirty')
+  })
+
+  it('passes the current workspace path to the status bar', async () => {
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+
+    useWorkspaceFileStore().setPath('/tmp/current-workspace.json')
+    await wrapper.vm.$nextTick()
+
+    const status = wrapper.findComponent({ name: 'StatusBar' })
+
+    expect(status.props('configPath')).toBe('/tmp/current-workspace.json')
+  })
 })
 
 const stubs = {
@@ -34,5 +69,5 @@ const stubs = {
   Sidebar: { template: '<aside />' },
   EditorGroups: { template: '<main />' },
   Panel: { template: '<section />' },
-  StatusBar: { template: '<footer />' },
+  StatusBar: { name: 'StatusBar', props: ['dirty', 'configPath'], template: '<footer>{{ dirty ? "dirty" : "clean" }}</footer>' },
 }

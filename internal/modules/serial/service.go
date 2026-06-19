@@ -177,9 +177,44 @@ func (s *Service) QueryPage(portID string, offset int64, length int) (*buffer.Sn
 
 // SendRequest bundles parameters for sending data.
 type SendRequest struct {
-	PortID  string
-	Content string
-	Mode    string // "ascii" or "hex"
+	PortID   string
+	Content  string
+	Mode     string // "ascii" or "hex"
+	Encoding string
+}
+
+// EncodeTextRequest bundles parameters for converting text to HEX.
+type EncodeTextRequest struct {
+	Content  string
+	Encoding string
+}
+
+// DecodeHexRequest bundles parameters for converting HEX to text.
+type DecodeHexRequest struct {
+	Content  string
+	Encoding string
+}
+
+// EncodeTextToHex converts text to formatted HEX using the requested encoding.
+func (s *Service) EncodeTextToHex(req EncodeTextRequest) (string, error) {
+	data, err := encodeSerialText(req.Content, req.Encoding)
+	if err != nil {
+		return "", errors.Wrap(errors.CodeInvalid, "encode text content", err)
+	}
+	return formatHexBytes(data), nil
+}
+
+// DecodeHexToText converts formatted HEX to text using the requested encoding.
+func (s *Service) DecodeHexToText(req DecodeHexRequest) (string, error) {
+	data, err := decodeHexContent(req.Content)
+	if err != nil {
+		return "", errors.Wrap(errors.CodeInvalid, "decode hex content", err)
+	}
+	text, err := decodeSerialText(data, req.Encoding)
+	if err != nil {
+		return "", errors.Wrap(errors.CodeInvalid, "decode text content", err)
+	}
+	return text, nil
 }
 
 // Send sends data to the specified port.
@@ -190,21 +225,44 @@ func (s *Service) Send(req SendRequest) (int, error) {
 	if req.Content == "" {
 		return 0, errors.New(errors.CodeInvalid, "content must not be empty")
 	}
-	data := []byte(req.Content)
+	var data []byte
 	if req.Mode == "hex" {
-		compact := strings.NewReplacer(" ", "", "\n", "", "\t", "", "\r", "").Replace(req.Content)
-		decoded, err := hex.DecodeString(compact)
+		decoded, err := decodeHexContent(req.Content)
 		if err != nil {
 			return 0, errors.Wrap(errors.CodeInvalid, "decode hex content", err)
 		}
 		data = decoded
+	} else {
+		var err error
+		data, err = encodeSerialText(req.Content, req.Encoding)
+		if err != nil {
+			return 0, errors.Wrap(errors.CodeInvalid, "encode text content", err)
+		}
 	}
 	return s.manager.Write(req.PortID, data)
+}
+
+func decodeHexContent(content string) ([]byte, error) {
+	compact := strings.NewReplacer(" ", "", "\n", "", "\t", "", "\r", "").Replace(content)
+	return hex.DecodeString(compact)
+}
+
+func formatHexBytes(data []byte) string {
+	parts := make([]string, 0, len(data))
+	for _, b := range data {
+		parts = append(parts, fmt.Sprintf("%02x", b))
+	}
+	return strings.Join(parts, " ")
 }
 
 // ResetCounters clears RX and TX byte counters for an open port handle.
 func (s *Service) ResetCounters(portID string) error {
 	return s.manager.ResetCounters(portID)
+}
+
+// RestoreCounters sets RX and TX byte counters for an open port handle.
+func (s *Service) RestoreCounters(portID string, rxBytes int64, txBytes int64) error {
+	return s.manager.RestoreCounters(portID, rxBytes, txBytes)
 }
 
 // ===== Virtual Serial Pair API =====

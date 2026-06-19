@@ -69,6 +69,23 @@ func TestServiceResetCountersRejectsMissingHandle(t *testing.T) {
 	}
 }
 
+func TestServiceRestoreCountersRejectsInvalidInputs(t *testing.T) {
+	t.Parallel()
+	svc := NewService(eventbus.New())
+	if err := svc.RestoreCounters("", 1, 1); err == nil {
+		t.Fatalf("RestoreCounters must reject empty handle")
+	}
+	if err := svc.RestoreCounters("ghost", -1, 1); err == nil {
+		t.Fatalf("RestoreCounters must reject negative rx count")
+	}
+	if err := svc.RestoreCounters("ghost", 1, -1); err == nil {
+		t.Fatalf("RestoreCounters must reject negative tx count")
+	}
+	if err := svc.RestoreCounters("ghost", 1, 1); err == nil {
+		t.Fatalf("RestoreCounters must reject missing handle")
+	}
+}
+
 func TestServiceResetCountersClearsOpenHandleStats(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping socat integration test in short mode")
@@ -119,6 +136,38 @@ func TestServiceResetCountersClearsOpenHandleStats(t *testing.T) {
 	}
 	if after[0].RxBytes != 0 || after[0].TxBytes != 0 {
 		t.Fatalf("counters after reset = rx %d tx %d, want 0/0", after[0].RxBytes, after[0].TxBytes)
+	}
+}
+
+func TestServiceRestoreCountersSetsOpenHandleStats(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+	pair, err := port.StartVirtualPair(context.Background())
+	if err != nil {
+		t.Skipf("socat not available: %v", err)
+	}
+	defer pair.Stop()
+
+	svc := NewService(eventbus.New())
+	handle, err := svc.OpenPort(context.Background(), manager.OpenRequest{
+		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+	})
+	if err != nil {
+		t.Fatalf("OpenPort: %v", err)
+	}
+	defer svc.ClosePort(handle.ID)
+
+	if err := svc.RestoreCounters(handle.ID, 42, 17); err != nil {
+		t.Fatalf("RestoreCounters: %v", err)
+	}
+
+	status := svc.ListPorts()
+	if len(status) != 1 {
+		t.Fatalf("ListPorts len = %d, want 1", len(status))
+	}
+	if status[0].RxBytes != 42 || status[0].TxBytes != 17 {
+		t.Fatalf("restored counters = rx %d tx %d, want 42/17", status[0].RxBytes, status[0].TxBytes)
 	}
 }
 

@@ -1,24 +1,63 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { NInput, NButton, NSelect, NInputNumber, NSwitch } from 'naive-ui'
-import { Send } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+import {
+  DecodeHexToText,
+  EncodeTextToHex,
+  Send,
+} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 import { useSerialStore } from '../stores/serialStore'
-import { asciiToHexText, formatHexInput, hexTextToAscii } from '../utils/bytes'
+import { useSettingsStore } from '../../settings/stores/settingsStore'
+import { formatHexInput } from '../utils/bytes'
+import { serialTerminalStyle } from '../utils/terminalStyle'
+import { useSerialWorkspaceStore, type SendMode } from '../stores/workspaceStore'
 
 const props = defineProps<{
   handleId: string
 }>()
 
 const serialStore = useSerialStore()
-const sendData = ref('')
-const sendMode = ref<'ascii' | 'hex'>('ascii')
-const autoSend = ref(false)
-const sendIntervalMs = ref(1000)
-const sendHistory = ref<Array<{ id: number; content: string; mode: 'ascii' | 'hex' }>>([])
+const settingsStore = useSettingsStore()
+const workspaceStore = useSerialWorkspaceStore()
 const error = ref<string | null>(null)
-let nextHistoryId = 1
 let autoSendTimer: number | null = null
 let skipNextSendDataWatch = false
+let conversionToken = 0
+
+const sendData = computed({
+  get: () => workspaceStore.tabState(props.handleId).sendPanel.sendData,
+  set: value => updateSendPanel({ sendData: value }),
+})
+const sendMode = computed({
+  get: () => workspaceStore.tabState(props.handleId).sendPanel.sendMode,
+  set: value => updateSendPanel({ sendMode: value as SendMode }),
+})
+const autoSend = computed({
+  get: () => workspaceStore.tabState(props.handleId).sendPanel.autoSend,
+  set: value => updateSendPanel({ autoSend: value }),
+})
+const sendIntervalMs = computed({
+  get: () => workspaceStore.tabState(props.handleId).sendPanel.sendIntervalMs,
+  set: value => updateSendPanel({ sendIntervalMs: value ?? 1000 }),
+})
+const sendHistory = computed(() => workspaceStore.tabState(props.handleId).sendPanel.sendHistory)
+
+const terminalStyle = computed(() => ({
+  ...serialTerminalStyle(
+    settingsStore.serial.TerminalFontFamily,
+    settingsStore.serial.TerminalFontSize,
+  ),
+}))
+
+function updateSendPanel(next: Partial<{
+  sendData: string
+  sendMode: SendMode
+  autoSend: boolean
+  sendIntervalMs: number
+  sendHistory: Array<{ id: number; content: string; mode: SendMode }>
+}>) {
+  workspaceStore.updateTabState(props.handleId, { sendPanel: next })
+}
 
 async function sendContent(content: string, mode = sendMode.value, clearEditor = false) {
   if (!props.handleId || !content) return
@@ -27,6 +66,7 @@ async function sendContent(content: string, mode = sendMode.value, clearEditor =
       PortID: props.handleId,
       Content: content,
       Mode: mode,
+      Encoding: mode === 'ascii' ? settingsStore.serial.TextEncoding : '',
     })
     serialStore.addTxBytes(props.handleId, sentBytes)
     addHistory(content, mode)
@@ -39,18 +79,38 @@ async function sendContent(content: string, mode = sendMode.value, clearEditor =
   }
 }
 
-function addHistory(content: string, mode: 'ascii' | 'hex') {
-  sendHistory.value = [
-    { id: nextHistoryId++, content, mode },
-    ...sendHistory.value.filter(item => item.content !== content || item.mode !== mode),
-  ].slice(0, 20)
+function handleEditorKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter') return
+  event.preventDefault()
+
+  const target = event.target as HTMLTextAreaElement | null
+  const start = target?.selectionStart ?? sendData.value.length
+  const end = target?.selectionEnd ?? start
+  const enterString = settingsStore.serial.EnterString
+  const nextValue = `${sendData.value.slice(0, start)}${enterString}${sendData.value.slice(end)}`
+  const nextCursor = start + enterString.length
+
+  sendData.value = nextValue
+  void nextTick(() => {
+    target?.setSelectionRange(nextCursor, nextCursor)
+  })
+}
+
+function addHistory(content: string, mode: SendMode) {
+  const nextId = Math.max(0, ...sendHistory.value.map(item => item.id)) + 1
+  updateSendPanel({
+    sendHistory: [
+      { id: nextId, content, mode },
+      ...sendHistory.value.filter(item => item.content !== content || item.mode !== mode),
+    ].slice(0, 20),
+  })
 }
 
 async function handleSend() {
   await sendContent(sendData.value, sendMode.value, false)
 }
 
-async function resendHistoryItem(item: { content: string; mode: 'ascii' | 'hex' }) {
+async function resendHistoryItem(item: { content: string; mode: SendMode }) {
   await sendContent(item.content, item.mode, false)
 }
 
@@ -101,14 +161,16 @@ function syncAutoSendForContent(value: string) {
   }
 }
 
-watch(sendMode, (mode, previousMode) => {
+watch(sendMode, async (mode, previousMode) => {
   if (mode === previousMode) return
+  const source = sendData.value
+  const token = ++conversionToken
   try {
-    if (mode === 'hex') {
-      setSendData(asciiToHexText(sendData.value))
-    } else {
-      setSendData(hexTextToAscii(sendData.value))
-    }
+    const converted = mode === 'hex'
+      ? await EncodeTextToHex({ Content: source, Encoding: settingsStore.serial.TextEncoding })
+      : await DecodeHexToText({ Content: source, Encoding: settingsStore.serial.TextEncoding })
+    if (token !== conversionToken || mode !== sendMode.value || source !== sendData.value) return
+    setSendData(converted)
     error.value = null
   } catch (e: any) {
     error.value = e?.message ?? 'Convert send content failed'
@@ -125,7 +187,7 @@ onUnmounted(stopAutoSend)
 </script>
 
 <template>
-  <div class="send-panel">
+  <div class="send-panel" :style="terminalStyle">
     <div class="send-panel__compose">
       <div class="send-panel__toolbar">
         <NSelect
@@ -173,6 +235,7 @@ onUnmounted(stopAutoSend)
         type="textarea"
         size="small"
         :autosize="false"
+        @keydown="handleEditorKeydown"
       />
       <div v-if="error" class="send-panel__error">{{ error }}</div>
     </div>
@@ -240,11 +303,14 @@ onUnmounted(stopAutoSend)
 .send-panel__editor :deep(.n-input-wrapper),
 .send-panel__editor :deep(.n-input__textarea) {
   height: 100%;
+  font-family: var(--serial-terminal-font-family);
+  font-size: var(--serial-terminal-font-size);
 }
 .send-panel__editor :deep(textarea) {
   height: 100% !important;
   resize: none;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: var(--serial-terminal-font-family) !important;
+  font-size: var(--serial-terminal-font-size) !important;
 }
 .send-panel__history {
   width: 220px;

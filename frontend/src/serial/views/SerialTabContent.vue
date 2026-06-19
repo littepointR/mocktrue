@@ -5,14 +5,19 @@ import { useSerialStore } from '../stores/serialStore'
 import DataDisplay from './DataDisplay.vue'
 import SendPanel from './SendPanel.vue'
 import StatsPanel from './StatsPanel.vue'
+import { useSerialWorkspaceStore } from '../stores/workspaceStore'
 
 const props = defineProps<{
   handleId: string
 }>()
 
 const store = useSerialStore()
+const workspaceStore = useSerialWorkspaceStore()
 const handle = computed(() => store.handles.get(props.handleId))
-const showConfig = ref(false)
+const showConfig = computed({
+  get: () => workspaceStore.tabState(props.handleId).showConfig,
+  set: value => workspaceStore.updateTabState(props.handleId, { showConfig: value }),
+})
 const configSaving = ref(false)
 const baudRate = ref(115200)
 const dataBits = ref(8)
@@ -48,7 +53,10 @@ const flowOptions = [
 
 const minDisplayHeight = 120
 const minSendHeight = 48
-const sendHeight = ref(96)
+const sendHeight = computed({
+  get: () => workspaceStore.tabState(props.handleId).sendHeight,
+  set: value => workspaceStore.updateTabState(props.handleId, { sendHeight: value }),
+})
 const rootEl = ref<HTMLElement | null>(null)
 const isResizing = ref(false)
 
@@ -326,7 +334,7 @@ onUnmounted(stopResize)
   background: #007acc;
 }
 .serial-tab-content__send {
-  flex: 0 0 96px;
+  flex: 0 0 180px;
   min-height: 48px;
   background: #252526;
   overflow: hidden;

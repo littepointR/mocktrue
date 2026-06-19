@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { NButton, NForm, NFormItem, NSelect } from 'naive-ui'
+import { computed, ref } from 'vue'
+import { NAlert, NButton, NForm, NFormItem, NInput, NInputGroup, NSelect, NSpace } from 'naive-ui'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useWorkspaceFileStore } from '../../../workspace/stores/workspaceFileStore'
 
 const store = useSettingsStore()
+const workspaceFile = useWorkspaceFileStore()
 
 const themeOptions = [
   { label: '深色', value: 'dark' },
@@ -15,6 +17,42 @@ const theme = computed({
   get: () => store.global.Theme,
   set: value => store.updateGlobal({ Theme: value }),
 })
+const workspacePath = computed({
+  get: () => workspaceFile.currentPath,
+  set: value => workspaceFile.setPath(value),
+})
+const pendingAction = ref<string | null>(null)
+
+const isBusy = computed(() => pendingAction.value !== null)
+
+async function runWorkspaceAction(action: string, callback: () => Promise<unknown>) {
+  pendingAction.value = action
+  try {
+    await callback()
+  } finally {
+    pendingAction.value = null
+  }
+}
+
+async function selectWorkspacePath() {
+  await runWorkspaceAction('select', () => workspaceFile.selectOpenPath())
+}
+
+async function saveWorkspace() {
+  await runWorkspaceAction('save', () => workspaceFile.save())
+}
+
+async function saveWorkspaceAs() {
+  await runWorkspaceAction('saveAs', () => workspaceFile.saveAs())
+}
+
+async function importWorkspace() {
+  await runWorkspaceAction('import', () => workspaceFile.importSelected())
+}
+
+async function exportWorkspaceCopy() {
+  await runWorkspaceAction('export', () => workspaceFile.exportCopy())
+}
 </script>
 
 <template>
@@ -28,6 +66,59 @@ const theme = computed({
       <NFormItem label="主题">
         <NSelect v-model:value="theme" :options="themeOptions" />
       </NFormItem>
+      <NFormItem label="配置文件路径">
+        <NInputGroup>
+          <NInput v-model:value="workspacePath" placeholder="留空时保存到默认配置文件" />
+          <NButton
+            size="small"
+            :loading="pendingAction === 'select'"
+            :disabled="isBusy && pendingAction !== 'select'"
+            @click="selectWorkspacePath"
+          >
+            选择
+          </NButton>
+        </NInputGroup>
+      </NFormItem>
+      <NFormItem label="配置文件">
+        <NSpace>
+          <NButton
+            size="small"
+            type="primary"
+            :loading="pendingAction === 'save'"
+            :disabled="isBusy && pendingAction !== 'save'"
+            @click="saveWorkspace"
+          >
+            保存
+          </NButton>
+          <NButton
+            size="small"
+            :loading="pendingAction === 'saveAs'"
+            :disabled="isBusy && pendingAction !== 'saveAs'"
+            @click="saveWorkspaceAs"
+          >
+            另存为
+          </NButton>
+          <NButton
+            size="small"
+            :loading="pendingAction === 'import'"
+            :disabled="isBusy && pendingAction !== 'import'"
+            @click="importWorkspace"
+          >
+            导入
+          </NButton>
+          <NButton
+            size="small"
+            :loading="pendingAction === 'export'"
+            :disabled="isBusy && pendingAction !== 'export'"
+            @click="exportWorkspaceCopy"
+          >
+            导出副本
+          </NButton>
+        </NSpace>
+      </NFormItem>
+      <NAlert v-if="workspaceFile.lastError" type="error" closable @close="workspaceFile.setError(null)">
+        {{ workspaceFile.lastError }}
+      </NAlert>
     </NForm>
   </section>
 </template>

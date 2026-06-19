@@ -77,6 +77,29 @@ export const useSerialStore = defineStore('serial', () => {
     }
   }
 
+  async function openConfig(config: SerialConfig): Promise<string> {
+    const existing = Array.from(handles.value.values()).find(h =>
+      h.IsOpen && h.Config.PortName === config.PortName
+    )
+    if (existing) {
+      activePortId.value = existing.ID
+      error.value = null
+      return existing.ID
+    }
+
+    try {
+      const status = await serialService.openPort({ Config: config })
+      handles.value.set(status.ID, status)
+      activePortId.value = status.ID
+      error.value = null
+      startStatsPolling()
+      return status.ID
+    } catch (e: any) {
+      error.value = e?.message ?? 'Failed to open port'
+      throw e
+    }
+  }
+
   async function closePort(id: string) {
     try {
       await serialService.closePort(id)
@@ -157,6 +180,39 @@ export const useSerialStore = defineStore('serial', () => {
     }
   }
 
+  async function restoreCounters(id: string, rxBytes: number, txBytes: number) {
+    const handle = handles.value.get(id)
+    if (!handle) return
+    try {
+      await serialService.restoreCounters(id, rxBytes, txBytes)
+      handles.value.set(id, {
+        ...handle,
+        RxBytes: rxBytes,
+        TxBytes: txBytes,
+      })
+      error.value = null
+    } catch (e: any) {
+      error.value = e?.message ?? 'Failed to restore counters'
+      throw e
+    }
+  }
+
+  async function closeAllPorts() {
+    const ids = Array.from(handles.value.keys())
+    for (const id of ids) {
+      await closePort(id)
+    }
+    handles.value.clear()
+    activePortId.value = null
+    stopStatsPolling()
+  }
+
+  function clearLocalHandles() {
+    handles.value.clear()
+    activePortId.value = null
+    stopStatsPolling()
+  }
+
   async function refreshHandles() {
     try {
       const list = await serialService.listPorts()
@@ -224,12 +280,16 @@ export const useSerialStore = defineStore('serial', () => {
     refreshPorts,
     refreshHandles,
     openPort,
+    openConfig,
     closePort,
+    closeAllPorts,
     updatePortConfig,
     setActivePort,
     addRxBytes,
     addTxBytes,
     resetCounters,
+    restoreCounters,
+    clearLocalHandles,
     clearError,
     initEventListeners,
     stopStatsPolling,

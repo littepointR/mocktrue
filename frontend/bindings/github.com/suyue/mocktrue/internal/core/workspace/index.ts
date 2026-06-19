@@ -7,10 +7,6 @@ export {
 };
 
 export type {
-    BridgeInfo,
-    DecodeHexRequest,
-    EncodeTextRequest,
-    SendRequest,
-    VirtualPairInfo,
-    VirtualPortInfo
+    FileResult,
+    LastWorkspaceResult
 } from "./models.js";

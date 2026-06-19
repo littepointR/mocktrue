@@ -12,6 +12,22 @@ export interface BridgeInfo {
 }
 
 /**
+ * DecodeHexRequest bundles parameters for converting HEX to text.
+ */
+export interface DecodeHexRequest {
+    "Content": string;
+    "Encoding": string;
+}
+
+/**
+ * EncodeTextRequest bundles parameters for converting text to HEX.
+ */
+export interface EncodeTextRequest {
+    "Content": string;
+    "Encoding": string;
+}
+
+/**
  * SendRequest bundles parameters for sending data.
  */
 export interface SendRequest {
@@ -22,6 +38,7 @@ export interface SendRequest {
      * "ascii" or "hex"
      */
     "Mode": string;
+    "Encoding": string;
 }
 
 /**

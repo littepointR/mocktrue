@@ -14,9 +14,13 @@ export interface SerialModuleSettings {
   Parity: string
   FlowMode: string
   ReadBufKB: number
+  TerminalFontFamily: string
+  TerminalFontSize: number
+  TextEncoding: string
+  EnterString: string
 }
 
-interface SettingsSnapshot {
+export interface SettingsSnapshot {
   global: GlobalSettings
   serial: SerialModuleSettings
 }
@@ -32,6 +36,10 @@ export const defaultSerialSettings: SerialModuleSettings = {
   Parity: 'none',
   FlowMode: 'none',
   ReadBufKB: 32,
+  TerminalFontFamily: 'Consolas',
+  TerminalFontSize: 14,
+  TextEncoding: 'utf-8',
+  EnterString: '\n',
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -59,6 +67,19 @@ export const useSettingsStore = defineStore('settings', () => {
     persist()
   }
 
+  function snapshot(): SettingsSnapshot {
+    return {
+      global: { ...global.value },
+      serial: { ...serial.value },
+    }
+  }
+
+  function replaceSettings(next: Partial<SettingsSnapshot>) {
+    global.value = normalizeGlobalSettings(next.global)
+    serial.value = { ...defaultSerialSettings, ...(next.serial ?? {}) }
+    persist()
+  }
+
   function persist() {
     if (typeof localStorage === 'undefined') return
     const snapshot: SettingsSnapshot = {
@@ -75,6 +96,8 @@ export const useSettingsStore = defineStore('settings', () => {
     updateSerial,
     resetGlobal,
     resetSerial,
+    snapshot,
+    replaceSettings,
   }
 })
 

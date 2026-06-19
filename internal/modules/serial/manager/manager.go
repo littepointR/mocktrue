@@ -124,6 +124,25 @@ func (m *PortManager) ResetCounters(id string) error {
 	return nil
 }
 
+// RestoreCounters sets RX and TX byte counters for an open handle.
+func (m *PortManager) RestoreCounters(id string, rxBytes int64, txBytes int64) error {
+	if id == "" {
+		return errors.New(errors.CodeInvalid, "handle ID must not be empty")
+	}
+	if rxBytes < 0 || txBytes < 0 {
+		return errors.New(errors.CodeInvalid, "counters must not be negative")
+	}
+
+	m.mu.RLock()
+	h, ok := m.handles[id]
+	m.mu.RUnlock()
+	if !ok {
+		return errors.New(errors.CodeNotFound, fmt.Sprintf("handle not found: %s", id))
+	}
+	h.restoreCounters(rxBytes, txBytes)
+	return nil
+}
+
 // List returns a snapshot of all open handles. Returns empty slice (not nil)
 // if no handles are open.
 func (m *PortManager) List() []HandleStatus {

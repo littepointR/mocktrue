@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { NConfigProvider, darkTheme, lightTheme, type GlobalThemeOverrides } from 'naive-ui'
 import ActivityBar from './shell/ActivityBar.vue'
 import Sidebar from './shell/Sidebar.vue'
@@ -8,13 +8,17 @@ import Panel from './shell/Panel.vue'
 import StatusBar from './shell/StatusBar.vue'
 import { useRegistry } from './core/registry'
 import { useSettingsStore } from './settings'
+import { useWorkspaceFileStore } from './workspace/stores/workspaceFileStore'
+import { buildWorkspaceSnapshot } from './workspace/workspaceSession'
 
 const registry = useRegistry()
 const settings = useSettingsStore()
+const workspaceFile = useWorkspaceFileStore()
 const contributions = computed(() => registry.list())
 const activeId = registry.active
 const activeViewId = registry.activeView
 const activeViewVersion = registry.activeViewVersion
+const workspaceReady = ref(false)
 
 const effectiveTheme = computed(() => {
   if (settings.global.Theme === 'system') {
@@ -72,6 +76,28 @@ const lightThemeOverrides: GlobalThemeOverrides = {
 }
 
 const themeOverrides = computed(() => effectiveTheme.value === 'light' ? lightThemeOverrides : darkThemeOverrides)
+
+onMounted(async () => {
+  try {
+    const loaded = await workspaceFile.loadLast()
+    if (!loaded) {
+      workspaceFile.markClean('', buildWorkspaceSnapshot())
+    }
+  } catch {
+    workspaceFile.markClean('', buildWorkspaceSnapshot())
+  } finally {
+    workspaceReady.value = true
+  }
+})
+
+watch(
+  () => buildWorkspaceSnapshot(),
+  snapshot => {
+    if (!workspaceReady.value) return
+    workspaceFile.updateCurrentSnapshot(snapshot)
+  },
+  { deep: true }
+)
 </script>
 
 <template>
@@ -98,7 +124,11 @@ const themeOverrides = computed(() => effectiveTheme.value === 'light' ? lightTh
         />
       </div>
       <Panel />
-      <StatusBar :active-id="activeId" />
+      <StatusBar
+        :active-id="activeId"
+        :dirty="workspaceFile.isDirty"
+        :config-path="workspaceFile.currentPath"
+      />
     </div>
   </NConfigProvider>
 </template>

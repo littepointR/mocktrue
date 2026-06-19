@@ -59,9 +59,10 @@ type portIDArgs struct {
 }
 
 type sendArgs struct {
-	PortID  string `json:"port_id"`
-	Content string `json:"content"`
-	Mode    string `json:"mode,omitempty"`
+	PortID   string `json:"port_id"`
+	Content  string `json:"content"`
+	Mode     string `json:"mode,omitempty"`
+	Encoding string `json:"encoding,omitempty"`
 }
 
 type queryBufferArgs struct {
@@ -152,9 +153,10 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 			mode = "ascii"
 		}
 		written, err := serialService.Send(serial.SendRequest{
-			PortID:  args.PortID,
-			Content: args.Content,
-			Mode:    mode,
+			PortID:   args.PortID,
+			Content:  args.Content,
+			Mode:     mode,
+			Encoding: args.Encoding,
 		})
 		if err != nil {
 			return nil, nil, err

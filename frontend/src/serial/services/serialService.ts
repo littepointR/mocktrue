@@ -4,6 +4,7 @@ import {
   ClosePort,
   ListPorts,
   ResetCounters,
+  RestoreCounters,
 } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 
 import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
@@ -53,6 +54,10 @@ export class SerialService {
    */
   async resetCounters(id: string): Promise<void> {
     await ResetCounters(id)
+  }
+
+  async restoreCounters(id: string, rxBytes: number, txBytes: number): Promise<void> {
+    await RestoreCounters(id, rxBytes, txBytes)
   }
 }
 

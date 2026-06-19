@@ -12,8 +12,7 @@ import type {
 import PortConfigPanel from './PortConfigPanel.vue'
 import VirtualPairPanel from './VirtualPairPanel.vue'
 import BridgePanel from './BridgePanel.vue'
-
-type Operation = 'open' | 'virtual' | 'bridge'
+import { useSerialWorkspaceStore, type SerialOperation } from '../stores/workspaceStore'
 
 const props = defineProps<{
   activeViewId: string | null
@@ -22,10 +21,20 @@ const props = defineProps<{
 
 const serialStore = useSerialStore()
 const bufferStore = useBufferStore()
+const workspaceStore = useSerialWorkspaceStore()
 
-const editorLayout = ref<EditorLayoutTreeNode>({ type: 'group', id: 'group-1', tabs: [] })
-const selectedOperation = ref<Operation | null>(null)
-const activeByGroup = ref<Record<string, string | null>>({ 'group-1': null })
+const editorLayout = computed({
+  get: () => workspaceStore.editorLayout,
+  set: value => workspaceStore.setEditorLayout(value),
+})
+const selectedOperation = computed({
+  get: () => workspaceStore.selectedOperation,
+  set: value => workspaceStore.setSelectedOperation(value),
+})
+const activeByGroup = computed({
+  get: () => workspaceStore.activeByGroup,
+  set: value => workspaceStore.setActiveByGroup(value),
+})
 const dragState = ref<{
   handleId: string
   sourceGroupId: string
@@ -55,7 +64,7 @@ const tabs = computed(() => serialStore.openHandles.map(h => ({
   name: h.Config.PortName,
 })))
 
-function operationFromView(viewId: string | null): Operation | null {
+function operationFromView(viewId: string | null): SerialOperation | null {
   switch (viewId) {
     case 'serial.virtual':
       return 'virtual'

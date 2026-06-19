@@ -7,6 +7,7 @@ import {
   CreateBridge,
   DeleteBridge,
   ListBridges,
+  CleanupVirtual,
 } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 
 export interface VirtualPort {
@@ -92,6 +93,18 @@ export const useVirtualStore = defineStore('virtual', () => {
     }
   }
 
+  async function cleanupAllResources() {
+    try {
+      await CleanupVirtual()
+      virtualPorts.value = []
+      bridges.value = []
+      error.value = null
+    } catch (e: any) {
+      error.value = e?.message ?? 'Failed to cleanup virtual resources'
+      throw e
+    }
+  }
+
   function clearError() {
     error.value = null
   }
@@ -106,6 +119,7 @@ export const useVirtualStore = defineStore('virtual', () => {
     deleteVirtualPort,
     createBridge,
     deleteBridge,
+    cleanupAllResources,
     clearError,
   }
 })

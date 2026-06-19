@@ -12,6 +12,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/module"
 	"github.com/suyue/mocktrue/internal/core/platform"
 	runtimemetrics "github.com/suyue/mocktrue/internal/core/runtime"
+	"github.com/suyue/mocktrue/internal/core/workspace"
 	"github.com/suyue/mocktrue/internal/modules/mcpserver"
 	"github.com/suyue/mocktrue/internal/modules/serial"
 )
@@ -58,6 +59,7 @@ func main() {
 		Registry:    reg,
 		ExtraServices: []application.Service{
 			application.NewService(runtimemetrics.NewService()),
+			application.NewService(workspace.NewService(paths)),
 		},
 	})
 	if err != nil {

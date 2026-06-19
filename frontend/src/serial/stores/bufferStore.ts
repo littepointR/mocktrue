@@ -9,6 +9,11 @@ export interface BufferChunk {
   data: Uint8Array
 }
 
+export interface SerializableBufferChunk {
+  timestamp: number
+  data: number[]
+}
+
 export const useBufferStore = defineStore('buffer', () => {
   const buffers = ref<Map<string, Uint8Array>>(new Map())
   const chunks = ref<Map<string, BufferChunk[]>>(new Map())
@@ -50,6 +55,41 @@ export const useBufferStore = defineStore('buffer', () => {
     chunks.value.delete(portId)
   }
 
+  function clearAll() {
+    buffers.value.clear()
+    chunks.value.clear()
+  }
+
+  function exportChunks(): Record<string, SerializableBufferChunk[]> {
+    return Object.fromEntries(Array.from(chunks.value.entries()).map(([portId, list]) => [
+      portId,
+      list.map(chunk => ({
+        timestamp: chunk.timestamp,
+        data: Array.from(chunk.data),
+      })),
+    ]))
+  }
+
+  function restoreChunks(next: Record<string, SerializableBufferChunk[]>) {
+    clearAll()
+    for (const [portId, list] of Object.entries(next)) {
+      const restoredChunks = list.map(chunk => ({
+        timestamp: chunk.timestamp,
+        data: new Uint8Array(chunk.data),
+      }))
+      chunks.value.set(portId, restoredChunks)
+
+      const total = restoredChunks.reduce((sum, chunk) => sum + chunk.data.length, 0)
+      const combined = new Uint8Array(total)
+      let offset = 0
+      for (const chunk of restoredChunks) {
+        combined.set(chunk.data, offset)
+        offset += chunk.data.length
+      }
+      buffers.value.set(portId, combined)
+    }
+  }
+
   let unsubscribe: (() => void) | null = null
 
   function initEventListeners() {
@@ -71,6 +111,9 @@ export const useBufferStore = defineStore('buffer', () => {
     getBuffer,
     getChunks,
     clearBuffer,
+    clearAll,
+    exportChunks,
+    restoreChunks,
     initEventListeners,
     cleanup,
   }

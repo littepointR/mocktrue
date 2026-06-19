@@ -83,6 +83,13 @@ func (h *Handle) resetCounters() {
 	h.mu.Unlock()
 }
 
+func (h *Handle) restoreCounters(rxBytes int64, txBytes int64) {
+	h.mu.Lock()
+	h.rxBytes = rxBytes
+	h.txBytes = txBytes
+	h.mu.Unlock()
+}
+
 // readLoop reads bytes from the port and emits DataEvents. It runs until
 // the context is cancelled or the port is closed.
 func (h *Handle) readLoop(ctx context.Context) {

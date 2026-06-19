@@ -2,6 +2,10 @@
 import { ref, computed, nextTick, watch } from 'vue'
 import { NSelect, NSpace, NSwitch } from 'naive-ui'
 import { useBufferStore } from '../stores/bufferStore'
+import { useSettingsStore } from '../../settings/stores/settingsStore'
+import { decodeSerialText } from '../utils/textEncoding'
+import { serialTerminalStyle } from '../utils/terminalStyle'
+import { useSerialWorkspaceStore, type ReceiveLayoutMode, type ReceiveViewMode } from '../stores/workspaceStore'
 
 const props = defineProps<{
   handleId: string
@@ -11,19 +15,40 @@ type ViewMode = 'ascii' | 'hexClassic' | 'hexTable'
 type LayoutMode = 'combined' | 'split'
 
 const bufferStore = useBufferStore()
-const viewMode = ref<ViewMode>('ascii')
-const layoutMode = ref<LayoutMode>('combined')
-const showTimestamp = ref(true)
-const autoScroll = ref(true)
+const settingsStore = useSettingsStore()
+const workspaceStore = useSerialWorkspaceStore()
 const contentEl = ref<HTMLElement | null>(null)
+
+const viewMode = computed({
+  get: () => workspaceStore.tabState(props.handleId).dataDisplay.viewMode,
+  set: value => workspaceStore.updateTabState(props.handleId, { dataDisplay: { viewMode: value as ReceiveViewMode } }),
+})
+const layoutMode = computed({
+  get: () => workspaceStore.tabState(props.handleId).dataDisplay.layoutMode,
+  set: value => workspaceStore.updateTabState(props.handleId, { dataDisplay: { layoutMode: value as ReceiveLayoutMode } }),
+})
+const showTimestamp = computed({
+  get: () => workspaceStore.tabState(props.handleId).dataDisplay.showTimestamp,
+  set: value => workspaceStore.updateTabState(props.handleId, { dataDisplay: { showTimestamp: value } }),
+})
+const autoScroll = computed({
+  get: () => workspaceStore.tabState(props.handleId).dataDisplay.autoScroll,
+  set: value => workspaceStore.updateTabState(props.handleId, { dataDisplay: { autoScroll: value } }),
+})
 
 const buffer = computed(() => bufferStore.getBuffer(props.handleId))
 const chunks = computed(() => bufferStore.getChunks(props.handleId))
-const decoder = new TextDecoder()
 
 const displayText = computed(() => {
-  return decoder.decode(buffer.value)
+  return decodeSerialText(buffer.value, settingsStore.serial.TextEncoding)
 })
+
+const terminalStyle = computed(() => ({
+  ...serialTerminalStyle(
+    settingsStore.serial.TerminalFontFamily,
+    settingsStore.serial.TerminalFontSize,
+  ),
+}))
 
 const asciiLines = computed(() => {
   if (!showTimestamp.value) {
@@ -31,7 +56,7 @@ const asciiLines = computed(() => {
   }
   return chunks.value.map((chunk, index) => ({
     key: `${chunk.timestamp}-${index}`,
-    text: decoder.decode(chunk.data),
+    text: decodeSerialText(chunk.data, settingsStore.serial.TextEncoding),
     timestamp: formatTimestamp(chunk.timestamp),
   }))
 })
@@ -81,7 +106,7 @@ watch(
 </script>
 
 <template>
-  <div class="data-display">
+  <div class="data-display" :style="terminalStyle">
     <div class="data-display__controls">
       <NSpace align="center" size="small">
         <NSelect
@@ -172,8 +197,8 @@ watch(
 .data-display__content {
   flex: 1;
   overflow-y: auto;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 13px;
+  font-family: var(--serial-terminal-font-family);
+  font-size: var(--serial-terminal-font-size);
 }
 .data-display__content.split {
   display: flex;
@@ -185,9 +210,9 @@ watch(
 }
 .ascii-content {
   margin: 0;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 14px;
   color: #4ec9b0;
+  font-family: var(--serial-terminal-font-family);
+  font-size: var(--serial-terminal-font-size);
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -207,6 +232,8 @@ watch(
 .hex-row {
   padding: 2px 0;
   color: #4ec9b0;
+  font-family: var(--serial-terminal-font-family);
+  font-size: var(--serial-terminal-font-size);
 }
 .hex-addr {
   color: #858585;

@@ -60,6 +60,13 @@ export function CreateVirtualPort(id: string, portName: string): $CancellablePro
 }
 
 /**
+ * DecodeHexToText converts formatted HEX to text using the requested encoding.
+ */
+export function DecodeHexToText(req: $models.DecodeHexRequest): $CancellablePromise<string> {
+    return $Call.ByID(4017514483, req);
+}
+
+/**
  * DeleteBridge removes a bridge.
  */
 export function DeleteBridge(id: string): $CancellablePromise<void> {
@@ -81,6 +88,13 @@ export function DeleteVirtualPort(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * EncodeTextToHex converts text to formatted HEX using the requested encoding.
+ */
+export function EncodeTextToHex(req: $models.EncodeTextRequest): $CancellablePromise<string> {
+    return $Call.ByID(878865759, req);
+}
+
+/**
  * EnumeratePorts returns available serial ports.
  */
 export function EnumeratePorts(): $CancellablePromise<port$0.PortInfo[] | null> {
@@ -99,6 +113,13 @@ export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> 
  */
 export function ListPorts(): $CancellablePromise<manager$0.HandleStatus[] | null> {
     return $Call.ByID(2409741650);
+}
+
+/**
+ * ListSystemFonts returns available font family candidates for terminal display.
+ */
+export function ListSystemFonts(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(887368283);
 }
 
 /**
@@ -141,6 +162,13 @@ export function QueryPage(portID: string, offset: number, length: number): $Canc
  */
 export function ResetCounters(portID: string): $CancellablePromise<void> {
     return $Call.ByID(4017649972, portID);
+}
+
+/**
+ * RestoreCounters sets RX and TX byte counters for an open port handle.
+ */
+export function RestoreCounters(portID: string, rxBytes: number, txBytes: number): $CancellablePromise<void> {
+    return $Call.ByID(3925129033, portID, rxBytes, txBytes);
 }
 
 /**

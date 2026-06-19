@@ -98,4 +98,20 @@ describe('StatusBar', () => {
 
     expect(wrapper.find('.status-bar__config').text()).toBe('配置 未指定')
   })
+
+  it('renders a readonly demo source as the current config location', () => {
+    const wrapper = mount(StatusBar, {
+      props: {
+        activeId: 'settings',
+        configPath: 'Demo: 串口监控演示',
+        runtimeMetrics: {
+          CPUPercent: 0,
+          MemoryBytes: 0,
+        },
+      },
+    })
+
+    expect(wrapper.find('.status-bar__config').text()).toBe('配置 Demo: 串口监控演示')
+    expect(wrapper.find('.status-bar__config').attributes('title')).toBe('Demo: 串口监控演示')
+  })
 })

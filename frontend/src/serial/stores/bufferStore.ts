@@ -73,21 +73,25 @@ export const useBufferStore = defineStore('buffer', () => {
   function restoreChunks(next: Record<string, SerializableBufferChunk[]>) {
     clearAll()
     for (const [portId, list] of Object.entries(next)) {
-      const restoredChunks = list.map(chunk => ({
-        timestamp: chunk.timestamp,
-        data: new Uint8Array(chunk.data),
-      }))
-      chunks.value.set(portId, restoredChunks)
-
-      const total = restoredChunks.reduce((sum, chunk) => sum + chunk.data.length, 0)
-      const combined = new Uint8Array(total)
-      let offset = 0
-      for (const chunk of restoredChunks) {
-        combined.set(chunk.data, offset)
-        offset += chunk.data.length
-      }
-      buffers.value.set(portId, combined)
+      restorePortChunks(portId, list)
     }
+  }
+
+  function restorePortChunks(portId: string, list: SerializableBufferChunk[]) {
+    const restoredChunks = list.map(chunk => ({
+      timestamp: chunk.timestamp,
+      data: new Uint8Array(chunk.data),
+    }))
+    chunks.value.set(portId, restoredChunks)
+
+    const total = restoredChunks.reduce((sum, chunk) => sum + chunk.data.length, 0)
+    const combined = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of restoredChunks) {
+      combined.set(chunk.data, offset)
+      offset += chunk.data.length
+    }
+    buffers.value.set(portId, combined)
   }
 
   let unsubscribe: (() => void) | null = null
@@ -114,6 +118,7 @@ export const useBufferStore = defineStore('buffer', () => {
     clearAll,
     exportChunks,
     restoreChunks,
+    restorePortChunks,
     initEventListeners,
     cleanup,
   }

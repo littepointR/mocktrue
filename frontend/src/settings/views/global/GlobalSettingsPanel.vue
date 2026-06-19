@@ -3,9 +3,16 @@ import { computed, ref } from 'vue'
 import { NAlert, NButton, NForm, NFormItem, NInput, NInputGroup, NSelect, NSpace } from 'naive-ui'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useWorkspaceFileStore } from '../../../workspace/stores/workspaceFileStore'
+import { useRegistry } from '../../../core/registry'
 
 const store = useSettingsStore()
 const workspaceFile = useWorkspaceFileStore()
+const registry = useRegistry()
+const demoOptions = workspaceFile.listDemos().map(demo => ({
+  label: demo.title,
+  value: demo.id,
+}))
+const selectedDemoId = ref(demoOptions[0]?.value ?? '')
 
 const themeOptions = [
   { label: '深色', value: 'dark' },
@@ -53,6 +60,16 @@ async function importWorkspace() {
 async function exportWorkspaceCopy() {
   await runWorkspaceAction('export', () => workspaceFile.exportCopy())
 }
+
+async function loadDemoWorkspace() {
+  if (!selectedDemoId.value) return
+  await runWorkspaceAction('demo', async () => {
+    await workspaceFile.loadDemo(selectedDemoId.value)
+    if (registry.list().some(item => item.moduleId === 'serial')) {
+      registry.setActive('serial')
+    }
+  })
+}
 </script>
 
 <template>
@@ -85,7 +102,7 @@ async function exportWorkspaceCopy() {
             size="small"
             type="primary"
             :loading="pendingAction === 'save'"
-            :disabled="isBusy && pendingAction !== 'save'"
+            :disabled="!workspaceFile.canSaveDirectly || (isBusy && pendingAction !== 'save')"
             @click="saveWorkspace"
           >
             保存
@@ -116,6 +133,23 @@ async function exportWorkspaceCopy() {
           </NButton>
         </NSpace>
       </NFormItem>
+      <NFormItem label="Demo 配置">
+        <NInputGroup>
+          <NSelect v-model:value="selectedDemoId" :options="demoOptions" />
+          <NButton
+            data-testid="load-demo"
+            size="small"
+            :loading="pendingAction === 'demo'"
+            :disabled="!selectedDemoId || (isBusy && pendingAction !== 'demo')"
+            @click="loadDemoWorkspace"
+          >
+            加载 Demo
+          </NButton>
+        </NInputGroup>
+        <p v-if="workspaceFile.readonly" class="settings-panel__hint">
+          只读 Demo，使用另存为后可编辑保存。
+        </p>
+      </NFormItem>
       <NAlert v-if="workspaceFile.lastError" type="error" closable @close="workspaceFile.setError(null)">
         {{ workspaceFile.lastError }}
       </NAlert>
@@ -144,5 +178,10 @@ async function exportWorkspaceCopy() {
 .settings-panel__form {
   display: grid;
   gap: 4px;
+}
+.settings-panel__hint {
+  margin: 8px 0 0;
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
 }
 </style>

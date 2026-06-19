@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { stableStringify } from '../workspaceSnapshot'
+import { base64ToBytes, stableStringify, type WorkspaceSnapshot } from '../workspaceSnapshot'
 import {
   DefaultWorkspacePath,
   ExportWorkspace,
@@ -12,20 +12,34 @@ import {
   SelectWorkspaceSavePath,
 } from '../../../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js'
 import { buildWorkspaceSnapshot, restoreWorkspaceSnapshot } from '../workspaceSession'
+import { createDemoWorkspaceSnapshot, getDemoWorkspace, listDemoWorkspaces } from '../demoWorkspaces'
+import { useBufferStore } from '../../serial/stores/bufferStore'
+import { useSerialStore } from '../../serial/stores/serialStore'
+
+type WorkspaceSourceKind = 'empty' | 'file' | 'demo'
 
 export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   const currentPath = ref('')
   const savedSnapshot = ref('')
   const currentSnapshot = ref('')
   const lastError = ref<string | null>(null)
+  const sourceKind = ref<WorkspaceSourceKind>('empty')
+  const readonly = ref(false)
+  const currentDemoId = ref('')
+  const currentDemoTitle = ref('')
 
   const isDirty = computed(() => currentSnapshot.value !== savedSnapshot.value)
+  const displayPath = computed(() => {
+    if (sourceKind.value === 'demo') {
+      return `Demo: ${currentDemoTitle.value || currentDemoId.value}`
+    }
+    return currentPath.value
+  })
+  const canSaveDirectly = computed(() => !readonly.value)
 
   function markClean(path: string, snapshot: unknown) {
-    currentPath.value = path
-    const serialized = stableStringify(snapshot)
-    savedSnapshot.value = serialized
-    currentSnapshot.value = serialized
+    setEditableSource(path)
+    markSnapshotClean(snapshot)
     lastError.value = null
   }
 
@@ -39,16 +53,26 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
 
   function setPath(path: string) {
     currentPath.value = path
+    if (sourceKind.value === 'demo') return
+    sourceKind.value = path ? 'file' : 'empty'
+    readonly.value = false
+    currentDemoId.value = ''
+    currentDemoTitle.value = ''
   }
 
   function setError(message: string | null) {
     lastError.value = message
   }
 
-  async function save(path = currentPath.value): Promise<string> {
+  async function save(path?: string): Promise<string> {
+    if (readonly.value && !path) {
+      const error = new Error('Demo 配置为只读，请使用另存为')
+      setError(error.message)
+      throw error
+    }
     try {
       const snapshot = buildWorkspaceSnapshot()
-      const targetPath = path || await DefaultWorkspacePath()
+      const targetPath = (path ?? currentPath.value) || await DefaultWorkspacePath()
       await SaveWorkspace(targetPath, stableStringify(snapshot))
       markClean(targetPath, snapshot)
       return targetPath
@@ -135,10 +159,87 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     }
   }
 
+  async function loadDemo(demoId: string) {
+    try {
+      const demo = getDemoWorkspace(demoId)
+      const snapshot = createDemoWorkspaceSnapshot(demoId)
+      if (!demo || !snapshot) {
+        throw new Error(`Unknown demo workspace: ${demoId}`)
+      }
+      const result = await restoreWorkspaceSnapshot(snapshot)
+      restoreDemoDisplayFallback(snapshot, result.handleMap)
+      currentPath.value = ''
+      sourceKind.value = 'demo'
+      readonly.value = true
+      currentDemoId.value = demo.id
+      currentDemoTitle.value = demo.title
+      markSnapshotClean(buildWorkspaceSnapshot())
+      lastError.value = null
+      return result
+    } catch (e: any) {
+      setError(e?.message ?? 'Load demo workspace failed')
+      throw e
+    }
+  }
+
+  function setEditableSource(path: string) {
+    currentPath.value = path
+    sourceKind.value = path ? 'file' : 'empty'
+    readonly.value = false
+    currentDemoId.value = ''
+    currentDemoTitle.value = ''
+  }
+
+  function markSnapshotClean(snapshot: unknown) {
+    const serialized = stableStringify(snapshot)
+    savedSnapshot.value = serialized
+    currentSnapshot.value = serialized
+  }
+
+  function restoreDemoDisplayFallback(snapshot: WorkspaceSnapshot, handleMap: Record<string, string>) {
+    const serialStore = useSerialStore()
+    const bufferStore = useBufferStore()
+
+    for (const handle of snapshot.serial.handles) {
+      if (!handle.isOpen) continue
+      const targetId = handleMap[handle.id] ?? handle.id
+      if (!serialStore.handles.has(targetId)) {
+        serialStore.restoreDemoHandle({
+          ID: targetId,
+          Config: handle.config,
+          IsOpen: true,
+          RxBytes: handle.rxBytes,
+          TxBytes: handle.txBytes,
+        })
+      }
+
+      const chunks = snapshot.serial.buffers[handle.id]
+      if (chunks) {
+        bufferStore.restorePortChunks(targetId, chunks.map(chunk => ({
+          timestamp: chunk.timestamp,
+          data: Array.from(base64ToBytes(chunk.data)),
+        })))
+      }
+    }
+
+    if (snapshot.serial.activePortId) {
+      const activeId = handleMap[snapshot.serial.activePortId] ?? snapshot.serial.activePortId
+      if (serialStore.handles.has(activeId)) {
+        serialStore.setActivePort(activeId)
+      }
+    }
+  }
+
   return {
     currentPath,
     lastError,
+    sourceKind,
+    readonly,
+    currentDemoId,
+    currentDemoTitle,
     isDirty,
+    displayPath,
+    canSaveDirectly,
     markClean,
     updateCurrentSnapshot,
     markDirty,
@@ -151,5 +252,7 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     importSelected,
     exportCopy,
     loadLast,
+    loadDemo,
+    listDemos: listDemoWorkspaces,
   }
 })

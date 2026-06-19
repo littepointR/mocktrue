@@ -127,7 +127,7 @@ watch(
       <StatusBar
         :active-id="activeId"
         :dirty="workspaceFile.isDirty"
-        :config-path="workspaceFile.currentPath"
+        :config-path="workspaceFile.displayPath"
       />
     </div>
   </NConfigProvider>

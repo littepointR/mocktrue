@@ -5,10 +5,12 @@ import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/inter
 import type { HandleStatus } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models.js'
 import type { SerialConfig } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
 
+export type LocalHandleStatus = HandleStatus & { DemoOnly?: boolean }
+
 export const useSerialStore = defineStore('serial', () => {
   // State
   const ports = ref<PortInfo[]>([])
-  const handles = ref<Map<string, HandleStatus>>(new Map())
+  const handles = ref<Map<string, LocalHandleStatus>>(new Map())
   const activePortId = ref<string | null>(null)
   const error = ref<string | null>(null)
 
@@ -101,6 +103,16 @@ export const useSerialStore = defineStore('serial', () => {
   }
 
   async function closePort(id: string) {
+    const local = handles.value.get(id)
+    if (local?.DemoOnly) {
+      handles.value.delete(id)
+      if (activePortId.value === id) {
+        activePortId.value = openHandles.value[0]?.ID ?? null
+      }
+      error.value = null
+      return
+    }
+
     try {
       await serialService.closePort(id)
       handles.value.delete(id)
@@ -110,7 +122,7 @@ export const useSerialStore = defineStore('serial', () => {
       error.value = null
 
       // Stop polling if no open handles remain
-      if (handles.value.size === 0) {
+      if (!hasRealOpenHandles()) {
         stopStatsPolling()
       }
     } catch (e: any) {
@@ -123,6 +135,12 @@ export const useSerialStore = defineStore('serial', () => {
     const current = handles.value.get(id)
     if (!current) {
       throw new Error(`unknown port handle: ${id}`)
+    }
+    if (current.DemoOnly) {
+      handles.value.set(id, { ...current, Config: nextConfig })
+      activePortId.value = id
+      error.value = null
+      return id
     }
 
     try {
@@ -166,6 +184,15 @@ export const useSerialStore = defineStore('serial', () => {
   async function resetCounters(id: string) {
     const handle = handles.value.get(id)
     if (!handle) return
+    if (handle.DemoOnly) {
+      handles.value.set(id, {
+        ...handle,
+        RxBytes: 0,
+        TxBytes: 0,
+      })
+      error.value = null
+      return
+    }
     try {
       await serialService.resetCounters(id)
       handles.value.set(id, {
@@ -183,6 +210,15 @@ export const useSerialStore = defineStore('serial', () => {
   async function restoreCounters(id: string, rxBytes: number, txBytes: number) {
     const handle = handles.value.get(id)
     if (!handle) return
+    if (handle.DemoOnly) {
+      handles.value.set(id, {
+        ...handle,
+        RxBytes: rxBytes,
+        TxBytes: txBytes,
+      })
+      error.value = null
+      return
+    }
     try {
       await serialService.restoreCounters(id, rxBytes, txBytes)
       handles.value.set(id, {
@@ -213,6 +249,12 @@ export const useSerialStore = defineStore('serial', () => {
     stopStatsPolling()
   }
 
+  function restoreDemoHandle(status: HandleStatus) {
+    handles.value.set(status.ID, { ...status, DemoOnly: true })
+    activePortId.value = status.ID
+    error.value = null
+  }
+
   async function refreshHandles() {
     try {
       const list = await serialService.listPorts()
@@ -230,7 +272,7 @@ export const useSerialStore = defineStore('serial', () => {
   }
 
   function startStatsPolling() {
-    if (statsInterval) return
+    if (statsInterval || !hasRealOpenHandles()) return
     statsInterval = window.setInterval(async () => {
       try {
         const list = await serialService.listPorts()
@@ -261,9 +303,13 @@ export const useSerialStore = defineStore('serial', () => {
   function initEventListeners() {
     // Event listeners are handled by bufferStore
     // This function ensures stats polling is started if there are open ports
-    if (handles.value.size > 0) {
+    if (hasRealOpenHandles()) {
       startStatsPolling()
     }
+  }
+
+  function hasRealOpenHandles(): boolean {
+    return Array.from(handles.value.values()).some(handle => handle.IsOpen && !handle.DemoOnly)
   }
 
   function cleanup() {
@@ -290,6 +336,7 @@ export const useSerialStore = defineStore('serial', () => {
     resetCounters,
     restoreCounters,
     clearLocalHandles,
+    restoreDemoHandle,
     clearError,
     initEventListeners,
     stopStatsPolling,

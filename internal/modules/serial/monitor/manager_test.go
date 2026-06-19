@@ -2,9 +2,6 @@ package monitor
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -29,11 +26,13 @@ func TestManagerRejectsInvalidStartRequests(t *testing.T) {
 	}
 }
 
-func TestManagerQueriesAndExportsSeededFrames(t *testing.T) {
+func TestManagerQueriesSeededFrames(t *testing.T) {
 	t.Parallel()
+	firstAt := time.Date(2026, 6, 20, 9, 30, 0, 123000000, time.UTC)
+	secondAt := firstAt.Add(time.Second)
 	session := newSession(StartRequest{ID: "m1", PortA: "a", PortB: "b", Provider: ProviderBridge})
-	session.appendFrame(DirectionAToB, "a", []byte("alpha"))
-	session.appendFrame(DirectionBToA, "b", []byte("beta"))
+	session.appendFrame(DirectionAToB, "a", []byte("alpha"), firstAt)
+	session.appendFrame(DirectionBToA, "b", []byte("beta"), secondAt)
 
 	mgr := NewManager()
 	mgr.sessions["m1"] = session
@@ -45,17 +44,8 @@ func TestManagerQueriesAndExportsSeededFrames(t *testing.T) {
 	if page.Total != 1 || page.Frames[0].Direction != DirectionBToA {
 		t.Fatalf("page = %+v, want one b_to_a frame", page)
 	}
-
-	path := filepath.Join(t.TempDir(), "capture.csv")
-	if _, err := mgr.Export(ExportRequest{MonitorID: "m1", Format: ExportCSV, Path: path}); err != nil {
-		t.Fatalf("Export: %v", err)
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if !strings.Contains(string(content), "alpha") || !strings.Contains(string(content), "beta") {
-		t.Fatalf("export = %s, want both frames", string(content))
+	if !page.Frames[0].Timestamp.Equal(secondAt) {
+		t.Fatalf("timestamp = %s, want captured read time %s", page.Frames[0].Timestamp, secondAt)
 	}
 }
 

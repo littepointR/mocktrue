@@ -21,10 +21,18 @@ func enrichFrame(frame Frame, encoding string) Frame {
 	frame.DisplayDec = joinBytes(frame.Data, 10, "%d")
 	frame.DisplayOct = joinBytes(frame.Data, 8, "%03o")
 	frame.DisplayBin = joinBytes(frame.Data, 2, "%08b")
-	if parsed := ParseModbus(frame.Data); parsed != nil {
-		frame.Modbus = parsed
-	}
 	return frame
+}
+
+func displayDirection(direction string) string {
+	switch direction {
+	case DirectionAToB:
+		return "接收"
+	case DirectionBToA:
+		return "发送"
+	default:
+		return direction
+	}
 }
 
 func normalizeEncoding(encoding string) string {

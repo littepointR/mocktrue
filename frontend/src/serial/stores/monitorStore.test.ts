@@ -1,16 +1,15 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useMonitorStore, defaultMonitorAutoSave } from './monitorStore'
+import { useMonitorStore } from './monitorStore'
 import type { Frame, SessionInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/monitor/models.js'
 
 const bindings = vi.hoisted(() => ({
   StartMonitor: vi.fn(),
+  StartAutoVirtualMonitor: vi.fn(),
   StopMonitor: vi.fn(),
   DeleteMonitor: vi.fn(),
   ListMonitors: vi.fn(),
   QueryMonitorFrames: vi.fn(),
-  ExportMonitor: vi.fn(),
-  SetMonitorAutoSave: vi.fn(),
   ClearMonitorFrames: vi.fn(),
 }))
 
@@ -50,12 +49,42 @@ describe('monitor store', () => {
     }))
   })
 
+  it('starts an auto virtual monitor from a single source port', async () => {
+    const session = {
+      ...sampleSession('mon-auto'),
+      PortA: '/dev/tty.usbserial',
+      PortB: '/tmp/mocktrue-tty-usbserial',
+      ExternalPort: '/tmp/mocktrue-tty-usbserial',
+      AutoVirtualPortID: 'mon-auto-virtual',
+    }
+    bindings.StartAutoVirtualMonitor.mockResolvedValue(session)
+    const store = useMonitorStore()
+
+    const id = await store.startAutoVirtualMonitor({
+      id: 'mon-auto',
+      name: 'USB 串口监听',
+      sourcePort: '/dev/tty.usbserial',
+      baudRate: 115200,
+      encoding: 'utf-8',
+    })
+
+    expect(id).toBe('mon-auto')
+    expect(store.sessions.get('mon-auto')?.ExternalPort).toBe('/tmp/mocktrue-tty-usbserial')
+    expect(bindings.StartAutoVirtualMonitor).toHaveBeenCalledWith(expect.objectContaining({
+      ID: 'mon-auto',
+      Name: 'USB 串口监听',
+      Port: '/dev/tty.usbserial',
+      Encoding: 'utf-8',
+      Config: expect.objectContaining({ BaudRate: 115200, DataBits: 8 }),
+    }))
+  })
+
   it('queries frames with filters and replaces local frame page', async () => {
     const frame = sampleFrame(1, 'a_to_b', 'aa bb')
     bindings.QueryMonitorFrames.mockResolvedValue({ Frames: [frame], Total: 1, NextOffset: 1 })
     const store = useMonitorStore()
 
-    await store.refreshFrames('mon-1', { direction: 'a_to_b', search: 'aa', modbusFunction: 3 })
+    await store.refreshFrames('mon-1', { direction: 'a_to_b', search: 'aa' })
 
     expect(store.framesByMonitor.get('mon-1')).toEqual([frame])
     expect(store.frameTotals.get('mon-1')).toBe(1)
@@ -63,15 +92,37 @@ describe('monitor store', () => {
       MonitorID: 'mon-1',
       Direction: 'a_to_b',
       Search: 'aa',
-      ModbusFunction: 3,
     }))
+  })
+
+  it('filters restored monitor frames locally without querying missing backend sessions', async () => {
+    const store = useMonitorStore()
+    store.restoreState({
+      activeMonitorId: 'mon-1',
+      filters: { 'mon-1': { direction: 'all', search: 'aa', displayMode: 'hex' } },
+      sessions: [{ ...sampleSession('mon-1'), Status: 'stopped' }],
+      frames: {
+        'mon-1': [
+          { ...sampleFrame(1, 'a_to_b', 'aa bb'), DisplayText: 'alpha' },
+          { ...sampleFrame(2, 'b_to_a', 'cc dd'), DisplayText: 'beta' },
+        ],
+      },
+    })
+    bindings.QueryMonitorFrames.mockRejectedValue(new Error('not_found: monitor not found'))
+
+    await store.refreshFrames('mon-1', { search: '' })
+
+    expect(bindings.QueryMonitorFrames).not.toHaveBeenCalled()
+    expect(store.error).toBeNull()
+    expect(store.frameTotals.get('mon-1')).toBe(2)
+    expect(store.framesByMonitor.get('mon-1')?.map(frame => frame.Seq)).toEqual([1, 2])
   })
 
   it('exports and restores monitor workspace state', () => {
     const store = useMonitorStore()
     store.restoreState({
       activeMonitorId: 'mon-1',
-      filters: { 'mon-1': { direction: 'b_to_a', search: 'beta', displayMode: 'hex', modbusFunction: 0 } },
+      filters: { 'mon-1': { direction: 'b_to_a', search: 'beta', displayMode: 'hex' } },
       sessions: [sampleSession('mon-1')],
       frames: { 'mon-1': [sampleFrame(1, 'b_to_a', '62 65 74 61')] },
     })
@@ -91,6 +142,8 @@ function sampleSession(id: string): SessionInfo {
     Provider: 'bridge',
     PortA: '/tmp/a',
     PortB: '/tmp/b',
+    ExternalPort: '',
+    AutoVirtualPortID: '',
     Config: {
       PortName: '',
       BaudRate: 115200,
@@ -108,7 +161,6 @@ function sampleSession(id: string): SessionInfo {
     StartedAt: '',
     StoppedAt: '',
     Error: '',
-    AutoSave: defaultMonitorAutoSave(),
   }
 }
 
@@ -126,6 +178,5 @@ function sampleFrame(seq: number, direction: string, hex: string): Frame {
     DisplayOct: '',
     DisplayBin: '',
     Encoding: 'utf-8',
-    Modbus: null,
   }
 }

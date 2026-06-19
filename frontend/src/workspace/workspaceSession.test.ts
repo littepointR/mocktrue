@@ -43,8 +43,6 @@ const serialBindingsMock = vi.hoisted(() => ({
   DeleteMonitor: vi.fn(async () => undefined),
   ListMonitors: vi.fn(async () => []),
   QueryMonitorFrames: vi.fn(async () => ({ Frames: [], Total: 0, NextOffset: 0 })),
-  ExportMonitor: vi.fn(async () => ''),
-  SetMonitorAutoSave: vi.fn(async () => null),
   ClearMonitorFrames: vi.fn(async () => undefined),
 }))
 
@@ -78,7 +76,7 @@ describe('workspace session snapshot', () => {
     useSerialWorkspaceStore().updateTabState('port-1', { sendHeight: 240 })
     useMonitorStore().restoreState({
       activeMonitorId: 'mon-1',
-      filters: { 'mon-1': { direction: 'all', search: 'aa', displayMode: 'hex', modbusFunction: 0 } },
+      filters: { 'mon-1': { direction: 'all', search: 'aa', displayMode: 'hex' } },
       sessions: [],
       frames: {},
     })
@@ -114,7 +112,7 @@ describe('workspace session snapshot', () => {
         },
         monitors: {
           activeMonitorId: 'mon-1',
-          filters: { 'mon-1': { direction: 'all', search: '01 03', displayMode: 'hex', modbusFunction: 3 } },
+          filters: { 'mon-1': { direction: 'all', search: '01 03', displayMode: 'hex' } },
           sessions: [],
           frames: {},
         },

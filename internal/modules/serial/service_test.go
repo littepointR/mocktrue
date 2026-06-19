@@ -7,6 +7,7 @@ import (
 
 	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 	goserial "go.bug.st/serial"
 )
@@ -320,4 +321,113 @@ func TestServiceBridgeConnectsUserFacingVirtualPorts(t *testing.T) {
 	if string(buf[:total]) != string(payload) {
 		t.Fatalf("received %q, want %q", buf[:total], payload)
 	}
+}
+
+func TestServiceAutoVirtualMonitorExposesSingleVirtualPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	devicePair, err := port.StartVirtualPair(ctx)
+	if err != nil {
+		t.Skipf("socat not available: %v", err)
+	}
+	defer devicePair.Stop()
+
+	svc := NewService(eventbus.New())
+	defer svc.cleanup()
+
+	session, err := svc.StartAutoVirtualMonitor(ctx, AutoVirtualMonitorRequest{
+		ID:   "auto-monitor",
+		Name: "自动监听",
+		Port: devicePair.Port1,
+		Config: port.SerialConfig{
+			BaudRate: 115200,
+			DataBits: 8,
+			StopBits: "1",
+			Parity:   "none",
+			FlowMode: "none",
+		},
+		Encoding: "utf-8",
+	})
+	if err != nil {
+		t.Fatalf("StartAutoVirtualMonitor: %v", err)
+	}
+	if session.PortA != devicePair.Port1 {
+		t.Fatalf("PortA = %q, want monitored port %q", session.PortA, devicePair.Port1)
+	}
+	if session.ExternalPort == "" || session.AutoVirtualPortID == "" {
+		t.Fatalf("auto monitor session missing external virtual port info: %+v", session)
+	}
+	if session.PortB != session.ExternalPort {
+		t.Fatalf("PortB = %q, want external port %q", session.PortB, session.ExternalPort)
+	}
+	if got := len(svc.ListVirtualPorts()); got != 1 {
+		t.Fatalf("virtual ports after start = %d, want 1", got)
+	}
+
+	hardware, err := goserial.Open(devicePair.Port2, &goserial.Mode{BaudRate: 115200})
+	if err != nil {
+		t.Fatalf("Open hardware peer: %v", err)
+	}
+	defer hardware.Close()
+	hardware.SetReadTimeout(2 * time.Second)
+
+	external, err := goserial.Open(session.ExternalPort, &goserial.Mode{BaudRate: 115200})
+	if err != nil {
+		t.Fatalf("Open external virtual port: %v", err)
+	}
+	defer external.Close()
+	external.SetReadTimeout(2 * time.Second)
+
+	if _, err := external.Write([]byte("to-device")); err != nil {
+		t.Fatalf("Write external: %v", err)
+	}
+	if got := readSerialPayload(t, hardware, len("to-device")); got != "to-device" {
+		t.Fatalf("hardware read %q", got)
+	}
+
+	if _, err := hardware.Write([]byte("to-client")); err != nil {
+		t.Fatalf("Write hardware: %v", err)
+	}
+	if got := readSerialPayload(t, external, len("to-client")); got != "to-client" {
+		t.Fatalf("external read %q", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		page, err := svc.QueryMonitorFrames(monitor.QueryRequest{MonitorID: "auto-monitor", Limit: 10})
+		if err != nil {
+			t.Fatalf("QueryMonitorFrames: %v", err)
+		}
+		if page.Total >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if err := svc.StopMonitor("auto-monitor"); err != nil {
+		t.Fatalf("StopMonitor: %v", err)
+	}
+	if got := len(svc.ListVirtualPorts()); got != 0 {
+		t.Fatalf("virtual ports after stop = %d, want 0", got)
+	}
+}
+
+func readSerialPayload(t *testing.T, reader interface{ Read([]byte) (int, error) }, length int) string {
+	t.Helper()
+	buf := make([]byte, length)
+	total := 0
+	deadline := time.Now().Add(3 * time.Second)
+	for total < length && time.Now().Before(deadline) {
+		n, err := reader.Read(buf[total:])
+		if err != nil {
+			break
+		}
+		total += n
+	}
+	return string(buf[:total])
 }

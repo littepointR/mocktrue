@@ -146,36 +146,6 @@ func (m *Manager) Query(req QueryRequest) (*FramePage, error) {
 	return session.query(req), nil
 }
 
-// Export writes a monitor capture to disk.
-func (m *Manager) Export(req ExportRequest) (string, error) {
-	session, err := m.get(req.MonitorID)
-	if err != nil {
-		return "", err
-	}
-	page := session.query(QueryRequest{
-		MonitorID:      req.MonitorID,
-		Offset:         0,
-		Limit:          defaultFrameLimit,
-		Direction:      req.Direction,
-		Search:         req.Search,
-		ModbusFunction: 0,
-	})
-	return exportFrames(req, page.Frames)
-}
-
-// SetAutoSave changes automatic save settings for a session.
-func (m *Manager) SetAutoSave(req AutoSaveRequest) (*SessionInfo, error) {
-	session, err := m.get(req.MonitorID)
-	if err != nil {
-		return nil, err
-	}
-	if err := session.setAutoSave(req.Options); err != nil {
-		return nil, err
-	}
-	info := session.info()
-	return &info, nil
-}
-
 // ClearFrames removes captured frames for a session.
 func (m *Manager) ClearFrames(id string) error {
 	session, err := m.get(id)
@@ -215,8 +185,6 @@ type Session struct {
 	txBytes   int64
 	nextSeq   int64
 	frames    []Frame
-	autoSave  AutoSaveOptions
-	saver     *autoSaver
 }
 
 func newSession(req StartRequest) *Session {
@@ -230,24 +198,16 @@ func newSession(req StartRequest) *Session {
 		req.EndpointB = req.PortB
 	}
 	if req.Name == "" {
-		req.Name = fmt.Sprintf("%s ⇄ %s", req.PortA, req.PortB)
+		req.Name = fmt.Sprintf("监控 %s", req.PortA)
 	}
 	if req.Encoding == "" {
 		req.Encoding = "utf-8"
 	}
 	return &Session{
-		req:      req,
-		stopCh:   make(chan struct{}),
-		status:   StatusStopped,
-		autoSave: derefAutoSave(req.AutoSave),
+		req:    req,
+		stopCh: make(chan struct{}),
+		status: StatusStopped,
 	}
-}
-
-func derefAutoSave(options *AutoSaveOptions) AutoSaveOptions {
-	if options == nil {
-		return AutoSaveOptions{Format: ExportCSV, SplitMode: SplitNone, Encoding: "utf-8"}
-	}
-	return normalizeAutoSaveOptions(*options)
 }
 
 func (s *Session) start(ctx context.Context) error {
@@ -268,21 +228,9 @@ func (s *Session) start(ctx context.Context) error {
 		return errors.Wrap(errors.CodeIO, "open monitor port B", err)
 	}
 
-	var saver *autoSaver
-	if s.autoSave.Enabled {
-		saver, err = newAutoSaver(s.req.ID, s.autoSave)
-		if err != nil {
-			_ = portA.Close()
-			_ = portB.Close()
-			s.setError(err.Error())
-			return err
-		}
-	}
-
 	s.mu.Lock()
 	s.portA = portA
 	s.portB = portB
-	s.saver = saver
 	s.status = StatusRunning
 	s.errText = ""
 	s.startedAt = time.Now()
@@ -307,28 +255,29 @@ func (s *Session) forward(ctx context.Context, src port.Port, dst port.Port, dir
 			case <-ctx.Done():
 				return
 			default:
-				s.fail(fmt.Sprintf("%s read failed: %v", direction, err))
+				s.fail(fmt.Sprintf("%s read failed: %v", displayDirection(direction), err))
 				return
 			}
 		}
 		if n <= 0 {
 			continue
 		}
+		readAt := time.Now()
 		data := append([]byte(nil), buf[:n]...)
 		if _, err := dst.Write(data); err != nil {
-			s.fail(fmt.Sprintf("%s write failed: %v", direction, err))
+			s.fail(fmt.Sprintf("%s write failed: %v", displayDirection(direction), err))
 			return
 		}
-		s.appendFrame(direction, publicPort, data)
+		s.appendFrame(direction, publicPort, data, readAt)
 	}
 }
 
-func (s *Session) appendFrame(direction string, publicPort string, data []byte) {
+func (s *Session) appendFrame(direction string, publicPort string, data []byte, capturedAt time.Time) {
 	s.mu.Lock()
 	s.nextSeq++
 	frame := enrichFrame(Frame{
 		Seq:       s.nextSeq,
-		Timestamp: time.Now(),
+		Timestamp: capturedAt,
 		Direction: direction,
 		Port:      publicPort,
 		Data:      append([]byte(nil), data...),
@@ -343,12 +292,7 @@ func (s *Session) appendFrame(direction string, publicPort string, data []byte) 
 		copy(s.frames, s.frames[len(s.frames)-defaultFrameLimit:])
 		s.frames = s.frames[:defaultFrameLimit]
 	}
-	saver := s.saver
 	s.mu.Unlock()
-
-	if err := saver.write(frame); err != nil {
-		s.setError(err.Error())
-	}
 }
 
 func (s *Session) stop(reason string) error {
@@ -373,8 +317,6 @@ func (s *Session) stop(reason string) error {
 	portB := s.portB
 	s.portA = nil
 	s.portB = nil
-	saver := s.saver
-	s.saver = nil
 	s.mu.Unlock()
 
 	if portA != nil {
@@ -384,7 +326,7 @@ func (s *Session) stop(reason string) error {
 		_ = portB.Close()
 	}
 	s.wg.Wait()
-	return saver.close()
+	return nil
 }
 
 func (s *Session) setError(message string) {
@@ -412,8 +354,6 @@ func (s *Session) fail(reason string) {
 	portB := s.portB
 	s.portA = nil
 	s.portB = nil
-	saver := s.saver
-	s.saver = nil
 	s.mu.Unlock()
 
 	if portA != nil {
@@ -422,28 +362,28 @@ func (s *Session) fail(reason string) {
 	if portB != nil {
 		_ = portB.Close()
 	}
-	_ = saver.close()
 }
 
 func (s *Session) info() SessionInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return SessionInfo{
-		ID:         s.req.ID,
-		Name:       s.req.Name,
-		Provider:   s.req.Provider,
-		PortA:      s.req.PortA,
-		PortB:      s.req.PortB,
-		Config:     s.req.Config,
-		Encoding:   s.req.Encoding,
-		Status:     s.status,
-		RxBytes:    s.rxBytes,
-		TxBytes:    s.txBytes,
-		FrameCount: int64(len(s.frames)),
-		StartedAt:  s.startedAt,
-		StoppedAt:  s.stoppedAt,
-		Error:      s.errText,
-		AutoSave:   s.autoSave,
+		ID:                s.req.ID,
+		Name:              s.req.Name,
+		Provider:          s.req.Provider,
+		PortA:             s.req.PortA,
+		PortB:             s.req.PortB,
+		ExternalPort:      s.req.ExternalPort,
+		AutoVirtualPortID: s.req.AutoVirtualPortID,
+		Config:            s.req.Config,
+		Encoding:          s.req.Encoding,
+		Status:            s.status,
+		RxBytes:           s.rxBytes,
+		TxBytes:           s.txBytes,
+		FrameCount:        int64(len(s.frames)),
+		StartedAt:         s.startedAt,
+		StoppedAt:         s.stoppedAt,
+		Error:             s.errText,
 	}
 }
 
@@ -462,9 +402,6 @@ func (s *Session) query(req QueryRequest) *FramePage {
 	filtered := make([]Frame, 0, len(frames))
 	for _, frame := range frames {
 		if req.Direction != "" && req.Direction != "all" && frame.Direction != req.Direction {
-			continue
-		}
-		if req.ModbusFunction > 0 && (frame.Modbus == nil || int(frame.Modbus.Function) != req.ModbusFunction) {
 			continue
 		}
 		if req.Search != "" && !frameMatchesSearch(frame, req.Search) {
@@ -496,27 +433,7 @@ func frameMatchesSearch(frame Frame, query string) bool {
 	return strings.Contains(strings.ToLower(frame.DisplayText), query) ||
 		strings.Contains(strings.ToLower(frame.DisplayHex), query) ||
 		strings.Contains(strings.ToLower(frame.DisplayDec), query) ||
-		strings.Contains(strings.ToLower(frame.Port), query) ||
-		(frame.Modbus != nil && strings.Contains(strings.ToLower(frame.Modbus.Summary), query))
-}
-
-func (s *Session) setAutoSave(options AutoSaveOptions) error {
-	options = normalizeAutoSaveOptions(options)
-	var saver *autoSaver
-	var err error
-	if options.Enabled {
-		saver, err = newAutoSaver(s.req.ID, options)
-		if err != nil {
-			return err
-		}
-	}
-
-	s.mu.Lock()
-	old := s.saver
-	s.saver = saver
-	s.autoSave = options
-	s.mu.Unlock()
-	return old.close()
+		strings.Contains(strings.ToLower(frame.Port), query)
 }
 
 func (s *Session) clearFrames() {

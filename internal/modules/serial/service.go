@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/suyue/mocktrue/internal/core/errors"
 	"github.com/suyue/mocktrue/internal/core/eventbus"
@@ -18,13 +20,14 @@ import (
 
 // Service is the serial module's facade exposed to the frontend.
 type Service struct {
-	mu         sync.RWMutex
-	bus        *eventbus.EventBus
-	manager    *manager.PortManager
-	monitors   *monitor.Manager
-	vmgr       *virtualserial.Manager
-	buffers    map[string]*buffer.RingBuffer // keyed by handle ID
-	subscribed bool
+	mu                  sync.RWMutex
+	bus                 *eventbus.EventBus
+	manager             *manager.PortManager
+	monitors            *monitor.Manager
+	vmgr                *virtualserial.Manager
+	buffers             map[string]*buffer.RingBuffer // keyed by handle ID
+	autoMonitorVirtuals map[string]string
+	subscribed          bool
 }
 
 // NewService constructs a Service with the given event bus.
@@ -54,6 +57,9 @@ func (s *Service) init(bus *eventbus.EventBus) {
 	}
 	if s.buffers == nil {
 		s.buffers = make(map[string]*buffer.RingBuffer)
+	}
+	if s.autoMonitorVirtuals == nil {
+		s.autoMonitorVirtuals = make(map[string]string)
 	}
 	if s.subscribed {
 		s.mu.Unlock()
@@ -164,6 +170,7 @@ func (s *Service) cleanup() {
 	}
 	s.mu.Lock()
 	s.buffers = make(map[string]*buffer.RingBuffer)
+	s.autoMonitorVirtuals = make(map[string]string)
 	s.mu.Unlock()
 }
 
@@ -273,6 +280,16 @@ func (s *Service) RestoreCounters(portID string, rxBytes int64, txBytes int64) e
 	return s.manager.RestoreCounters(portID, rxBytes, txBytes)
 }
 
+// AutoVirtualMonitorRequest starts monitoring one real serial port while
+// exposing an automatically-created virtual port for external tools.
+type AutoVirtualMonitorRequest struct {
+	ID       string
+	Name     string
+	Port     string
+	Config   port.SerialConfig
+	Encoding string
+}
+
 // StartMonitor starts a bridge-based serial monitor session.
 func (s *Service) StartMonitor(ctx context.Context, req monitor.StartRequest) (*monitor.SessionInfo, error) {
 	if s.findOpenHandle(req.PortA) != nil || s.findOpenHandle(req.PortB) != nil {
@@ -283,14 +300,66 @@ func (s *Service) StartMonitor(ctx context.Context, req monitor.StartRequest) (*
 	return s.monitors.Start(ctx, req)
 }
 
+// StartAutoVirtualMonitor starts monitoring a real port and creates one
+// user-facing virtual port that external serial tools can connect to.
+func (s *Service) StartAutoVirtualMonitor(ctx context.Context, req AutoVirtualMonitorRequest) (*monitor.SessionInfo, error) {
+	if req.ID == "" {
+		return nil, errors.New(errors.CodeInvalid, "monitor ID must not be empty")
+	}
+	if req.Port == "" {
+		return nil, errors.New(errors.CodeInvalid, "monitor port must not be empty")
+	}
+	if s.findOpenHandle(req.Port) != nil {
+		return nil, errors.New(errors.CodeConflict, "monitor port already open in serial terminal")
+	}
+
+	virtualID := autoVirtualPortID(req.ID)
+	virtualPortName := autoVirtualPortName(req.Port, req.ID)
+	virtualPort, err := s.CreateVirtualPort(ctx, virtualID, virtualPortName)
+	if err != nil {
+		return nil, err
+	}
+
+	name := req.Name
+	if name == "" {
+		name = fmt.Sprintf("%s monitor", req.Port)
+	}
+	session, err := s.StartMonitor(ctx, monitor.StartRequest{
+		ID:                req.ID,
+		Name:              name,
+		Provider:          monitor.ProviderBridge,
+		PortA:             req.Port,
+		PortB:             virtualPort.Port,
+		ExternalPort:      virtualPort.Port,
+		AutoVirtualPortID: virtualPort.ID,
+		Config:            req.Config,
+		Encoding:          req.Encoding,
+	})
+	if err != nil {
+		_ = s.DeleteVirtualPort(virtualPort.ID)
+		return nil, err
+	}
+
+	s.mu.Lock()
+	s.autoMonitorVirtuals[req.ID] = virtualPort.ID
+	s.mu.Unlock()
+	return session, nil
+}
+
 // StopMonitor stops a monitor session while keeping captured frames available.
 func (s *Service) StopMonitor(id string) error {
-	return s.monitors.Stop(id)
+	if err := s.monitors.Stop(id); err != nil {
+		return err
+	}
+	return s.cleanupAutoMonitorVirtual(id)
 }
 
 // DeleteMonitor stops and removes a monitor session.
 func (s *Service) DeleteMonitor(id string) error {
-	return s.monitors.Delete(id)
+	if err := s.monitors.Delete(id); err != nil {
+		return err
+	}
+	return s.cleanupAutoMonitorVirtual(id)
 }
 
 // ListMonitors returns all serial monitor sessions.
@@ -303,16 +372,6 @@ func (s *Service) QueryMonitorFrames(req monitor.QueryRequest) (*monitor.FramePa
 	return s.monitors.Query(req)
 }
 
-// ExportMonitor exports monitor frames to a file.
-func (s *Service) ExportMonitor(req monitor.ExportRequest) (string, error) {
-	return s.monitors.Export(req)
-}
-
-// SetMonitorAutoSave updates automatic persistence for a monitor session.
-func (s *Service) SetMonitorAutoSave(req monitor.AutoSaveRequest) (*monitor.SessionInfo, error) {
-	return s.monitors.SetAutoSave(req)
-}
-
 // ClearMonitorFrames clears captured monitor frames and counters.
 func (s *Service) ClearMonitorFrames(id string) error {
 	return s.monitors.ClearFrames(id)
@@ -323,6 +382,71 @@ func (s *Service) monitorEndpoint(portName string) string {
 		return portName
 	}
 	return s.vmgr.EndpointFor(portName)
+}
+
+func (s *Service) cleanupAutoMonitorVirtual(monitorID string) error {
+	s.mu.RLock()
+	virtualID := s.autoMonitorVirtuals[monitorID]
+	s.mu.RUnlock()
+	if virtualID == "" {
+		return nil
+	}
+	err := s.DeleteVirtualPort(virtualID)
+	if err != nil && errors.AsCode(err) != errors.CodeNotFound {
+		return err
+	}
+	s.mu.Lock()
+	if s.autoMonitorVirtuals[monitorID] == virtualID {
+		delete(s.autoMonitorVirtuals, monitorID)
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func autoVirtualPortID(monitorID string) string {
+	token := sanitizeSerialToken(monitorID)
+	if token == "" {
+		token = "monitor"
+	}
+	return fmt.Sprintf("auto-monitor-%s-%x", token, time.Now().UnixNano())
+}
+
+func autoVirtualPortName(portName string, monitorID string) string {
+	portToken := sanitizeSerialToken(filepath.Base(portName))
+	if portToken == "" || portToken == "." || portToken == string(filepath.Separator) {
+		portToken = "port"
+	}
+	idToken := sanitizeSerialToken(monitorID)
+	if idToken == "" {
+		idToken = "monitor"
+	}
+	return fmt.Sprintf("mocktrue-%s-%s-%x", portToken, idToken, time.Now().UnixNano())
+}
+
+func sanitizeSerialToken(input string) string {
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range strings.TrimSpace(input) {
+		allowed := (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' ||
+			r == '.'
+		if allowed {
+			builder.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash && builder.Len() > 0 {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	result := strings.Trim(builder.String(), "-.")
+	if len(result) > 48 {
+		result = result[:48]
+	}
+	return result
 }
 
 // ===== Virtual Serial Pair API =====

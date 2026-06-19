@@ -3,16 +3,13 @@ import { defineStore } from 'pinia'
 import {
   ClearMonitorFrames,
   DeleteMonitor,
-  ExportMonitor,
   ListMonitors,
   QueryMonitorFrames,
-  SetMonitorAutoSave,
+  StartAutoVirtualMonitor,
   StartMonitor,
   StopMonitor,
 } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
 import type {
-  AutoSaveOptions,
-  ExportRequest,
   Frame,
   QueryRequest,
   SessionInfo,
@@ -24,7 +21,6 @@ export interface MonitorFilterState {
   direction: string
   search: string
   displayMode: MonitorDisplayMode
-  modbusFunction: number
 }
 
 export interface StartBridgeMonitorInput {
@@ -39,7 +35,19 @@ export interface StartBridgeMonitorInput {
   flowMode?: string
   readBufKB?: number
   encoding?: string
-  autoSave?: AutoSaveOptions | null
+}
+
+export interface StartAutoVirtualMonitorInput {
+  id: string
+  name: string
+  sourcePort: string
+  baudRate: number
+  dataBits?: number
+  stopBits?: string
+  parity?: string
+  flowMode?: string
+  readBufKB?: number
+  encoding?: string
 }
 
 export interface MonitorWorkspaceState {
@@ -49,33 +57,20 @@ export interface MonitorWorkspaceState {
   frames: Record<string, Frame[]>
 }
 
-export function defaultMonitorAutoSave(): AutoSaveOptions {
-  return {
-    Enabled: false,
-    Path: '',
-    Directory: '',
-    BaseName: 'serial-monitor',
-    Format: 'csv',
-    SplitMode: 'none',
-    SplitSizeKB: 1024,
-    SplitIntervalSeconds: 60,
-    Encoding: 'utf-8',
-  }
-}
-
 export function defaultMonitorFilter(): MonitorFilterState {
   return {
     direction: 'all',
     search: '',
     displayMode: 'hex',
-    modbusFunction: 0,
   }
 }
 
 export const useMonitorStore = defineStore('serialMonitor', () => {
   const sessions = ref<Map<string, SessionInfo>>(new Map())
+  const rawFramesByMonitor = ref<Map<string, Frame[]>>(new Map())
   const framesByMonitor = ref<Map<string, Frame[]>>(new Map())
   const frameTotals = ref<Map<string, number>>(new Map())
+  const localOnlyMonitorIds = ref<Set<string>>(new Set())
   const filters = ref<Record<string, MonitorFilterState>>({})
   const activeMonitorId = ref<string | null>(null)
   const error = ref<string | null>(null)
@@ -99,6 +94,41 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
     filters.value[id] = { ...filterFor(id), ...patch }
   }
 
+  function cloneFrame(frame: Frame): Frame {
+    return { ...frame }
+  }
+
+  function frameMatchesLocalFilter(frame: Frame, filter: MonitorFilterState): boolean {
+    if (filter.direction !== 'all' && frame.Direction !== filter.direction) return false
+    const query = filter.search.trim().toLowerCase()
+    if (!query) return true
+    return [
+      frame.DisplayText,
+      frame.DisplayHex,
+      frame.DisplayDec,
+      frame.DisplayOct,
+      frame.DisplayBin,
+      frame.Port,
+    ].some(value => String(value ?? '').toLowerCase().includes(query))
+  }
+
+  function applyLocalFrameFilter(id: string) {
+    const source = rawFramesByMonitor.value.get(id) ?? framesByMonitor.value.get(id) ?? []
+    const filter = filterFor(id)
+    const next = source.filter(frame => frameMatchesLocalFilter(frame, filter)).map(cloneFrame)
+    framesByMonitor.value.set(id, next)
+    frameTotals.value.set(id, next.length)
+  }
+
+  function isUnfiltered(filter: MonitorFilterState): boolean {
+    return filter.direction === 'all' && filter.search.trim() === ''
+  }
+
+  function isMonitorNotFound(error: unknown): boolean {
+    const message = String((error as any)?.message ?? error ?? '')
+    return message.includes('not_found') && message.includes('monitor not found')
+  }
+
   async function startBridgeMonitor(input: StartBridgeMonitorInput): Promise<string> {
     try {
       const session = await StartMonitor({
@@ -109,6 +139,8 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
         PortB: input.portB,
         EndpointA: '',
         EndpointB: '',
+        ExternalPort: '',
+        AutoVirtualPortID: '',
         Config: {
           PortName: '',
           BaudRate: input.baudRate,
@@ -119,10 +151,44 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
           ReadBufKB: input.readBufKB ?? 32,
         },
         Encoding: input.encoding ?? 'utf-8',
-        AutoSave: input.autoSave ?? null,
       })
       if (!session) throw new Error('monitor did not return session')
       sessions.value.set(session.ID, session)
+      localOnlyMonitorIds.value.delete(session.ID)
+      rawFramesByMonitor.value.set(session.ID, [])
+      framesByMonitor.value.set(session.ID, [])
+      frameTotals.value.set(session.ID, 0)
+      activeMonitorId.value = session.ID
+      error.value = null
+      startPolling()
+      return session.ID
+    } catch (e: any) {
+      error.value = e?.message ?? 'Failed to start monitor'
+      throw e
+    }
+  }
+
+  async function startAutoVirtualMonitor(input: StartAutoVirtualMonitorInput): Promise<string> {
+    try {
+      const session = await StartAutoVirtualMonitor({
+        ID: input.id,
+        Name: input.name,
+        Port: input.sourcePort,
+        Config: {
+          PortName: '',
+          BaudRate: input.baudRate,
+          DataBits: input.dataBits ?? 8,
+          StopBits: input.stopBits ?? '1',
+          Parity: input.parity ?? 'none',
+          FlowMode: input.flowMode ?? 'none',
+          ReadBufKB: input.readBufKB ?? 32,
+        },
+        Encoding: input.encoding ?? 'utf-8',
+      })
+      if (!session) throw new Error('monitor did not return session')
+      sessions.value.set(session.ID, session)
+      localOnlyMonitorIds.value.delete(session.ID)
+      rawFramesByMonitor.value.set(session.ID, [])
       framesByMonitor.value.set(session.ID, [])
       frameTotals.value.set(session.ID, 0)
       activeMonitorId.value = session.ID
@@ -141,6 +207,7 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
       const next = new Map(sessions.value)
       for (const session of list ?? []) {
         next.set(session.ID, session)
+        localOnlyMonitorIds.value.delete(session.ID)
       }
       sessions.value = next
       error.value = null
@@ -153,20 +220,36 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
   async function refreshFrames(id: string, patch?: Partial<MonitorFilterState>) {
     if (patch) setFilter(id, patch)
     const filter = filterFor(id)
+    const isLocalOnly = localOnlyMonitorIds.value.has(id)
+    const hasLocalFrames = rawFramesByMonitor.value.has(id) || framesByMonitor.value.has(id)
+    if (isLocalOnly || (!sessions.value.has(id) && hasLocalFrames)) {
+      applyLocalFrameFilter(id)
+      error.value = null
+      return
+    }
     const req: QueryRequest = {
       MonitorID: id,
       Offset: 0,
       Limit: 1000,
       Direction: filter.direction,
       Search: filter.search,
-      ModbusFunction: filter.modbusFunction,
     }
     try {
       const page = await QueryMonitorFrames(req)
-      framesByMonitor.value.set(id, page?.Frames ?? [])
+      const frames = (page?.Frames ?? []).map(cloneFrame)
+      framesByMonitor.value.set(id, frames)
       frameTotals.value.set(id, page?.Total ?? 0)
+      if (isUnfiltered(filter)) {
+        rawFramesByMonitor.value.set(id, frames.map(cloneFrame))
+      }
       error.value = null
     } catch (e: any) {
+      if (isMonitorNotFound(e) && hasLocalFrames) {
+        localOnlyMonitorIds.value.add(id)
+        applyLocalFrameFilter(id)
+        error.value = null
+        return
+      }
       error.value = e?.message ?? 'Failed to query monitor frames'
     }
   }
@@ -186,6 +269,8 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
     try {
       await DeleteMonitor(id)
       sessions.value.delete(id)
+      localOnlyMonitorIds.value.delete(id)
+      rawFramesByMonitor.value.delete(id)
       framesByMonitor.value.delete(id)
       frameTotals.value.delete(id)
       delete filters.value[id]
@@ -202,6 +287,7 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
   async function clearFrames(id: string) {
     try {
       await ClearMonitorFrames(id)
+      rawFramesByMonitor.value.set(id, [])
       framesByMonitor.value.set(id, [])
       frameTotals.value.set(id, 0)
       const session = sessions.value.get(id)
@@ -211,28 +297,6 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
       error.value = null
     } catch (e: any) {
       error.value = e?.message ?? 'Failed to clear monitor frames'
-      throw e
-    }
-  }
-
-  async function exportMonitor(request: ExportRequest): Promise<string> {
-    try {
-      const path = await ExportMonitor(request)
-      error.value = null
-      return path
-    } catch (e: any) {
-      error.value = e?.message ?? 'Failed to export monitor'
-      throw e
-    }
-  }
-
-  async function setAutoSave(id: string, options: AutoSaveOptions) {
-    try {
-      const session = await SetMonitorAutoSave({ MonitorID: id, Options: options })
-      if (session) sessions.value.set(session.ID, session)
-      error.value = null
-    } catch (e: any) {
-      error.value = e?.message ?? 'Failed to set monitor auto save'
       throw e
     }
   }
@@ -261,29 +325,37 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
       activeMonitorId: activeMonitorId.value,
       filters: filters.value,
       sessions: sessionList.value.map(session => ({ ...session, Status: 'stopped' })),
-      frames: Object.fromEntries(Array.from(framesByMonitor.value.entries()).map(([id, frames]) => [
-        id,
-        frames.map(frame => ({ ...frame })),
-      ])),
+      frames: Object.fromEntries(sessionList.value.map(session => {
+        const frames = rawFramesByMonitor.value.get(session.ID) ?? framesByMonitor.value.get(session.ID) ?? []
+        return [session.ID, frames.map(cloneFrame)]
+      })),
     }
   }
 
   function restoreState(snapshot?: MonitorWorkspaceState) {
     sessions.value = new Map()
+    rawFramesByMonitor.value = new Map()
     framesByMonitor.value = new Map()
     frameTotals.value = new Map()
+    localOnlyMonitorIds.value = new Set()
     filters.value = {}
     activeMonitorId.value = null
     if (!snapshot) return
     for (const session of snapshot.sessions ?? []) {
       sessions.value.set(session.ID, { ...session, Status: 'stopped' })
+      localOnlyMonitorIds.value.add(session.ID)
     }
     for (const [id, frames] of Object.entries(snapshot.frames ?? {})) {
-      framesByMonitor.value.set(id, frames.map(frame => ({ ...frame })))
+      localOnlyMonitorIds.value.add(id)
+      rawFramesByMonitor.value.set(id, frames.map(cloneFrame))
+      framesByMonitor.value.set(id, frames.map(cloneFrame))
       frameTotals.value.set(id, frames.length)
     }
     filters.value = { ...(snapshot.filters ?? {}) }
     activeMonitorId.value = snapshot.activeMonitorId
+    for (const id of rawFramesByMonitor.value.keys()) {
+      applyLocalFrameFilter(id)
+    }
   }
 
   function cleanup() {
@@ -307,13 +379,12 @@ export const useMonitorStore = defineStore('serialMonitor', () => {
     setActiveMonitor,
     setFilter,
     startBridgeMonitor,
+    startAutoVirtualMonitor,
     refreshSessions,
     refreshFrames,
     stopMonitor,
     deleteMonitor,
     clearFrames,
-    exportMonitor,
-    setAutoSave,
     startPolling,
     stopPolling,
     exportState,

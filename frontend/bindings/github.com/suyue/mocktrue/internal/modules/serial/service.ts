@@ -119,13 +119,6 @@ export function EnumeratePorts(): $CancellablePromise<port$0.PortInfo[] | null> 
 }
 
 /**
- * ExportMonitor exports monitor frames to a file.
- */
-export function ExportMonitor(req: monitor$0.ExportRequest): $CancellablePromise<string> {
-    return $Call.ByID(948382730, req);
-}
-
-/**
  * ListBridges returns all active bridges.
  */
 export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> {
@@ -217,10 +210,11 @@ export function Send(req: $models.SendRequest): $CancellablePromise<number> {
 }
 
 /**
- * SetMonitorAutoSave updates automatic persistence for a monitor session.
+ * StartAutoVirtualMonitor starts monitoring a real port and creates one
+ * user-facing virtual port that external serial tools can connect to.
  */
-export function SetMonitorAutoSave(req: monitor$0.AutoSaveRequest): $CancellablePromise<monitor$0.SessionInfo | null> {
-    return $Call.ByID(3025389754, req);
+export function StartAutoVirtualMonitor(req: $models.AutoVirtualMonitorRequest): $CancellablePromise<monitor$0.SessionInfo | null> {
+    return $Call.ByID(999938326, req);
 }
 
 /**

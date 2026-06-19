@@ -9,41 +9,6 @@ import * as port$0 from "../port/models.js";
 import * as time$0 from "../../../../../../../time/models.js";
 
 /**
- * AutoSaveOptions controls automatic frame persistence.
- */
-export interface AutoSaveOptions {
-    "Enabled": boolean;
-    "Path": string;
-    "Directory": string;
-    "BaseName": string;
-    "Format": string;
-    "SplitMode": string;
-    "SplitSizeKB": number;
-    "SplitIntervalSeconds": number;
-    "Encoding": string;
-}
-
-/**
- * AutoSaveRequest updates a session's automatic save settings.
- */
-export interface AutoSaveRequest {
-    "MonitorID": string;
-    "Options": AutoSaveOptions;
-}
-
-/**
- * ExportRequest exports monitor frames.
- */
-export interface ExportRequest {
-    "MonitorID": string;
-    "Format": string;
-    "Path": string;
-    "Encoding": string;
-    "Direction": string;
-    "Search": string;
-}
-
-/**
  * Frame is one captured data or status record.
  */
 export interface Frame {
@@ -59,7 +24,6 @@ export interface Frame {
     "DisplayOct": string;
     "DisplayBin": string;
     "Encoding": string;
-    "Modbus": ModbusFrame | null;
 }
 
 /**
@@ -72,21 +36,6 @@ export interface FramePage {
 }
 
 /**
- * ModbusFrame contains a best-effort Modbus RTU/ASCII parse.
- */
-export interface ModbusFrame {
-    "Protocol": string;
-    "Slave": number;
-    "Function": number;
-    "FunctionHex": string;
-    "PayloadHex": string;
-    "CRCOK": boolean;
-    "LRCOK": boolean;
-    "Summary": string;
-    "Error": string;
-}
-
-/**
  * QueryRequest asks for a filtered page of frames.
  */
 export interface QueryRequest {
@@ -95,7 +44,6 @@ export interface QueryRequest {
     "Limit": number;
     "Direction": string;
     "Search": string;
-    "ModbusFunction": number;
 }
 
 /**
@@ -107,6 +55,8 @@ export interface SessionInfo {
     "Provider": string;
     "PortA": string;
     "PortB": string;
+    "ExternalPort": string;
+    "AutoVirtualPortID": string;
     "Config": port$0.SerialConfig;
     "Encoding": string;
     "Status": string;
@@ -116,7 +66,6 @@ export interface SessionInfo {
     "StartedAt": time$0.Time;
     "StoppedAt": time$0.Time;
     "Error": string;
-    "AutoSave": AutoSaveOptions;
 }
 
 /**
@@ -130,7 +79,8 @@ export interface StartRequest {
     "PortB": string;
     "EndpointA": string;
     "EndpointB": string;
+    "ExternalPort": string;
+    "AutoVirtualPortID": string;
     "Config": port$0.SerialConfig;
     "Encoding": string;
-    "AutoSave": AutoSaveOptions | null;
 }

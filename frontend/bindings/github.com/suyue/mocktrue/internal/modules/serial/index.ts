@@ -7,6 +7,7 @@ export {
 };
 
 export type {
+    AutoVirtualMonitorRequest,
     BridgeInfo,
     DecodeHexRequest,
     EncodeTextRequest,

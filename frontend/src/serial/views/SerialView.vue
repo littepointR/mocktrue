@@ -73,7 +73,7 @@ const tabs = computed(() => [
   })),
   ...monitorStore.sessionList.map(session => ({
     id: monitorTabId(session.ID),
-    name: session.Name || `监控 ${session.PortA} ⇄ ${session.PortB}`,
+    name: session.Name || `监控 ${session.PortA}`,
     kind: 'monitor' as const,
     sourceId: session.ID,
   })),
@@ -115,17 +115,26 @@ watch(
 
     const groups = collectGroups(nextLayout)
     const active: Record<string, string | null> = {}
+    const serialActiveTab = serialStore.activePortId
+    const monitorActiveTab = monitorStore.activeMonitorId ? monitorTabId(monitorStore.activeMonitorId) : null
     for (const group of groups) {
       const current = activeByGroup.value[group.id]
-      active[group.id] = serialStore.activePortId && group.tabs.includes(serialStore.activePortId)
-        ? serialStore.activePortId
-        : current && group.tabs.includes(current) ? current : group.tabs[0] ?? null
+      const activeSerialInGroup = serialActiveTab && group.tabs.includes(serialActiveTab) ? serialActiveTab : null
+      const activeMonitorInGroup = monitorActiveTab && group.tabs.includes(monitorActiveTab) ? monitorActiveTab : null
+      const newlyAddedActive = [activeMonitorInGroup, activeSerialInGroup]
+        .find((id): id is string => Boolean(id && missing.includes(id)))
+      active[group.id] = newlyAddedActive
+        ?? (current && group.tabs.includes(current) ? current : null)
+        ?? activeMonitorInGroup
+        ?? activeSerialInGroup
+        ?? group.tabs[0]
+        ?? null
     }
 
     editorLayout.value = nextLayout
     activeByGroup.value = active
 
-    const firstTabId = firstTab(nextLayout)
+    const firstTabId = firstSerialTab(nextLayout, tabs.value)
     if (serialStore.activePortId && !idSet.has(serialStore.activePortId)) {
       serialStore.setActivePort(firstTabId)
     } else if (!serialStore.activePortId && firstTabId) {
@@ -313,13 +322,9 @@ function collectTabIds(node: EditorLayoutTreeNode): string[] {
   return node.children.flatMap(collectTabIds)
 }
 
-function firstTab(node: EditorLayoutTreeNode): string | null {
-  if (node.type === 'group') return node.tabs[0] ?? null
-  for (const child of node.children) {
-    const tabId = firstTab(child)
-    if (tabId) return tabId
-  }
-  return null
+function firstSerialTab(node: EditorLayoutTreeNode, tabList: Array<{ id: string; kind: string }>): string | null {
+  const serialIds = new Set(tabList.filter(tab => tab.kind === 'serial').map(tab => tab.id))
+  return collectTabIds(node).find(id => serialIds.has(id)) ?? null
 }
 
 function filterLayoutTabs(node: EditorLayoutTreeNode, idSet: Set<string>): EditorLayoutTreeNode | null {

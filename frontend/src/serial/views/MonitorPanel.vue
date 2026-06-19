@@ -16,7 +16,6 @@ const settings = useSettingsStore()
 const id = ref(defaultMonitorId())
 const name = ref('')
 const portA = ref('')
-const portB = ref('')
 const baudRate = ref(115200)
 const dataBits = ref(8)
 const stopBits = ref('1')
@@ -54,7 +53,7 @@ const portOptions = computed(() =>
   }))
 )
 
-const canStart = computed(() => Boolean(id.value && portA.value && portB.value && portA.value !== portB.value))
+const canStart = computed(() => Boolean(id.value && portA.value))
 
 onMounted(() => {
   serialStore.refreshPorts()
@@ -64,11 +63,10 @@ async function startMonitor() {
   if (!canStart.value) return
   loading.value = true
   try {
-    const monitorId = await monitorStore.startBridgeMonitor({
+    const monitorId = await monitorStore.startAutoVirtualMonitor({
       id: id.value,
-      name: name.value || `${portA.value} ⇄ ${portB.value}`,
-      portA: portA.value,
-      portB: portB.value,
+      name: name.value || `${portA.value} monitor`,
+      sourcePort: portA.value,
       baudRate: baudRate.value,
       dataBits: dataBits.value,
       stopBits: stopBits.value,
@@ -105,17 +103,9 @@ function defaultMonitorId(): string {
       <NFormItem label="名称">
         <NInput v-model:value="name" :disabled="loading" placeholder="可选" />
       </NFormItem>
-      <NFormItem label="端口 A">
+      <NFormItem label="被监听端口">
         <NSelect
           v-model:value="portA"
-          :options="portOptions"
-          :disabled="loading"
-          filterable
-        />
-      </NFormItem>
-      <NFormItem label="端口 B">
-        <NSelect
-          v-model:value="portB"
           :options="portOptions"
           :disabled="loading"
           filterable

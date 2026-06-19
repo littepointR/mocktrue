@@ -1,5 +1,5 @@
 import type { SerialConfig } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
-import type { AutoSaveOptions, Frame, SessionInfo } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/monitor/models.js'
+import type { Frame, SessionInfo } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/monitor/models.js'
 import { defaultGlobalSettings, defaultSerialSettings, type SettingsSnapshot } from '../settings/stores/settingsStore'
 import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
 import type { SerialTabWorkspaceState, SerialWorkspaceState } from '../serial/stores/workspaceStore'
@@ -45,7 +45,7 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'monitor-demo',
     title: '串口监控演示',
-    description: '展示桥接式串口监听会话、过滤条件、帧列表和 Modbus 解析结果。',
+    description: '展示串口监听会话、收发方向过滤和原始帧列表。',
     readonly: true,
     snapshotFactory: createMonitorDemo,
   },
@@ -351,28 +351,8 @@ function emptyMonitorState(): MonitorWorkspaceState {
 
 function monitorState(id: string, portA: string, portB: string): MonitorWorkspaceState {
   const frames = [
-    monitorFrame(1, 'a_to_b', portA, '01 03 00 00 00 02 c4 0b', '读保持寄存器 0x0000 x2', {
-      Slave: 1,
-      Function: 3,
-      FunctionHex: '03',
-      PayloadHex: '00 00 00 02',
-      CRCOK: true,
-      LRCOK: false,
-      Summary: 'Read Holding Registers',
-      Error: '',
-      Protocol: 'modbus-rtu',
-    }),
-    monitorFrame(2, 'b_to_a', portB, '01 03 04 00 18 00 2a fa 33', '返回 24 和 42', {
-      Slave: 1,
-      Function: 3,
-      FunctionHex: '03',
-      PayloadHex: '04 00 18 00 2a',
-      CRCOK: true,
-      LRCOK: false,
-      Summary: '2 registers: 24, 42',
-      Error: '',
-      Protocol: 'modbus-rtu',
-    }),
+    monitorFrame(1, 'a_to_b', portA, '01 03 00 00 00 02 c4 0b', '请求 01 03 00 00 00 02 c4 0b'),
+    monitorFrame(2, 'b_to_a', portB, '01 03 04 00 18 00 2a fa 33', '响应 01 03 04 00 18 00 2a fa 33'),
     monitorFrame(3, 'a_to_b', portA, 'ping', 'ASCII 心跳'),
   ]
 
@@ -383,10 +363,12 @@ function monitorState(id: string, portA: string, portB: string): MonitorWorkspac
     },
     sessions: [{
       ID: id,
-      Name: 'Modbus RTU 监听演示',
+      Name: '串口监控演示',
       Provider: 'bridge',
       PortA: portA,
       PortB: portB,
+      ExternalPort: '',
+      AutoVirtualPortID: '',
       Config: serialConfig('', 115200),
       Encoding: 'utf-8',
       Status: 'stopped',
@@ -396,7 +378,6 @@ function monitorState(id: string, portA: string, portB: string): MonitorWorkspac
       StartedAt: '2026-06-20T01:00:00Z',
       StoppedAt: '2026-06-20T01:02:30Z',
       Error: '',
-      AutoSave: autoSaveOptions(),
     } satisfies SessionInfo],
     frames: {
       [id]: frames,
@@ -409,7 +390,6 @@ function monitorFilter(): MonitorFilterState {
     direction: 'all',
     search: '03',
     displayMode: 'hex',
-    modbusFunction: 3,
   }
 }
 
@@ -418,8 +398,7 @@ function monitorFrame(
   direction: string,
   portName: string,
   hexOrText: string,
-  text: string,
-  modbus: Frame['Modbus'] = null
+  text: string
 ): Frame {
   const hex = hexOrText.includes(' ') ? hexOrText : Array.from(new TextEncoder().encode(hexOrText))
     .map(byte => byte.toString(16).padStart(2, '0'))
@@ -437,21 +416,6 @@ function monitorFrame(
     DisplayDec: hexToBase(hex, 10),
     DisplayOct: hexToBase(hex, 8),
     DisplayBin: hexToBase(hex, 2),
-    Encoding: 'utf-8',
-    Modbus: modbus,
-  }
-}
-
-function autoSaveOptions(): AutoSaveOptions {
-  return {
-    Enabled: false,
-    Path: '',
-    Directory: '',
-    BaseName: 'mocktrue-monitor-demo',
-    Format: 'csv',
-    SplitMode: 'none',
-    SplitSizeKB: 1024,
-    SplitIntervalSeconds: 60,
     Encoding: 'utf-8',
   }
 }

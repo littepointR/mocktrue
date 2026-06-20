@@ -19,9 +19,10 @@ func TestRingBufferSpillToDisk(t *testing.T) {
 	r.Append(Chunk{Seq: 1, BaseOffset: 512, Data: data})
 	r.Append(Chunk{Seq: 2, BaseOffset: 1024, Data: data}) // should evict oldest
 
-	// Old chunk (512 bytes) evicted, remaining: chunk1(512) + chunk2(512) = 1024
-	if r.Total() != 1024 {
-		t.Fatalf("Total = %d, want 1024 (oldest chunk evicted)", r.Total())
+	// Old chunk (512 bytes) is evicted from storage, but Total tracks the
+	// lifetime byte count so virtual scrollers can keep growing.
+	if r.Total() != 1536 {
+		t.Fatalf("Total = %d, want 1536 lifetime bytes", r.Total())
 	}
 
 	// Query should still work on remaining chunks

@@ -12,6 +12,6 @@ type Chunk struct {
 type Snapshot struct {
 	Offset int64  // requested start offset
 	Data   []byte // bytes in [Offset, Offset+len(Data))
-	Total  int64  // total bytes in the buffer
+	Total  int64  // total bytes seen by the stream
 	EOF    bool   // true if offset >= Total
 }

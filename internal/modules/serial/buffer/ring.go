@@ -11,7 +11,8 @@ import (
 type RingBuffer struct {
 	mu       sync.RWMutex
 	chunks   []Chunk
-	total    int64
+	total    int64 // lifetime byte count
+	retained int64 // bytes currently retained in chunks
 	capacity int64 // max bytes before old chunks are evicted
 }
 
@@ -29,15 +30,39 @@ func (r *RingBuffer) Append(c Chunk) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Evict old chunks if we exceed capacity
-	for r.total+int64(len(c.Data)) > r.capacity && len(r.chunks) > 0 {
-		oldest := r.chunks[0]
-		r.total -= int64(len(oldest.Data))
-		r.chunks = r.chunks[1:]
+	dataLen := int64(len(c.Data))
+	end := c.BaseOffset + dataLen
+	if end > r.total {
+		r.total = end
+	}
+	if dataLen == 0 || r.capacity <= 0 {
+		return
+	}
+	if dataLen > r.capacity {
+		drop := int(dataLen - r.capacity)
+		c.BaseOffset += int64(drop)
+		c.Data = c.Data[drop:]
+		dataLen = int64(len(c.Data))
 	}
 
 	r.chunks = append(r.chunks, c)
-	r.total += int64(len(c.Data))
+	r.retained += dataLen
+
+	for r.retained > r.capacity && len(r.chunks) > 0 {
+		excess := r.retained - r.capacity
+		oldest := r.chunks[0]
+		oldestLen := int64(len(oldest.Data))
+		if oldestLen <= excess {
+			r.retained -= oldestLen
+			r.chunks = r.chunks[1:]
+			continue
+		}
+		drop := int(excess)
+		oldest.BaseOffset += excess
+		oldest.Data = oldest.Data[drop:]
+		r.chunks[0] = oldest
+		r.retained -= excess
+	}
 }
 
 // Query returns a snapshot of the bytes in [offset, offset+length). If
@@ -46,8 +71,17 @@ func (r *RingBuffer) Query(offset int64, length int) (*Snapshot, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if offset < 0 {
+		offset = 0
+	}
+	if length <= 0 {
+		return &Snapshot{Offset: offset, Total: r.total, EOF: offset >= r.total}, nil
+	}
 	if offset >= r.total {
 		return &Snapshot{Offset: offset, Total: r.total, EOF: true}, nil
+	}
+	if len(r.chunks) == 0 || offset < r.chunks[0].BaseOffset {
+		return &Snapshot{Offset: offset, Total: r.total, EOF: false}, nil
 	}
 
 	// Clamp length to available bytes
@@ -58,12 +92,17 @@ func (r *RingBuffer) Query(offset int64, length int) (*Snapshot, error) {
 	// Find the starting chunk (binary search would be better for many chunks)
 	startChunk := 0
 	startOffset := offset
+	found := false
 	for i, c := range r.chunks {
 		if c.BaseOffset+int64(len(c.Data)) > offset {
 			startChunk = i
 			startOffset = offset - c.BaseOffset
+			found = true
 			break
 		}
+	}
+	if !found || startOffset < 0 {
+		return &Snapshot{Offset: offset, Total: r.total, EOF: false}, nil
 	}
 
 	// Copy bytes across chunks
@@ -105,4 +144,5 @@ func (r *RingBuffer) Reset() {
 	defer r.mu.Unlock()
 	r.chunks = r.chunks[:0]
 	r.total = 0
+	r.retained = 0
 }

@@ -2,6 +2,7 @@ package serial
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -560,6 +561,175 @@ func TestSerialGraphRuntimeAutoSenderThroughVirtualPort(t *testing.T) {
 	}
 }
 
+func TestSerialGraphRuntimeAutoSenderThroughVirtualPortSurvivesExternalBackpressure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+	svc := NewService(nil)
+	defer svc.cleanup()
+	payload := strings.Repeat("x", 64*1024)
+	graph, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
+		ID: "graph-auto-virtual-backpressure",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: map[string]any{"mode": "ascii", "payload": payload, "autoSend": true, "intervalMs": 10}},
+			{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": "mocktrue-graph-auto-backpressure-vp", "baudRate": 115200}},
+			{ID: "receiver", Type: "serial.receiver", Config: map[string]any{"viewMode": "ascii"}},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "vport", TargetHandle: "tx"},
+			{ID: "edge-2", Source: "vport", SourceHandle: "rx", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+	if err != nil {
+		t.Skipf("virtual serial unavailable: %v", err)
+	}
+
+	waitGraphBuffer(t, svc, graph.ID, "receiver", len(payload)*3)
+	stopped := make(chan error, 1)
+	go func() {
+		stopped <- svc.StopSerialGraph(graph.ID)
+	}()
+
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("StopSerialGraph returned error: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("StopSerialGraph did not return while virtual auto sender was under external backpressure")
+	}
+}
+
+func TestSerialGraphRuntimeMonitorRetainsBoundedFrameHistoryUnderLoad(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-monitor-bounded-load",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender"},
+			{ID: "monitor", Type: "serial.monitor"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+		},
+	})
+
+	payload := strings.Repeat("x", 4*1024*1024)
+	for i := 0; i < 5; i++ {
+		if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{
+			GraphID: graph.ID,
+			NodeID:  "sender",
+			Content: payload,
+			Mode:    "ascii",
+		}); err != nil {
+			t.Fatalf("SendSerialGraphNode #%d returned error: %v", i, err)
+		}
+	}
+
+	page, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{
+		GraphID: graph.ID,
+		NodeID:  "monitor",
+		Offset:  0,
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeFrames returned error: %v", err)
+	}
+	if page.Total != 4 {
+		t.Fatalf("retained monitor frames = %d, want 4 frames within 16MiB cap", page.Total)
+	}
+}
+
+func TestSerialGraphRuntimeDemoTopologiesFullLoad100MBNoInterval(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping full-load demo topology test in short mode")
+	}
+	const totalBytes = 100 * 1024 * 1024
+	const chunkBytes = 1024 * 1024
+	payload := strings.Repeat("x", chunkBytes)
+	demos := []string{
+		"serial-open-demo",
+		"virtual-port-demo",
+		"bridge-demo",
+		"monitor-demo",
+		"modbus-demo",
+		"fecbus-demo",
+		"serial-graph-demo",
+		"full-workspace-demo",
+	}
+
+	for _, demoID := range demos {
+		t.Run(demoID, func(t *testing.T) {
+			svc := NewService(nil)
+			defer svc.cleanup()
+			req := demoLoadGraphRequest(demoID)
+			graph, err := svc.StartSerialGraph(context.Background(), req)
+			if err != nil {
+				t.Skipf("virtual serial unavailable: %v", err)
+			}
+			stopped := false
+			defer func() {
+				if !stopped {
+					_ = svc.StopSerialGraph(graph.ID)
+				}
+			}()
+
+			for written := 0; written < totalBytes; written += chunkBytes {
+				if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{
+					GraphID: graph.ID,
+					NodeID:  "sender",
+					Content: payload,
+					Mode:    "ascii",
+				}); err != nil {
+					t.Fatalf("SendSerialGraphNode at %d bytes returned error: %v", written, err)
+				}
+			}
+
+			info, err := svc.GetSerialGraphStatus(graph.ID)
+			if err != nil {
+				t.Fatalf("GetSerialGraphStatus returned error: %v", err)
+			}
+			for _, id := range []string{"sender", "vport", "tap", "receiver", "modbus", "monitor"} {
+				status := graphNodeStatus(info, id)
+				if status.Status != SerialGraphStatusRunning {
+					t.Fatalf("%s status = %q error=%q, want running", id, status.Status, status.Error)
+				}
+			}
+			if got := graphNodeStatus(info, "sender").TxBytes; got != totalBytes {
+				t.Fatalf("sender tx = %d, want %d", got, totalBytes)
+			}
+			if got := graphNodeStatus(info, "receiver").RxBytes; got != totalBytes {
+				t.Fatalf("receiver rx = %d, want %d", got, totalBytes)
+			}
+			if got := graphNodeStatus(info, "monitor").FrameCount; got > 16 {
+				t.Fatalf("monitor retained frame count = %d, want <= 16 after full-load cap", got)
+			}
+
+			page, err := svc.QuerySerialGraphNodeBuffer(SerialGraphBufferQuery{
+				GraphID: graph.ID,
+				NodeID:  "receiver",
+				Offset:  0,
+				Length:  16,
+			})
+			if err != nil {
+				t.Fatalf("QuerySerialGraphNodeBuffer returned error after retained-window eviction: %v", err)
+			}
+			if page.Total != totalBytes {
+				t.Fatalf("receiver buffer total = %d, want lifetime total %d", page.Total, totalBytes)
+			}
+
+			stopGraphWithin(t, svc, graph.ID, 2*time.Second)
+			stopped = true
+			if graphs := svc.ListSerialGraphs(); len(graphs) != 0 {
+				t.Fatalf("running graphs after stop = %d, want 0", len(graphs))
+			}
+			if ports := svc.ListVirtualPorts(); len(ports) != 0 {
+				t.Fatalf("virtual ports after graph stop = %d, want 0", len(ports))
+			}
+		})
+	}
+}
+
 func TestSerialGraphRuntimeRejectsDuplicateVirtualPortNameAcrossGraphs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping socat integration test in short mode")
@@ -592,6 +762,45 @@ func startTestGraph(t *testing.T, svc *Service, req SerialGraphStartRequest) *Se
 		t.Fatalf("graph status = %q, want %q", info.Status, SerialGraphStatusRunning)
 	}
 	return info
+}
+
+func demoLoadGraphRequest(demoID string) SerialGraphStartRequest {
+	portToken := strings.NewReplacer("-", "_").Replace(demoID)
+	portName := fmt.Sprintf("mocktrue-load-%s-%d", portToken, time.Now().UnixNano())
+	return SerialGraphStartRequest{
+		ID: fmt.Sprintf("load-%s", demoID),
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "load", "autoSend": false, "intervalMs": 0}},
+			{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": portName, "baudRate": 115200, "dataBits": 8, "stopBits": "1", "parity": "none", "flowMode": "none", "readBufKB": 32}},
+			{ID: "tap", Type: "serial.tap", Config: map[string]any{}},
+			{ID: "receiver", Type: "serial.receiver", Config: map[string]any{"viewMode": "hexClassic", "autoScroll": true}},
+			{ID: "modbus", Type: "serial.modbus.master", Config: map[string]any{"mode": "rtu", "unitIds": "1,2", "functionCode": 3}},
+			{ID: "monitor", Type: "serial.monitor", Config: map[string]any{"mode": "auto-virtual", "displayMode": "hex"}},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-sender-vport", Source: "sender", SourceHandle: "out", Target: "vport", TargetHandle: "tx"},
+			{ID: "edge-vport-tap", Source: "vport", SourceHandle: "rx", Target: "tap", TargetHandle: "in"},
+			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-tap-modbus", Source: "tap", SourceHandle: "out", Target: "modbus", TargetHandle: "rx"},
+			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+		},
+	}
+}
+
+func stopGraphWithin(t *testing.T, svc *Service, graphID string, timeout time.Duration) {
+	t.Helper()
+	stopped := make(chan error, 1)
+	go func() {
+		stopped <- svc.StopSerialGraph(graphID)
+	}()
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("StopSerialGraph returned error: %v", err)
+		}
+	case <-time.After(timeout):
+		t.Fatalf("StopSerialGraph did not return within %s", timeout)
+	}
 }
 
 func graphNodeStatus(info *SerialGraphRuntimeInfo, id string) SerialGraphNodeStatus {

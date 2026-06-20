@@ -16,7 +16,7 @@ export interface Snapshot {
     "Data": string | null;
 
     /**
-     * total bytes in the buffer
+     * total bytes seen by the stream
      */
     "Total": number;
 

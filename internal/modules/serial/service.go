@@ -291,11 +291,20 @@ func decodeHexContent(content string) ([]byte, error) {
 }
 
 func formatHexBytes(data []byte) string {
-	parts := make([]string, 0, len(data))
-	for _, b := range data {
-		parts = append(parts, fmt.Sprintf("%02x", b))
+	if len(data) == 0 {
+		return ""
 	}
-	return strings.Join(parts, " ")
+	const hex = "0123456789abcdef"
+	out := make([]byte, len(data)*3-1)
+	for i, b := range data {
+		j := i * 3
+		out[j] = hex[b>>4]
+		out[j+1] = hex[b&0x0f]
+		if i < len(data)-1 {
+			out[j+2] = ' '
+		}
+	}
+	return string(out)
 }
 
 // ResetCounters clears RX and TX byte counters for an open port handle.

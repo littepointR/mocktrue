@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/suyue/mocktrue/internal/core/errors"
@@ -23,6 +24,9 @@ const (
 	SerialGraphStatusRunning = "running"
 	SerialGraphStatusStopped = "stopped"
 	SerialGraphStatusError   = "error"
+
+	serialGraphFrameLimit      = 100000
+	serialGraphFrameBytesLimit = 16 * 1024 * 1024
 )
 
 // SerialGraphStartRequest starts one executable serial topology graph.
@@ -144,17 +148,19 @@ type serialGraphRuntime struct {
 }
 
 type serialGraphRuntimeNode struct {
-	mu         sync.RWMutex
-	spec       SerialGraphNodeSpec
-	status     string
-	err        string
-	rxBytes    int64
-	txBytes    int64
-	frameSeq   int64
-	buffer     *buffer.RingBuffer
-	frames     []monitor.Frame
-	resourceID string
-	handleID   string
+	mu                    sync.RWMutex
+	spec                  SerialGraphNodeSpec
+	status                string
+	err                   string
+	rxBytes               int64
+	txBytes               int64
+	frameSeq              int64
+	buffer                *buffer.RingBuffer
+	frames                []monitor.Frame
+	frameBytes            int64
+	resourceID            string
+	handleID              string
+	externalWriteInFlight atomic.Bool
 }
 
 type serialGraphPortRef struct {
@@ -597,11 +603,11 @@ func (r *serialGraphRuntime) stop() {
 	if cancelAuto != nil {
 		cancelAuto()
 	}
-	for _, portID := range ownedPorts {
-		_ = r.svc.ClosePort(portID)
-	}
 	for _, portID := range ownedVPorts {
 		_ = r.svc.DeleteVirtualPort(portID)
+	}
+	for _, portID := range ownedPorts {
+		_ = r.svc.ClosePort(portID)
 	}
 }
 
@@ -683,21 +689,11 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 			}
 		}
 	case "serial.virtual":
-		handleID := node.handle()
-		if handleID != "" {
-			if n, err := r.svc.manager.Write(handleID, data); err == nil {
-				node.addTx(n)
-				if n > 0 {
-					loopback := append([]byte(nil), data[:n]...)
-					node.appendBuffer(loopback)
-					r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "rx"}, loopback)
-				}
-			} else {
-				node.setStatus(SerialGraphStatusError, err.Error())
-			}
-		} else {
-			node.appendBuffer(data)
-		}
+		loopback := append([]byte(nil), data...)
+		node.addTx(len(loopback))
+		node.appendBuffer(loopback)
+		r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "rx"}, loopback)
+		r.writeVirtualExternal(node, loopback)
 	case "serial.modbus.slave":
 		node.appendBuffer(data)
 		r.handleModbusSlave(node, data)
@@ -707,6 +703,29 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 	case "serial.modbus.master", "serial.fecbus.master":
 		node.appendBuffer(data)
 	}
+}
+
+func (r *serialGraphRuntime) writeVirtualExternal(node *serialGraphRuntimeNode, data []byte) {
+	handleID := node.handle()
+	if handleID == "" || len(data) == 0 {
+		return
+	}
+	if !node.tryBeginExternalWrite() {
+		return
+	}
+	payload := append([]byte(nil), data...)
+	go func() {
+		defer node.endExternalWrite()
+		if _, err := r.svc.manager.Write(handleID, payload); err != nil && !r.isStopped() {
+			node.setStatus(SerialGraphStatusError, err.Error())
+		}
+	}()
+}
+
+func (r *serialGraphRuntime) isStopped() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.status == SerialGraphStatusStopped
 }
 
 func (r *serialGraphRuntime) handleModbusSlave(node *serialGraphRuntimeNode, data []byte) {
@@ -916,6 +935,14 @@ func (n *serialGraphRuntimeNode) handle() string {
 	return n.handleID
 }
 
+func (n *serialGraphRuntimeNode) tryBeginExternalWrite() bool {
+	return n.externalWriteInFlight.CompareAndSwap(false, true)
+}
+
+func (n *serialGraphRuntimeNode) endExternalWrite() {
+	n.externalWriteInFlight.Store(false)
+}
+
 func (n *serialGraphRuntimeNode) addRx(length int) {
 	n.mu.Lock()
 	n.rxBytes += int64(length)
@@ -958,6 +985,7 @@ func (n *serialGraphRuntimeNode) clearBuffer() {
 	}
 	n.mu.Lock()
 	n.frames = nil
+	n.frameBytes = 0
 	n.frameSeq = 0
 	n.mu.Unlock()
 }
@@ -987,6 +1015,11 @@ func (n *serialGraphRuntimeNode) appendFrame(data []byte) {
 		Encoding:    graphStringConfig(n.spec.Config, "encoding"),
 	}
 	n.frames = append(n.frames, frame)
+	n.frameBytes += int64(len(data))
+	for len(n.frames) > 0 && (len(n.frames) > serialGraphFrameLimit || (n.frameBytes > serialGraphFrameBytesLimit && len(n.frames) > 1)) {
+		n.frameBytes -= int64(len(n.frames[0].Data))
+		n.frames = n.frames[1:]
+	}
 }
 
 func (n *serialGraphRuntimeNode) queryFrames(req SerialGraphFrameQuery) *SerialGraphFramePage {

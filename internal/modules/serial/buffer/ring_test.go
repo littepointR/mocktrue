@@ -98,3 +98,40 @@ func TestRingBufferReset(t *testing.T) {
 		t.Fatalf("Total after Reset = %d, want 0", r.Total())
 	}
 }
+
+func TestRingBufferQueryBeforeRetainedWindow(t *testing.T) {
+	t.Parallel()
+	r := NewRing(1024)
+	data := make([]byte, 512)
+	r.Append(Chunk{Seq: 0, BaseOffset: 0, Data: data})
+	r.Append(Chunk{Seq: 1, BaseOffset: 512, Data: data})
+	r.Append(Chunk{Seq: 2, BaseOffset: 1024, Data: data})
+
+	snap, err := r.Query(0, 100)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if len(snap.Data) != 0 {
+		t.Fatalf("Query before retained window returned %d bytes, want 0", len(snap.Data))
+	}
+	if snap.Total != 1536 {
+		t.Fatalf("Query total = %d, want lifetime total 1536", snap.Total)
+	}
+}
+
+func TestRingBufferQueryOversizedChunkIsCapped(t *testing.T) {
+	t.Parallel()
+	r := NewRing(4)
+	r.Append(Chunk{Seq: 0, BaseOffset: 0, Data: []byte("abcdef")})
+
+	if r.Total() != 6 {
+		t.Fatalf("Total = %d, want lifetime total 6", r.Total())
+	}
+	snap, err := r.Query(2, 4)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if string(snap.Data) != "cdef" {
+		t.Fatalf("Query retained oversized data = %q, want cdef", string(snap.Data))
+	}
+}

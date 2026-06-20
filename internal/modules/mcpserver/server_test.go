@@ -17,6 +17,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/platform"
 	"github.com/suyue/mocktrue/internal/modules/serial"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
+	fb "github.com/suyue/mocktrue/internal/modules/serial/fecbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
 	mb "github.com/suyue/mocktrue/internal/modules/serial/modbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
@@ -57,6 +58,21 @@ type fakeSerialService struct {
 	unitScan        mb.UnitScanRequest
 	registerRead    mb.RegisterReadRequest
 	registerScan    mb.RegisterScanRequest
+	fecbusSessions  []fb.SessionInfo
+	openFecbus      fb.OpenSessionRequest
+	closeFecbus     string
+	fecbusRequest   fb.SendRequest
+	startFecbus     fb.StartSlaveRequest
+	stopFecbus      string
+	updateFecbusID  string
+	updateFecbus    fb.SlaveState
+	addFecbusID     string
+	addFecbusUnit   fb.SlaveUnitState
+	removeFecbusID  string
+	removeFecbusAdr byte
+	listFecbusID    string
+	queryFecbus     fb.QueryRequest
+	clearFecbus     string
 }
 
 func (f *fakeSerialService) EnumeratePorts(context.Context) ([]port.PortInfo, error) {
@@ -250,6 +266,92 @@ func (f *fakeSerialService) ModbusScanRegisters(req mb.RegisterScanRequest) (*mb
 	return &mb.RegisterScanResult{SessionID: req.SessionID, UnitID: req.UnitID, Values: []mb.RegisterScanValue{{Address: req.StartAddress, Value: 42}}}, nil
 }
 
+func (f *fakeSerialService) OpenFecbusSession(_ context.Context, req fb.OpenSessionRequest) (*fb.SessionInfo, error) {
+	f.openFecbus = req
+	info := fb.SessionInfo{ID: req.ID, Name: req.Name, Role: req.Role, Config: req.Config, Status: fb.SessionStatusOpen}
+	f.fecbusSessions = append(f.fecbusSessions, info)
+	return &info, nil
+}
+
+func (f *fakeSerialService) CloseFecbusSession(id string) error {
+	f.closeFecbus = id
+	return nil
+}
+
+func (f *fakeSerialService) ListFecbusSessions() []fb.SessionInfo {
+	return f.fecbusSessions
+}
+
+func (f *fakeSerialService) FecbusSendRequest(req fb.SendRequest) (*fb.Transaction, error) {
+	f.fecbusRequest = req
+	response := fb.Frame{
+		Type:          fb.FrameTypeAnswer,
+		TargetAddress: req.SourceAddress,
+		Priority:      3,
+		SourceAddress: req.TargetAddress,
+		MessageNumber: req.MessageNumber,
+		Data:          []byte{byte(req.Function), byte(fb.StatusReceivedOK)},
+	}
+	return &fb.Transaction{ID: "fec-tx-1", SessionID: req.SessionID, Response: &response}, nil
+}
+
+func (f *fakeSerialService) StartFecbusSlave(req fb.StartSlaveRequest) (*fb.SessionInfo, error) {
+	f.startFecbus = req
+	targetAddress := req.State.Address
+	if len(req.Units) > 0 {
+		targetAddress = req.Units[0].Address
+	}
+	info := fb.SessionInfo{ID: req.SessionID, Role: fb.SessionRoleSlave, Status: fb.SessionStatusRunning, SlaveRunning: true, TargetAddress: targetAddress}
+	return &info, nil
+}
+
+func (f *fakeSerialService) StopFecbusSlave(id string) error {
+	f.stopFecbus = id
+	return nil
+}
+
+func (f *fakeSerialService) UpdateFecbusSlaveState(sessionID string, state fb.SlaveState) error {
+	f.updateFecbusID = sessionID
+	f.updateFecbus = state
+	return nil
+}
+
+func (f *fakeSerialService) AddFecbusSlaveUnit(sessionID string, unit fb.SlaveUnitState) error {
+	f.addFecbusID = sessionID
+	f.addFecbusUnit = unit
+	return nil
+}
+
+func (f *fakeSerialService) RemoveFecbusSlaveUnit(sessionID string, address byte) error {
+	f.removeFecbusID = sessionID
+	f.removeFecbusAdr = address
+	return nil
+}
+
+func (f *fakeSerialService) ListFecbusSlaveUnits(sessionID string) ([]fb.SlaveUnitInfo, error) {
+	f.listFecbusID = sessionID
+	return []fb.SlaveUnitInfo{{Address: 2, DefaultStatus: fb.StatusReceivedOK}}, nil
+}
+
+func (f *fakeSerialService) QueryFecbusFrames(req fb.QueryRequest) (*fb.FramePage, error) {
+	f.queryFecbus = req
+	return &fb.FramePage{
+		Frames: []fb.FrameRecord{{
+			Seq:       1,
+			SessionID: req.SessionID,
+			Direction: "tx",
+			Hex:       "7e 00",
+		}},
+		Total: 1,
+		Limit: req.Limit,
+	}, nil
+}
+
+func (f *fakeSerialService) ClearFecbusFrames(id string) error {
+	f.clearFecbus = id
+	return nil
+}
+
 func TestOriginGuardAllowsMissingAndLocalOrigins(t *testing.T) {
 	t.Parallel()
 	handler := originGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -343,10 +445,138 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 		"modbus_remove_slave_unit",
 		"modbus_update_slave_unit_data",
 		"modbus_list_slave_units",
+		"fecbus_function_catalog",
+		"fecbus_open_session",
+		"fecbus_close_session",
+		"fecbus_list_sessions",
+		"fecbus_send_request",
+		"fecbus_start_slave",
+		"fecbus_stop_slave",
+		"fecbus_update_slave_state",
+		"fecbus_query_frames",
+		"fecbus_clear_frames",
 	} {
 		if !names[want] {
 			t.Fatalf("tools/list missing %s in %#v", want, names)
 		}
+	}
+}
+
+func TestFecbusToolsCallSerialService(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSerialService{}
+	handler := mcpHTTPHandler(newMCPServer(svc), true)
+
+	catalog := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":20,
+		"method":"tools/call",
+		"params":{"name":"fecbus_function_catalog","arguments":{}}
+	}`)
+	functions := catalog["structuredContent"].(map[string]any)["functions"].([]any)
+	if len(functions) != 256 {
+		t.Fatalf("catalog length = %d, want 256", len(functions))
+	}
+
+	open := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":21,
+		"method":"tools/call",
+		"params":{"name":"fecbus_open_session","arguments":{"id":"fec-1","name":"FECbus 主控","port":"/tmp/ttyF0","role":"master","baud_rate":9600,"timeout_ms":1000,"retries":3}}
+	}`)
+	session := open["structuredContent"].(map[string]any)["session"].(map[string]any)
+	if session["ID"] != "fec-1" || svc.openFecbus.Config.PortName != "/tmp/ttyF0" || svc.openFecbus.Config.BaudRate != 9600 {
+		t.Fatalf("open fecbus result=%#v request=%+v", session, svc.openFecbus)
+	}
+
+	send := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":22,
+		"method":"tools/call",
+		"params":{"name":"fecbus_send_request","arguments":{"session_id":"fec-1","frame_type":0,"target_address":2,"source_address":1,"message_number":9,"function":44,"expect_answer":true}}
+	}`)
+	tx := send["structuredContent"].(map[string]any)["transaction"].(map[string]any)
+	if tx["ID"] != "fec-tx-1" || svc.fecbusRequest.SessionID != "fec-1" || svc.fecbusRequest.Function != fb.FunctionQueryProtocolVersion {
+		t.Fatalf("fecbus tx=%#v request=%+v", tx, svc.fecbusRequest)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":23,
+		"method":"tools/call",
+		"params":{"name":"fecbus_start_slave","arguments":{"session_id":"fec-1","units":[{"address":2,"status_code":10,"auto_status_answer":true},{"address":3,"status_code":4,"auto_status_answer":true}]}}
+	}`)
+	if svc.startFecbus.SessionID != "fec-1" || len(svc.startFecbus.Units) != 2 || svc.startFecbus.Units[1].Address != 3 || svc.startFecbus.Units[1].DefaultStatus != fb.StatusBusy {
+		t.Fatalf("start fecbus request = %+v", svc.startFecbus)
+	}
+
+	units := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":231,
+		"method":"tools/call",
+		"params":{"name":"fecbus_list_slave_units","arguments":{"session_id":"fec-1"}}
+	}`)
+	if svc.listFecbusID != "fec-1" || len(units["structuredContent"].(map[string]any)["units"].([]any)) != 1 {
+		t.Fatalf("list fecbus units=%#v id=%q", units, svc.listFecbusID)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":232,
+		"method":"tools/call",
+		"params":{"name":"fecbus_add_slave_unit","arguments":{"session_id":"fec-1","address":4,"status_code":8,"auto_status_answer":true}}
+	}`)
+	if svc.addFecbusID != "fec-1" || svc.addFecbusUnit.Address != 4 || svc.addFecbusUnit.DefaultStatus != fb.StatusProcessing {
+		t.Fatalf("add fecbus unit=%+v id=%q", svc.addFecbusUnit, svc.addFecbusID)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":233,
+		"method":"tools/call",
+		"params":{"name":"fecbus_remove_slave_unit","arguments":{"session_id":"fec-1","address":4}}
+	}`)
+	if svc.removeFecbusID != "fec-1" || svc.removeFecbusAdr != 4 {
+		t.Fatalf("remove fecbus id/address = %q/%d", svc.removeFecbusID, svc.removeFecbusAdr)
+	}
+
+	query := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":24,
+		"method":"tools/call",
+		"params":{"name":"fecbus_query_frames","arguments":{"session_id":"fec-1","direction":"tx","search":"7e","limit":20,"custom":[{"code":8,"name":"厂商测试","fields":[{"key":"value","label":"测试值","offset":1,"length":2,"type":"uint16","endian":"little"}]}]}}
+	}`)
+	page := query["structuredContent"].(map[string]any)["page"].(map[string]any)
+	if page["Total"].(float64) != 1 || svc.queryFecbus.Search != "7e" || svc.queryFecbus.Limit != 20 || len(svc.queryFecbus.Custom) != 1 {
+		t.Fatalf("query fecbus page=%#v request=%+v", page, svc.queryFecbus)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":25,
+		"method":"tools/call",
+		"params":{"name":"fecbus_update_slave_state","arguments":{"session_id":"fec-1","address":3,"status_code":4,"auto_status_answer":false}}
+	}`)
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":26,
+		"method":"tools/call",
+		"params":{"name":"fecbus_clear_frames","arguments":{"session_id":"fec-1"}}
+	}`)
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":27,
+		"method":"tools/call",
+		"params":{"name":"fecbus_stop_slave","arguments":{"session_id":"fec-1"}}
+	}`)
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":28,
+		"method":"tools/call",
+		"params":{"name":"fecbus_close_session","arguments":{"session_id":"fec-1"}}
+	}`)
+	if svc.updateFecbusID != "fec-1" || svc.updateFecbus.Address != 3 || svc.clearFecbus != "fec-1" || svc.stopFecbus != "fec-1" || svc.closeFecbus != "fec-1" {
+		t.Fatalf("fecbus lifecycle update=%q/%+v clear=%q stop=%q close=%q", svc.updateFecbusID, svc.updateFecbus, svc.clearFecbus, svc.stopFecbus, svc.closeFecbus)
 	}
 }
 

@@ -9,6 +9,7 @@ import { useVirtualStore } from '../serial/stores/virtualStore'
 import { useSerialWorkspaceStore } from '../serial/stores/workspaceStore'
 import { useMonitorStore } from '../serial/stores/monitorStore'
 import { defaultModbusWorkspaceState, useModbusStore } from '../serial/stores/modbusStore'
+import { defaultFecbusWorkspaceState, useFecbusStore } from '../serial/stores/fecbusStore'
 
 const serialServiceMock = vi.hoisted(() => ({
   openPort: vi.fn(async () => ({
@@ -29,6 +30,8 @@ const serialServiceMock = vi.hoisted(() => ({
   closePort: vi.fn(async () => undefined),
   restoreCounters: vi.fn(async () => undefined),
   listPorts: vi.fn(async () => []),
+  listFecbusSessions: vi.fn(async () => []),
+  queryFecbusFrames: vi.fn(async () => ({ Frames: [], Offset: 0, Limit: 200, Total: 0, EOF: true })),
 }))
 
 const serialBindingsMock = vi.hoisted(() => ({
@@ -93,6 +96,7 @@ describe('workspace session snapshot', () => {
     expect(Array.from(base64ToBytes(snapshot.serial.buffers['port-1'][0].data))).toEqual([1, 2, 3])
     expect(snapshot.serial.monitors.activeMonitorId).toBe('mon-1')
     expect(snapshot.serial.modbus.masterForm.functionCode).toBe(3)
+    expect(snapshot.serial.fecbus.sendForm.functionCode).toBe(34)
     expect(snapshot.serial.workspace.tabStates['port-1'].sendHeight).toBe(240)
   })
 
@@ -132,6 +136,14 @@ describe('workspace session snapshot', () => {
             port: '/tmp/ttyM0',
           },
         },
+        fecbus: {
+          ...defaultFecbusWorkspaceState(),
+          activeSessionId: 'fec-1',
+          portForm: {
+            ...defaultFecbusWorkspaceState().portForm,
+            port: '/tmp/ttyF0',
+          },
+        },
         workspace: {
           selectedOperation: null,
           editorLayout: { type: 'group', id: 'group-1', tabs: ['old-port'] },
@@ -151,6 +163,8 @@ describe('workspace session snapshot', () => {
     expect(useMonitorStore().activeMonitorId).toBe('mon-1')
     expect(useModbusStore().activeSessionId).toBe('modbus-1')
     expect(useModbusStore().portForm.port).toBe('/tmp/ttyM0')
+    expect(useFecbusStore().activeSessionId).toBe('fec-1')
+    expect(useFecbusStore().portForm.port).toBe('/tmp/ttyF0')
     expect(useSerialWorkspaceStore().editorLayout).toEqual({ type: 'group', id: 'group-1', tabs: ['new-port'] })
     expect(useSettingsStore().global.Theme).toBe('dark')
     expect(serialServiceMock.restoreCounters).toHaveBeenCalledWith('new-port', 3, 2)

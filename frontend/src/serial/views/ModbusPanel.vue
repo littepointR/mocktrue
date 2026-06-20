@@ -10,11 +10,11 @@ import {
   NSelect,
   NSpace,
   NSwitch,
-  NTable,
   NTag,
 } from 'naive-ui'
 import { useSerialStore } from '../stores/serialStore'
 import { defaultModbusSlaveUnitGrid, useModbusStore } from '../stores/modbusStore'
+import ResizableTable, { type ResizableTableColumn } from '../components/ResizableTable.vue'
 import type {
   ModbusDataType,
   ModbusMasterTableRow,
@@ -134,6 +134,38 @@ const dataTypeOptions = [
 const wordOrderOptions = [
   { label: 'BE', value: 'big' },
   { label: 'LE', value: 'little' },
+]
+const masterRegisterColumns: ResizableTableColumn[] = [
+  { key: 'address', label: '地址', width: 84, minWidth: 70 },
+  { key: 'alias', label: '别名', width: 150, minWidth: 100 },
+  { key: 'value', label: '值', width: 90, minWidth: 72 },
+  { key: 'raw', label: 'Raw', width: 96, minWidth: 72 },
+  { key: 'mapping', label: '映射', width: 110, minWidth: 84 },
+  { key: 'type', label: '类型', width: 118, minWidth: 96 },
+  { key: 'word', label: '字序', width: 82, minWidth: 70 },
+  { key: 'length', label: '长度', width: 84, minWidth: 70 },
+  { key: 'scale', label: '系数', width: 84, minWidth: 70 },
+  { key: 'actions', label: '', width: 150, minWidth: 120 },
+]
+const mappedResultColumns: ResizableTableColumn[] = [
+  { key: 'address', label: '地址', width: 90, minWidth: 70 },
+  { key: 'type', label: '类型', width: 110, minWidth: 84 },
+  { key: 'value', label: '值', width: 180, minWidth: 120 },
+  { key: 'comment', label: '注释', width: 220, minWidth: 120 },
+]
+const slaveBoolColumns: ResizableTableColumn[] = [
+  { key: 'address', label: '地址', width: 120, minWidth: 84 },
+  { key: 'value', label: '值', width: 90, minWidth: 70 },
+  { key: 'comment', label: '备注', width: 160, minWidth: 90 },
+  { key: 'actions', label: '', width: 80, minWidth: 70 },
+]
+const slaveRegisterColumns: ResizableTableColumn[] = [
+  { key: 'address', label: '地址', width: 120, minWidth: 84 },
+  { key: 'value', label: '值', width: 120, minWidth: 84 },
+  { key: 'type', label: '类型', width: 130, minWidth: 96 },
+  { key: 'mapping', label: '映射', width: 110, minWidth: 84 },
+  { key: 'comment', label: '注释', width: 170, minWidth: 100 },
+  { key: 'actions', label: '', width: 120, minWidth: 96 },
 ]
 
 const portOptions = computed(() =>
@@ -765,142 +797,125 @@ function responseSummary(tx: any): string {
               <NButton size="tiny" @click="addMasterRow(table)">添加</NButton>
             </div>
           </div>
-          <NTable
-            :class="[
+          <ResizableTable
+            :columns="masterRegisterColumns"
+            :table-class="[
               'modbus-panel__dense-table',
               { 'modbus-panel__bool-table': table.type === 'coils' || table.type === 'discrete_inputs' },
             ]"
             :data-testid="`modbus-master-table-${table.type}`"
-            size="small"
-            :bordered="false"
-            single-line
+            :min-width="1040"
           >
-            <thead>
-              <tr>
-                <th>地址</th>
-                <th>别名</th>
-                <th>值</th>
-                <th>Raw</th>
-                <th>映射</th>
-                <th>类型</th>
-                <th>字序</th>
-                <th>长度</th>
-                <th>系数</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="row in table.rows"
-                :key="row.id"
-                :class="[
-                  mappingClass(mappingForAddress(table, row.address)),
-                  { 'modbus-panel__register-row--readonly': isMappingContinuation(mappingForAddress(table, row.address), row.address) },
-                ]"
-                :data-readonly="isMappingContinuation(mappingForAddress(table, row.address), row.address) ? 'true' : 'false'"
-                :data-testid="`modbus-master-row-${table.type}-${row.address}`"
-                @click="selectMasterTable(table)"
-              >
-                <td class="modbus-panel__cell--address">
-                  <NInputNumber
-                    :value="row.address"
-                    :min="0"
+            <tr
+              v-for="row in table.rows"
+              :key="row.id"
+              :class="[
+                mappingClass(mappingForAddress(table, row.address)),
+                { 'modbus-panel__register-row--readonly': isMappingContinuation(mappingForAddress(table, row.address), row.address) },
+              ]"
+              :data-readonly="isMappingContinuation(mappingForAddress(table, row.address), row.address) ? 'true' : 'false'"
+              :data-testid="`modbus-master-row-${table.type}-${row.address}`"
+              @click="selectMasterTable(table)"
+            >
+              <td class="modbus-panel__cell--address">
+                <NInputNumber
+                  :value="row.address"
+                  :min="0"
+                  :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
+                  @update:value="value => updateMasterRowAddress(table, row, Number(value))"
+                />
+              </td>
+              <td class="modbus-panel__cell--alias">
+                <NInput
+                  v-if="mappingForAddress(table, row.address)"
+                  :value="mappingForAddress(table, row.address)?.comment"
+                  :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
+                  :data-testid="`modbus-mapping-alias-${table.type}-${row.address}`"
+                  placeholder=""
+                  @update:value="value => updateMappingComment(mappingForAddress(table, row.address), String(value))"
+                />
+              </td>
+              <td class="modbus-panel__cell--value">{{ rowDisplayValue(row) }}</td>
+              <td><code>{{ row.raw || '-' }}</code></td>
+              <td>
+                <span v-if="mappingForAddress(table, row.address)" class="modbus-panel__mapping-pill">
+                  {{ mappingRole(mappingForAddress(table, row.address), row.address) }}
+                  {{ mappingForAddress(table, row.address)?.dataType }}
+                </span>
+              </td>
+              <td class="modbus-panel__cell--type">
+                <NSelect
+                  v-if="mappingForAddress(table, row.address)"
+                  :value="mappingForAddress(table, row.address)?.dataType"
+                  :options="dataTypeOptions"
+                  :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
+                  :data-testid="`modbus-mapping-type-${table.type}-${row.address}`"
+                  @update:value="value => updateMappingDataType(mappingForAddress(table, row.address)!, String(value))"
+                />
+              </td>
+              <td class="modbus-panel__cell--word">
+                <NSelect
+                  v-if="mappingForAddress(table, row.address)"
+                  :value="mappingForAddress(table, row.address)?.wordOrder"
+                  :options="wordOrderOptions"
+                  :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
+                  :data-testid="`modbus-mapping-word-${table.type}-${row.address}`"
+                  @update:value="value => updateMappingWordOrder(mappingForAddress(table, row.address)!, String(value))"
+                />
+              </td>
+              <td class="modbus-panel__cell--number">
+                <NInputNumber
+                  v-if="mappingForAddress(table, row.address)"
+                  :value="mappingForAddress(table, row.address)?.length"
+                  :min="0"
+                  :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
+                  :data-testid="`modbus-mapping-length-${table.type}-${row.address}`"
+                  @update:value="value => updateMappingLength(mappingForAddress(table, row.address), Number(value))"
+                />
+              </td>
+              <td class="modbus-panel__cell--number">
+                <NInputNumber
+                  v-if="mappingForAddress(table, row.address)"
+                  :value="mappingForAddress(table, row.address)?.scalingFactor"
+                  :step="0.1"
+                  :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
+                  :data-testid="`modbus-mapping-scale-${table.type}-${row.address}`"
+                  @update:value="value => updateMappingScalingFactor(mappingForAddress(table, row.address), Number(value))"
+                />
+              </td>
+              <td>
+                <div class="modbus-panel__row-actions">
+                  <NButton
+                    v-if="!mappingForAddress(table, row.address)"
+                    size="tiny"
+                    quaternary
+                    :data-testid="`modbus-add-mapping-${table.type}-${row.address}`"
+                    @click="addMappingRow(table, row.address)"
+                  >
+                    映射
+                  </NButton>
+                  <NButton
+                    v-else-if="isMappingStart(mappingForAddress(table, row.address), row.address)"
+                    size="tiny"
+                    quaternary
+                    :data-testid="`modbus-remove-mapping-${table.type}-${row.address}`"
+                    @click="removeMappingRow(table, mappingForAddress(table, row.address)!)"
+                  >
+                    删除映射
+                  </NButton>
+                  <NButton
+                    size="tiny"
+                    quaternary
                     :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
-                    @update:value="value => updateMasterRowAddress(table, row, Number(value))"
-                  />
-                </td>
-                <td class="modbus-panel__cell--alias">
-                  <NInput
-                    v-if="mappingForAddress(table, row.address)"
-                    :value="mappingForAddress(table, row.address)?.comment"
-                    :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
-                    :data-testid="`modbus-mapping-alias-${table.type}-${row.address}`"
-                    placeholder=""
-                    @update:value="value => updateMappingComment(mappingForAddress(table, row.address), String(value))"
-                  />
-                </td>
-                <td class="modbus-panel__cell--value">{{ rowDisplayValue(row) }}</td>
-                <td><code>{{ row.raw || '-' }}</code></td>
-                <td>
-                  <span v-if="mappingForAddress(table, row.address)" class="modbus-panel__mapping-pill">
-                    {{ mappingRole(mappingForAddress(table, row.address), row.address) }}
-                    {{ mappingForAddress(table, row.address)?.dataType }}
-                  </span>
-                </td>
-                <td class="modbus-panel__cell--type">
-                  <NSelect
-                    v-if="mappingForAddress(table, row.address)"
-                    :value="mappingForAddress(table, row.address)?.dataType"
-                    :options="dataTypeOptions"
-                    :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
-                    :data-testid="`modbus-mapping-type-${table.type}-${row.address}`"
-                    @update:value="value => updateMappingDataType(mappingForAddress(table, row.address)!, String(value))"
-                  />
-                </td>
-                <td class="modbus-panel__cell--word">
-                  <NSelect
-                    v-if="mappingForAddress(table, row.address)"
-                    :value="mappingForAddress(table, row.address)?.wordOrder"
-                    :options="wordOrderOptions"
-                    :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
-                    :data-testid="`modbus-mapping-word-${table.type}-${row.address}`"
-                    @update:value="value => updateMappingWordOrder(mappingForAddress(table, row.address)!, String(value))"
-                  />
-                </td>
-                <td class="modbus-panel__cell--number">
-                  <NInputNumber
-                    v-if="mappingForAddress(table, row.address)"
-                    :value="mappingForAddress(table, row.address)?.length"
-                    :min="0"
-                    :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
-                    :data-testid="`modbus-mapping-length-${table.type}-${row.address}`"
-                    @update:value="value => updateMappingLength(mappingForAddress(table, row.address), Number(value))"
-                  />
-                </td>
-                <td class="modbus-panel__cell--number">
-                  <NInputNumber
-                    v-if="mappingForAddress(table, row.address)"
-                    :value="mappingForAddress(table, row.address)?.scalingFactor"
-                    :step="0.1"
-                    :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
-                    :data-testid="`modbus-mapping-scale-${table.type}-${row.address}`"
-                    @update:value="value => updateMappingScalingFactor(mappingForAddress(table, row.address), Number(value))"
-                  />
-                </td>
-                <td>
-                  <div class="modbus-panel__row-actions">
-                    <NButton
-                      v-if="!mappingForAddress(table, row.address)"
-                      size="tiny"
-                      quaternary
-                      :data-testid="`modbus-add-mapping-${table.type}-${row.address}`"
-                      @click="addMappingRow(table, row.address)"
-                    >
-                      映射
-                    </NButton>
-                    <NButton
-                      v-else-if="isMappingStart(mappingForAddress(table, row.address), row.address)"
-                      size="tiny"
-                      quaternary
-                      :data-testid="`modbus-remove-mapping-${table.type}-${row.address}`"
-                      @click="removeMappingRow(table, mappingForAddress(table, row.address)!)"
-                    >
-                      删除映射
-                    </NButton>
-                    <NButton
-                      size="tiny"
-                      quaternary
-                      :disabled="isMappingContinuation(mappingForAddress(table, row.address), row.address)"
-                      :data-testid="`modbus-remove-row-${table.type}-${row.address}`"
-                      @click="removeMasterRow(table, row)"
-                    >
-                      删除
-                    </NButton>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </NTable>
+                    :data-testid="`modbus-remove-row-${table.type}-${row.address}`"
+                    @click="removeMasterRow(table, row)"
+                  >
+                    删除
+                  </NButton>
+                </div>
+              </td>
+            </tr>
+          </ResizableTable>
         </section>
       </div>
 
@@ -912,24 +927,14 @@ function responseSummary(tx: any): string {
           <code v-else-if="registerBits.length">{{ registerBits.map(value => value ? 1 : 0).join(', ') }}</code>
           <code v-else>暂无</code>
         </div>
-        <NTable size="small" :bordered="false" single-line>
-          <thead>
-            <tr>
-              <th>地址</th>
-              <th>类型</th>
-              <th>值</th>
-              <th>注释</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in registerMappedValues" :key="`${row.Address}-${row.Mapping.DataType}`">
-              <td>{{ row.Address }}</td>
-              <td>{{ row.Mapping.DataType }}</td>
-              <td>{{ row.Error || row.Value.Display }}</td>
-              <td>{{ row.Mapping.Comment }}</td>
-            </tr>
-          </tbody>
-        </NTable>
+        <ResizableTable :columns="mappedResultColumns" table-class="modbus-panel__dense-table" :min-width="600">
+          <tr v-for="row in registerMappedValues" :key="`${row.Address}-${row.Mapping.DataType}`">
+            <td>{{ row.Address }}</td>
+            <td>{{ row.Mapping.DataType }}</td>
+            <td>{{ row.Error || row.Value.Display }}</td>
+            <td>{{ row.Mapping.Comment }}</td>
+          </tr>
+        </ResizableTable>
       </section>
 
       <section class="modbus-panel__section">
@@ -1035,28 +1040,23 @@ function responseSummary(tx: any): string {
             <span class="modbus-panel__section-title">Coils</span>
             <NButton size="tiny" @click="addBoolRow('coils')">添加</NButton>
           </div>
-          <NTable class="modbus-panel__bool-table" data-testid="modbus-slave-table-coils" size="small" :bordered="false" single-line>
-            <thead>
-              <tr>
-                <th>地址</th>
-                <th>值</th>
-                <th>备注</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in activeSlaveGrid.coils" :key="row.id">
-                <td><NInputNumber v-model:value="row.address" :min="0" /></td>
-                <td><NButton size="tiny" secondary @click="row.value = !row.value">{{ row.value ? 'ON' : 'OFF' }}</NButton></td>
-                <td class="modbus-panel__empty">-</td>
-                <td>
-                  <div class="modbus-panel__row-actions">
-                    <NButton size="tiny" quaternary @click="removeBoolRow('coils', row)">删除</NButton>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </NTable>
+          <ResizableTable
+            :columns="slaveBoolColumns"
+            table-class="modbus-panel__dense-table modbus-panel__bool-table"
+            data-testid="modbus-slave-table-coils"
+            :min-width="450"
+          >
+            <tr v-for="row in activeSlaveGrid.coils" :key="row.id">
+              <td><NInputNumber v-model:value="row.address" :min="0" /></td>
+              <td><NButton size="tiny" secondary @click="row.value = !row.value">{{ row.value ? 'ON' : 'OFF' }}</NButton></td>
+              <td class="modbus-panel__empty">-</td>
+              <td>
+                <div class="modbus-panel__row-actions">
+                  <NButton size="tiny" quaternary @click="removeBoolRow('coils', row)">删除</NButton>
+                </div>
+              </td>
+            </tr>
+          </ResizableTable>
         </section>
 
         <section class="modbus-panel__section">
@@ -1064,28 +1064,23 @@ function responseSummary(tx: any): string {
             <span class="modbus-panel__section-title">Discrete Inputs</span>
             <NButton size="tiny" @click="addBoolRow('discreteInputs')">添加</NButton>
           </div>
-          <NTable class="modbus-panel__bool-table" data-testid="modbus-slave-table-discreteInputs" size="small" :bordered="false" single-line>
-            <thead>
-              <tr>
-                <th>地址</th>
-                <th>值</th>
-                <th>备注</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in activeSlaveGrid.discreteInputs" :key="row.id">
-                <td><NInputNumber v-model:value="row.address" :min="0" /></td>
-                <td><NButton size="tiny" secondary @click="row.value = !row.value">{{ row.value ? 'ON' : 'OFF' }}</NButton></td>
-                <td class="modbus-panel__empty">-</td>
-                <td>
-                  <div class="modbus-panel__row-actions">
-                    <NButton size="tiny" quaternary @click="removeBoolRow('discreteInputs', row)">删除</NButton>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </NTable>
+          <ResizableTable
+            :columns="slaveBoolColumns"
+            table-class="modbus-panel__dense-table modbus-panel__bool-table"
+            data-testid="modbus-slave-table-discreteInputs"
+            :min-width="450"
+          >
+            <tr v-for="row in activeSlaveGrid.discreteInputs" :key="row.id">
+              <td><NInputNumber v-model:value="row.address" :min="0" /></td>
+              <td><NButton size="tiny" secondary @click="row.value = !row.value">{{ row.value ? 'ON' : 'OFF' }}</NButton></td>
+              <td class="modbus-panel__empty">-</td>
+              <td>
+                <div class="modbus-panel__row-actions">
+                  <NButton size="tiny" quaternary @click="removeBoolRow('discreteInputs', row)">删除</NButton>
+                </div>
+              </td>
+            </tr>
+          </ResizableTable>
         </section>
 
         <section class="modbus-panel__section">
@@ -1093,33 +1088,26 @@ function responseSummary(tx: any): string {
             <span class="modbus-panel__section-title">Input Registers</span>
             <NButton size="tiny" @click="addRegisterRow('inputRegisters')">添加</NButton>
           </div>
-          <NTable data-testid="modbus-slave-table-inputRegisters" size="small" :bordered="false" single-line>
-            <thead>
-              <tr>
-                <th>地址</th>
-                <th>值</th>
-                <th>类型</th>
-                <th>映射</th>
-                <th>注释</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in activeSlaveGrid.inputRegisters" :key="row.id" :class="mappingClass(mappingForSlaveRegister(row))">
-                <td><NInputNumber v-model:value="row.address" :min="0" /></td>
-                <td><NInputNumber v-model:value="row.value" :min="0" :max="65535" /></td>
-                <td><NSelect :value="row.dataType" :options="dataTypeOptions" @update:value="value => updateSlaveRegisterDataType(row, String(value))" /></td>
-                <td><span class="modbus-panel__mapping-pill">{{ row.dataType }}</span></td>
-                <td><NInput v-model:value="row.comment" /></td>
-                <td>
-                  <div class="modbus-panel__row-actions">
-                    <NButton size="tiny" quaternary>映射</NButton>
-                    <NButton size="tiny" quaternary @click="removeRegisterRow('inputRegisters', row)">删除</NButton>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </NTable>
+          <ResizableTable
+            :columns="slaveRegisterColumns"
+            table-class="modbus-panel__dense-table"
+            data-testid="modbus-slave-table-inputRegisters"
+            :min-width="670"
+          >
+            <tr v-for="row in activeSlaveGrid.inputRegisters" :key="row.id" :class="mappingClass(mappingForSlaveRegister(row))">
+              <td><NInputNumber v-model:value="row.address" :min="0" /></td>
+              <td><NInputNumber v-model:value="row.value" :min="0" :max="65535" /></td>
+              <td><NSelect :value="row.dataType" :options="dataTypeOptions" @update:value="value => updateSlaveRegisterDataType(row, String(value))" /></td>
+              <td><span class="modbus-panel__mapping-pill">{{ row.dataType }}</span></td>
+              <td><NInput v-model:value="row.comment" /></td>
+              <td>
+                <div class="modbus-panel__row-actions">
+                  <NButton size="tiny" quaternary>映射</NButton>
+                  <NButton size="tiny" quaternary @click="removeRegisterRow('inputRegisters', row)">删除</NButton>
+                </div>
+              </td>
+            </tr>
+          </ResizableTable>
         </section>
 
         <section class="modbus-panel__section">
@@ -1127,33 +1115,26 @@ function responseSummary(tx: any): string {
             <span class="modbus-panel__section-title">Holding Registers</span>
             <NButton size="tiny" @click="addRegisterRow('holdingRegisters')">添加</NButton>
           </div>
-          <NTable data-testid="modbus-slave-table-holdingRegisters" size="small" :bordered="false" single-line>
-            <thead>
-              <tr>
-                <th>地址</th>
-                <th>值</th>
-                <th>类型</th>
-                <th>映射</th>
-                <th>注释</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in activeSlaveGrid.holdingRegisters" :key="row.id" :class="mappingClass(mappingForSlaveRegister(row))">
-                <td><NInputNumber v-model:value="row.address" :min="0" /></td>
-                <td><NInputNumber v-model:value="row.value" :min="0" :max="65535" /></td>
-                <td><NSelect :value="row.dataType" :options="dataTypeOptions" @update:value="value => updateSlaveRegisterDataType(row, String(value))" /></td>
-                <td><span class="modbus-panel__mapping-pill">{{ row.dataType }}</span></td>
-                <td><NInput v-model:value="row.comment" /></td>
-                <td>
-                  <div class="modbus-panel__row-actions">
-                    <NButton size="tiny" quaternary>映射</NButton>
-                    <NButton size="tiny" quaternary @click="removeRegisterRow('holdingRegisters', row)">删除</NButton>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </NTable>
+          <ResizableTable
+            :columns="slaveRegisterColumns"
+            table-class="modbus-panel__dense-table"
+            data-testid="modbus-slave-table-holdingRegisters"
+            :min-width="670"
+          >
+            <tr v-for="row in activeSlaveGrid.holdingRegisters" :key="row.id" :class="mappingClass(mappingForSlaveRegister(row))">
+              <td><NInputNumber v-model:value="row.address" :min="0" /></td>
+              <td><NInputNumber v-model:value="row.value" :min="0" :max="65535" /></td>
+              <td><NSelect :value="row.dataType" :options="dataTypeOptions" @update:value="value => updateSlaveRegisterDataType(row, String(value))" /></td>
+              <td><span class="modbus-panel__mapping-pill">{{ row.dataType }}</span></td>
+              <td><NInput v-model:value="row.comment" /></td>
+              <td>
+                <div class="modbus-panel__row-actions">
+                  <NButton size="tiny" quaternary>映射</NButton>
+                  <NButton size="tiny" quaternary @click="removeRegisterRow('holdingRegisters', row)">删除</NButton>
+                </div>
+              </td>
+            </tr>
+          </ResizableTable>
         </section>
       </div>
     </section>
@@ -1627,22 +1608,26 @@ function responseSummary(tx: any): string {
   color: var(--app-text-muted);
   font-size: 12px;
 }
-.modbus-panel :deep(.n-table) {
+.modbus-panel :deep(.resizable-table) {
   min-width: 1040px;
   color: var(--app-text);
   background: transparent;
 }
-.modbus-panel :deep(.n-table th) {
+.modbus-panel :deep(.resizable-table th) {
   background: var(--app-table-header);
   color: var(--app-text-muted);
 }
-.modbus-panel :deep(.n-table td) {
+.modbus-panel :deep(.resizable-table td) {
   background: transparent;
   color: var(--app-text);
 }
-.modbus-panel :deep(.n-table th),
-.modbus-panel :deep(.n-table td) {
+.modbus-panel :deep(.resizable-table th),
+.modbus-panel :deep(.resizable-table td) {
+  overflow: hidden;
+  border-bottom: 1px solid var(--app-border);
   border-color: var(--app-border);
+  text-align: left;
+  vertical-align: middle;
 }
 .modbus-panel :deep(.n-form-item-label) {
   color: var(--app-text-muted);

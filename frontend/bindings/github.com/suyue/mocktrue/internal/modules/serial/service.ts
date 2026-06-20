@@ -15,6 +15,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as buffer$0 from "./buffer/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as fecbus$0 from "./fecbus/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as manager$0 from "./manager/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -31,6 +34,13 @@ import * as port$0 from "./port/models.js";
 import * as $models from "./models.js";
 
 /**
+ * AddFecbusSlaveUnit adds or replaces one FECbus simulated slave address.
+ */
+export function AddFecbusSlaveUnit(sessionID: string, unit: fecbus$0.SlaveUnitState): $CancellablePromise<void> {
+    return $Call.ByID(1156162034, sessionID, unit);
+}
+
+/**
  * AddModbusSlaveUnit adds or replaces one Unit ID in a slave simulation.
  */
 export function AddModbusSlaveUnit(sessionID: string, unit: modbus$0.SlaveUnitSnapshot): $CancellablePromise<void> {
@@ -45,10 +55,24 @@ export function CleanupVirtual(): $CancellablePromise<void> {
 }
 
 /**
+ * ClearFecbusFrames clears FECbus frame history and counters.
+ */
+export function ClearFecbusFrames(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1260553897, id);
+}
+
+/**
  * ClearMonitorFrames clears captured monitor frames and counters.
  */
 export function ClearMonitorFrames(id: string): $CancellablePromise<void> {
     return $Call.ByID(2442853029, id);
+}
+
+/**
+ * CloseFecbusSession closes and removes a FECbus serial session.
+ */
+export function CloseFecbusSession(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1292629186, id);
 }
 
 /**
@@ -136,10 +160,31 @@ export function EnumeratePorts(): $CancellablePromise<port$0.PortInfo[] | null> 
 }
 
 /**
+ * FecbusSendRequest sends one FECbus frame and optionally waits for an answer.
+ */
+export function FecbusSendRequest(req: fecbus$0.SendRequest): $CancellablePromise<fecbus$0.Transaction | null> {
+    return $Call.ByID(3730420809, req);
+}
+
+/**
  * ListBridges returns all active bridges.
  */
 export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> {
     return $Call.ByID(2577893816);
+}
+
+/**
+ * ListFecbusSessions returns all open FECbus serial sessions.
+ */
+export function ListFecbusSessions(): $CancellablePromise<fecbus$0.SessionInfo[] | null> {
+    return $Call.ByID(3393047171);
+}
+
+/**
+ * ListFecbusSlaveUnits returns configured FECbus slave addresses.
+ */
+export function ListFecbusSlaveUnits(sessionID: string): $CancellablePromise<fecbus$0.SlaveUnitInfo[] | null> {
+    return $Call.ByID(2350231212, sessionID);
 }
 
 /**
@@ -220,6 +265,13 @@ export function ModbusScanUnitIDs(req: modbus$0.UnitScanRequest): $CancellablePr
 }
 
 /**
+ * OpenFecbusSession opens a dedicated FECbus serial session.
+ */
+export function OpenFecbusSession(req: fecbus$0.OpenSessionRequest): $CancellablePromise<fecbus$0.SessionInfo | null> {
+    return $Call.ByID(3696073086, req);
+}
+
+/**
  * OpenModbusSession opens a dedicated Modbus serial session.
  */
 export function OpenModbusSession(req: modbus$0.OpenSessionRequest): $CancellablePromise<modbus$0.SessionInfo | null> {
@@ -241,6 +293,13 @@ export function Ping(msg: string): $CancellablePromise<string> {
 }
 
 /**
+ * QueryFecbusFrames returns a filtered FECbus frame history page.
+ */
+export function QueryFecbusFrames(req: fecbus$0.QueryRequest): $CancellablePromise<fecbus$0.FramePage | null> {
+    return $Call.ByID(3006540140, req);
+}
+
+/**
  * QueryMonitorFrames returns a filtered page of monitor frames.
  */
 export function QueryMonitorFrames(req: monitor$0.QueryRequest): $CancellablePromise<monitor$0.FramePage | null> {
@@ -252,6 +311,13 @@ export function QueryMonitorFrames(req: monitor$0.QueryRequest): $CancellablePro
  */
 export function QueryPage(portID: string, offset: number, length: number): $CancellablePromise<buffer$0.Snapshot | null> {
     return $Call.ByID(257355161, portID, offset, length);
+}
+
+/**
+ * RemoveFecbusSlaveUnit removes one FECbus simulated slave address.
+ */
+export function RemoveFecbusSlaveUnit(sessionID: string, address: number): $CancellablePromise<void> {
+    return $Call.ByID(3188425671, sessionID, address);
 }
 
 /**
@@ -291,6 +357,13 @@ export function StartAutoVirtualMonitor(req: $models.AutoVirtualMonitorRequest):
 }
 
 /**
+ * StartFecbusSlave starts FECbus device simulation for an open session.
+ */
+export function StartFecbusSlave(req: fecbus$0.StartSlaveRequest): $CancellablePromise<fecbus$0.SessionInfo | null> {
+    return $Call.ByID(4144070753, req);
+}
+
+/**
  * StartModbusSlave starts slave simulation for an open Modbus session.
  */
 export function StartModbusSlave(req: modbus$0.StartSlaveRequest): $CancellablePromise<modbus$0.SessionInfo | null> {
@@ -305,6 +378,13 @@ export function StartMonitor(req: monitor$0.StartRequest): $CancellablePromise<m
 }
 
 /**
+ * StopFecbusSlave stops FECbus device simulation for an open session.
+ */
+export function StopFecbusSlave(id: string): $CancellablePromise<void> {
+    return $Call.ByID(915799721, id);
+}
+
+/**
  * StopModbusSlave stops slave simulation for an open Modbus session.
  */
 export function StopModbusSlave(id: string): $CancellablePromise<void> {
@@ -316,6 +396,13 @@ export function StopModbusSlave(id: string): $CancellablePromise<void> {
  */
 export function StopMonitor(id: string): $CancellablePromise<void> {
     return $Call.ByID(2368061992, id);
+}
+
+/**
+ * UpdateFecbusSlaveState replaces FECbus device simulation state.
+ */
+export function UpdateFecbusSlaveState(sessionID: string, state: fecbus$0.SlaveState): $CancellablePromise<void> {
+    return $Call.ByID(367919167, sessionID, state);
 }
 
 /**

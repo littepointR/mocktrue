@@ -91,6 +91,7 @@ describe('MonitorTabContent', () => {
     expect(wrapper.text()).toContain('2026-06-20 12:34:56.789')
     expect(wrapper.find('.monitor-table colgroup').exists()).toBe(true)
     expect(wrapper.find('.monitor-table__data-column').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="resize-handle-data"]').exists()).toBe(true)
 
     await wrapper.find('[data-testid="monitor-display-hex"]').trigger('click')
     expect(wrapper.text()).toContain('4f 4b')

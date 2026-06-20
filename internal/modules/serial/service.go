@@ -12,6 +12,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/errors"
 	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
+	fb "github.com/suyue/mocktrue/internal/modules/serial/fecbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
 	mb "github.com/suyue/mocktrue/internal/modules/serial/modbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
@@ -26,6 +27,7 @@ type Service struct {
 	manager             *manager.PortManager
 	monitors            *monitor.Manager
 	modbus              *mb.Manager
+	fecbus              *fb.Manager
 	vmgr                *virtualserial.Manager
 	buffers             map[string]*buffer.RingBuffer // keyed by handle ID
 	autoMonitorVirtuals map[string]string
@@ -56,6 +58,9 @@ func (s *Service) init(bus *eventbus.EventBus) {
 	}
 	if s.modbus == nil {
 		s.modbus = mb.NewManager(nil)
+	}
+	if s.fecbus == nil {
+		s.fecbus = fb.NewManager(nil)
 	}
 	if s.vmgr == nil {
 		s.vmgr = virtualserial.NewManager()
@@ -123,6 +128,9 @@ func (s *Service) OpenPort(ctx context.Context, req manager.OpenRequest) (*manag
 	if s.modbus != nil && s.modbus.PortInUse(req.Config.PortName) {
 		return nil, errors.New(errors.CodeConflict, fmt.Sprintf("port already open in modbus session: %s", req.Config.PortName))
 	}
+	if s.fecbus != nil && s.fecbus.PortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, fmt.Sprintf("port already open in fecbus session: %s", req.Config.PortName))
+	}
 	status, err := s.manager.Open(ctx, req)
 	if err != nil {
 		if errors.AsCode(err) == errors.CodeConflict {
@@ -175,6 +183,9 @@ func (s *Service) cleanup() {
 	}
 	if s.modbus != nil {
 		s.modbus.CloseAll()
+	}
+	if s.fecbus != nil {
+		s.fecbus.CloseAll()
 	}
 	if s.vmgr != nil {
 		s.vmgr.Cleanup()
@@ -309,6 +320,9 @@ func (s *Service) StartMonitor(ctx context.Context, req monitor.StartRequest) (*
 	if s.modbus != nil && (s.modbus.PortInUse(req.PortA) || s.modbus.PortInUse(req.PortB)) {
 		return nil, errors.New(errors.CodeConflict, "monitor port already open in modbus session")
 	}
+	if s.fecbus != nil && (s.fecbus.PortInUse(req.PortA) || s.fecbus.PortInUse(req.PortB)) {
+		return nil, errors.New(errors.CodeConflict, "monitor port already open in fecbus session")
+	}
 	req.EndpointA = s.monitorEndpoint(req.PortA)
 	req.EndpointB = s.monitorEndpoint(req.PortB)
 	return s.monitors.Start(ctx, req)
@@ -328,6 +342,9 @@ func (s *Service) StartAutoVirtualMonitor(ctx context.Context, req AutoVirtualMo
 	}
 	if s.modbus != nil && s.modbus.PortInUse(req.Port) {
 		return nil, errors.New(errors.CodeConflict, "monitor port already open in modbus session")
+	}
+	if s.fecbus != nil && s.fecbus.PortInUse(req.Port) {
+		return nil, errors.New(errors.CodeConflict, "monitor port already open in fecbus session")
 	}
 
 	virtualID := autoVirtualPortID(req.ID)
@@ -405,6 +422,9 @@ func (s *Service) OpenModbusSession(ctx context.Context, req mb.OpenSessionReque
 	if s.monitorPortInUse(req.Config.PortName) {
 		return nil, errors.New(errors.CodeConflict, "modbus port already used by serial monitor")
 	}
+	if s.fecbus != nil && s.fecbus.PortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, "modbus port already open in fecbus session")
+	}
 	if s.bridgePortInUse(req.Config.PortName) {
 		return nil, errors.New(errors.CodeConflict, "modbus port already used by serial bridge")
 	}
@@ -475,6 +495,82 @@ func (s *Service) ModbusReadRegisters(req mb.RegisterReadRequest) (*mb.RegisterR
 // ModbusScanRegisters scans a Modbus register range.
 func (s *Service) ModbusScanRegisters(req mb.RegisterScanRequest) (*mb.RegisterScanResult, error) {
 	return s.modbus.ScanRegisters(req)
+}
+
+// OpenFecbusSession opens a dedicated FECbus serial session.
+func (s *Service) OpenFecbusSession(ctx context.Context, req fb.OpenSessionRequest) (*fb.SessionInfo, error) {
+	if req.Config.PortName == "" {
+		return nil, errors.New(errors.CodeInvalid, "fecbus port must not be empty")
+	}
+	if s.findOpenHandle(req.Config.PortName) != nil {
+		return nil, errors.New(errors.CodeConflict, "fecbus port already open in serial terminal")
+	}
+	if s.monitorPortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, "fecbus port already used by serial monitor")
+	}
+	if s.modbus != nil && s.modbus.PortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, "fecbus port already open in modbus session")
+	}
+	if s.bridgePortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, "fecbus port already used by serial bridge")
+	}
+	req.Endpoint = s.monitorEndpoint(req.Config.PortName)
+	return s.fecbus.OpenSession(ctx, req)
+}
+
+// CloseFecbusSession closes and removes a FECbus serial session.
+func (s *Service) CloseFecbusSession(id string) error {
+	return s.fecbus.CloseSession(id)
+}
+
+// ListFecbusSessions returns all open FECbus serial sessions.
+func (s *Service) ListFecbusSessions() []fb.SessionInfo {
+	return s.fecbus.List()
+}
+
+// FecbusSendRequest sends one FECbus frame and optionally waits for an answer.
+func (s *Service) FecbusSendRequest(req fb.SendRequest) (*fb.Transaction, error) {
+	return s.fecbus.SendRequest(req)
+}
+
+// StartFecbusSlave starts FECbus device simulation for an open session.
+func (s *Service) StartFecbusSlave(req fb.StartSlaveRequest) (*fb.SessionInfo, error) {
+	return s.fecbus.StartSlave(req)
+}
+
+// StopFecbusSlave stops FECbus device simulation for an open session.
+func (s *Service) StopFecbusSlave(id string) error {
+	return s.fecbus.StopSlave(id)
+}
+
+// UpdateFecbusSlaveState replaces FECbus device simulation state.
+func (s *Service) UpdateFecbusSlaveState(sessionID string, state fb.SlaveState) error {
+	return s.fecbus.UpdateSlaveState(sessionID, state)
+}
+
+// AddFecbusSlaveUnit adds or replaces one FECbus simulated slave address.
+func (s *Service) AddFecbusSlaveUnit(sessionID string, unit fb.SlaveUnitState) error {
+	return s.fecbus.AddSlaveUnit(sessionID, unit)
+}
+
+// RemoveFecbusSlaveUnit removes one FECbus simulated slave address.
+func (s *Service) RemoveFecbusSlaveUnit(sessionID string, address byte) error {
+	return s.fecbus.RemoveSlaveUnit(sessionID, address)
+}
+
+// ListFecbusSlaveUnits returns configured FECbus slave addresses.
+func (s *Service) ListFecbusSlaveUnits(sessionID string) ([]fb.SlaveUnitInfo, error) {
+	return s.fecbus.ListSlaveUnits(sessionID)
+}
+
+// QueryFecbusFrames returns a filtered FECbus frame history page.
+func (s *Service) QueryFecbusFrames(req fb.QueryRequest) (*fb.FramePage, error) {
+	return s.fecbus.QueryFrames(req)
+}
+
+// ClearFecbusFrames clears FECbus frame history and counters.
+func (s *Service) ClearFecbusFrames(id string) error {
+	return s.fecbus.ClearFrames(id)
 }
 
 func (s *Service) monitorEndpoint(portName string) string {
@@ -695,6 +791,9 @@ func (s *Service) CreateBridge(id, port1, port2 string, baudRate int) (*BridgeIn
 	}
 	if s.modbus != nil && (s.modbus.PortInUse(port1) || s.modbus.PortInUse(port2)) {
 		return nil, errors.New(errors.CodeConflict, "bridge port already open in modbus session")
+	}
+	if s.fecbus != nil && (s.fecbus.PortInUse(port1) || s.fecbus.PortInUse(port2)) {
+		return nil, errors.New(errors.CodeConflict, "bridge port already open in fecbus session")
 	}
 
 	bridge, err := s.vmgr.CreateBridge(id, port1, port2, baudRate)

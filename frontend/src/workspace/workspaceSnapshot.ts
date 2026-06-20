@@ -4,6 +4,7 @@ import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
 import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
 import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
+import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 
 export const workspaceKind = 'mocktrue.workspace.v1'
 
@@ -35,6 +36,7 @@ export interface WorkspaceSnapshot {
     buffers: Record<string, WorkspaceBufferChunk[]>
     monitors: MonitorWorkspaceState
     modbus: ModbusWorkspaceState
+    fecbus: FecbusWorkspaceState
     workspace: SerialWorkspaceState
   }
 }

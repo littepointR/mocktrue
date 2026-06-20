@@ -6,6 +6,7 @@ import type { EditorLayoutNode, EditorTabInfo } from './editorLayout'
 import SerialTabContent from './SerialTabContent.vue'
 import MonitorTabContent from './MonitorTabContent.vue'
 import ModbusTabContent from './ModbusTabContent.vue'
+import FecbusTabContent from './FecbusTabContent.vue'
 
 const props = defineProps<{
   node: EditorLayoutNode
@@ -94,6 +95,10 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
       />
       <ModbusTabContent
         v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'modbus'"
+        :session-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
+      />
+      <FecbusTabContent
+        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'fecbus'"
         :session-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
       />
     </div>

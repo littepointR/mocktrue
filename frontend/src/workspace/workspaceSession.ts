@@ -6,6 +6,7 @@ import { useVirtualStore } from '../serial/stores/virtualStore'
 import { useSerialWorkspaceStore } from '../serial/stores/workspaceStore'
 import { useMonitorStore } from '../serial/stores/monitorStore'
 import { useModbusStore } from '../serial/stores/modbusStore'
+import { useFecbusStore } from '../serial/stores/fecbusStore'
 import {
   base64ToBytes,
   bytesToBase64,
@@ -31,6 +32,7 @@ export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
   const workspaceStore = useSerialWorkspaceStore()
   const monitorStore = useMonitorStore()
   const modbusStore = useModbusStore()
+  const fecbusStore = useFecbusStore()
 
   return {
     kind: workspaceKind,
@@ -51,6 +53,7 @@ export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
       buffers: exportBuffers(bufferStore.exportChunks()),
       monitors: monitorStore.exportState(),
       modbus: modbusStore.exportState(),
+      fecbus: fecbusStore.exportState(),
       workspace: workspaceStore.exportState(),
     },
   }
@@ -66,6 +69,7 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   const workspaceStore = useSerialWorkspaceStore()
   const monitorStore = useMonitorStore()
   const modbusStore = useModbusStore()
+  const fecbusStore = useFecbusStore()
 
   await captureError(errors, 'serial.closeAll', () => serialStore.closeAllPorts())
   await captureError(errors, 'virtual.cleanup', () => virtualStore.cleanupAllResources())
@@ -74,6 +78,7 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   bufferStore.clearAll()
   workspaceStore.resetWorkspace()
   modbusStore.resetWorkspace()
+  fecbusStore.resetWorkspace()
   settingsStore.replaceSerialSettings(snapshot.settings?.serial)
 
   for (const vport of snapshot.serial.virtualPorts) {
@@ -104,6 +109,7 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   bufferStore.restoreChunks(importBuffers(snapshot.serial.buffers, handleMap))
   monitorStore.restoreState(snapshot.serial.monitors)
   modbusStore.restoreState(snapshot.serial.modbus)
+  fecbusStore.restoreState(snapshot.serial.fecbus)
   workspaceStore.restoreState(snapshot.serial.workspace, handleMap)
   serialStore.setActivePort(remapID(snapshot.serial.activePortId, handleMap))
 

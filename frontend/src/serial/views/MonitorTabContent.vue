@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NInput, NSelect } from 'naive-ui'
 import { useMonitorStore, type MonitorDisplayMode } from '../stores/monitorStore'
+import ResizableTable, { type ResizableTableColumn } from '../components/ResizableTable.vue'
 import type { Frame } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/monitor/models.js'
 
 const props = defineProps<{
@@ -26,6 +27,14 @@ const displayOptions = [
   { label: 'DEC', value: 'dec' },
   { label: 'OCT', value: 'oct' },
   { label: 'BIN', value: 'bin' },
+]
+const frameColumns: ResizableTableColumn[] = [
+  { key: 'seq', label: '#', width: 52, minWidth: 44, class: 'monitor-table__seq-column' },
+  { key: 'time', label: '时间', width: 180, minWidth: 132, class: 'monitor-table__time-column' },
+  { key: 'direction', label: '方向', width: 64, minWidth: 56, class: 'monitor-table__direction-column' },
+  { key: 'port', label: '端口', width: 180, minWidth: 96, class: 'monitor-table__port-column' },
+  { key: 'length', label: '长度', width: 56, minWidth: 50, class: 'monitor-table__length-column' },
+  { key: 'data', label: '数据', width: 360, minWidth: 160, class: 'monitor-table__data-column' },
 ]
 const selectedFrame = computed(() => {
   if (selectedSeq.value === null) return frames.value[0] ?? null
@@ -159,41 +168,21 @@ async function clearFrames() {
     </div>
 
     <div class="monitor-tab__body">
-      <table class="monitor-table">
-        <colgroup>
-          <col class="monitor-table__seq-column" />
-          <col class="monitor-table__time-column" />
-          <col class="monitor-table__direction-column" />
-          <col class="monitor-table__port-column" />
-          <col class="monitor-table__length-column" />
-          <col class="monitor-table__data-column" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>时间</th>
-            <th>方向</th>
-            <th>端口</th>
-            <th>长度</th>
-            <th>数据</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="frame in frames"
-            :key="frame.Seq"
-            :class="{ 'is-selected': selectedFrame?.Seq === frame.Seq }"
-            @click="selectedSeq = frame.Seq"
-          >
-            <td>{{ frame.Seq }}</td>
-            <td>{{ frameTime(frame.Timestamp) }}</td>
-            <td>{{ directionLabel(frame.Direction) }}</td>
-            <td>{{ frame.Port }}</td>
-            <td>{{ frame.Length }}</td>
-            <td><code>{{ frameDisplay(frame) }}</code></td>
-          </tr>
-        </tbody>
-      </table>
+      <ResizableTable :columns="frameColumns" table-class="monitor-table" :min-width="860">
+        <tr
+          v-for="frame in frames"
+          :key="frame.Seq"
+          :class="{ 'is-selected': selectedFrame?.Seq === frame.Seq }"
+          @click="selectedSeq = frame.Seq"
+        >
+          <td>{{ frame.Seq }}</td>
+          <td>{{ frameTime(frame.Timestamp) }}</td>
+          <td>{{ directionLabel(frame.Direction) }}</td>
+          <td>{{ frame.Port }}</td>
+          <td>{{ frame.Length }}</td>
+          <td><code>{{ frameDisplay(frame) }}</code></td>
+        </tr>
+      </ResizableTable>
     </div>
 
     <div v-if="selectedFrame" class="monitor-detail">
@@ -274,37 +263,20 @@ async function clearFrames() {
   min-height: 0;
   overflow: auto;
 }
-.monitor-table {
+.monitor-tab :deep(.monitor-table) {
   width: 100%;
   min-width: 860px;
-  border-collapse: collapse;
-  table-layout: fixed;
   font-size: 12px;
 }
-.monitor-table__seq-column {
-  width: 52px;
-}
-.monitor-table__time-column {
-  width: 180px;
-}
-.monitor-table__direction-column {
-  width: 64px;
-}
-.monitor-table__port-column {
-  width: 180px;
-}
-.monitor-table__length-column {
-  width: 56px;
-}
-.monitor-table th,
-.monitor-table td {
+.monitor-tab :deep(.monitor-table th),
+.monitor-tab :deep(.monitor-table td) {
   overflow: hidden;
   padding: 5px 8px;
   border-bottom: 1px solid #2d2d2d;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.monitor-table th {
+.monitor-tab :deep(.monitor-table th) {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -312,14 +284,14 @@ async function clearFrames() {
   color: #858585;
   text-align: left;
 }
-.monitor-table tr.is-selected td {
+.monitor-tab :deep(.monitor-table tr.is-selected td) {
   background: #094771;
 }
-.monitor-table code,
+.monitor-tab :deep(.monitor-table code),
 .monitor-detail code {
   font-family: var(--serial-terminal-font, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
-.monitor-table td:last-child code {
+.monitor-tab :deep(.monitor-table td:last-child code) {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;

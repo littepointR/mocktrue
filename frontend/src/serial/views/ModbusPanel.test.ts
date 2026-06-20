@@ -107,6 +107,7 @@ describe('ModbusPanel', () => {
     expect(wrapper.find('[data-testid="modbus-master-table-discrete_inputs"]').classes()).toContain('modbus-panel__bool-table')
     expect(wrapper.find('[data-testid="modbus-master-table-input_registers"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modbus-master-table-holding_registers"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-master-table-holding_registers"] [data-testid="resize-handle-address"]').exists()).toBe(true)
     expect(wrapper.find('.modbus-panel__mapping-band').exists()).toBe(true)
     expect(wrapper.find('.modbus-panel__mapping-editor').exists()).toBe(false)
   })

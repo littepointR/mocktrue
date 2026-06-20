@@ -3,8 +3,10 @@ import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
 import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
 import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
+import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 import type { EditorLayoutNode } from '../serial/views/editorLayout'
 import { FrameMode, SessionRole } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { FrameType, FunctionCode, SessionRole as FecbusSessionRole, StatusCode } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
 import { workspaceKind, type WorkspaceSnapshot } from './workspaceSnapshot'
 
 export interface DemoWorkspace {
@@ -49,6 +51,12 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
     title: 'Modbus 调试演示',
     description: '展示 Modbus RTU/ASCII 主站配置和从站数据表。',
     snapshotFactory: createModbusDemo,
+  },
+  {
+    id: 'fecbus-demo',
+    title: 'FECbus 调试演示',
+    description: '展示 FECbus 主控节点发送、设备状态应答和帧历史配置。',
+    snapshotFactory: createFecbusDemo,
   },
   {
     id: 'full-workspace-demo',
@@ -155,11 +163,28 @@ function createModbusDemo(): WorkspaceSnapshot {
   })
 }
 
+function createFecbusDemo(): WorkspaceSnapshot {
+  const suffix = nextDemoSuffix()
+  const portName = `mocktrue-demo-fecbus-${suffix}`
+  const sessionId = `demo-fecbus-${suffix}`
+
+  return snapshot({
+    virtualPorts: [virtualPort(`demo-fecbus-port-${suffix}`, portName)],
+    fecbus: fecbusState(sessionId, toPortPath(portName)),
+    workspace: workspace({
+      selectedOperation: 'fecbus',
+      editorLayout: { type: 'group', id: 'group-1', tabs: [fecbusTabId(sessionId)] },
+      activeByGroup: { 'group-1': fecbusTabId(sessionId) },
+    }),
+  })
+}
+
 function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const terminalPort = `mocktrue-demo-terminal-${suffix}`
   const bridgePortA = `mocktrue-demo-full-a-${suffix}`
   const bridgePortB = `mocktrue-demo-full-b-${suffix}`
+  const fecbusPort = `mocktrue-demo-full-fecbus-${suffix}`
 
   return snapshot({
     settings: {
@@ -176,6 +201,7 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
       virtualPort(`demo-full-terminal-${suffix}`, terminalPort),
       virtualPort(`demo-full-a-${suffix}`, bridgePortA),
       virtualPort(`demo-full-b-${suffix}`, bridgePortB),
+      virtualPort(`demo-full-fecbus-${suffix}`, fecbusPort),
     ],
     bridges: [{
       ID: `demo-full-bridge-${suffix}`,
@@ -184,10 +210,11 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
       BaudRate: 115200,
     }],
     modbus: modbusState(`demo-full-modbus-${suffix}`, toPortPath(terminalPort)),
+    fecbus: fecbusState(`demo-full-fecbus-${suffix}`, toPortPath(fecbusPort)),
     workspace: workspace({
-      selectedOperation: 'modbus',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [modbusTabId(`demo-full-modbus-${suffix}`)] },
-      activeByGroup: { 'group-1': modbusTabId(`demo-full-modbus-${suffix}`) },
+      selectedOperation: 'fecbus',
+      editorLayout: { type: 'group', id: 'group-1', tabs: [modbusTabId(`demo-full-modbus-${suffix}`), fecbusTabId(`demo-full-fecbus-${suffix}`)] },
+      activeByGroup: { 'group-1': fecbusTabId(`demo-full-fecbus-${suffix}`) },
     }),
   })
 }
@@ -201,6 +228,7 @@ function snapshot(input: {
   buffers?: WorkspaceSnapshot['serial']['buffers']
   monitors?: MonitorWorkspaceState
   modbus?: ModbusWorkspaceState
+  fecbus?: FecbusWorkspaceState
   workspace?: SerialWorkspaceState
 }): WorkspaceSnapshot {
   return {
@@ -214,6 +242,7 @@ function snapshot(input: {
       buffers: input.buffers ?? {},
       monitors: input.monitors ?? emptyMonitorState(),
       modbus: input.modbus ?? emptyModbusState(),
+      fecbus: input.fecbus ?? emptyFecbusState(),
       workspace: input.workspace ?? workspace({}),
     },
   }
@@ -383,6 +412,57 @@ function emptyModbusState(): ModbusWorkspaceState {
   }
 }
 
+function emptyFecbusState(): FecbusWorkspaceState {
+  return {
+    activeSessionId: null,
+    sessions: [],
+    portForm: {
+      sessionId: 'fecbus-demo',
+      name: '',
+      port: '',
+      role: 'master',
+      baudRate: 9600,
+      dataBits: 8,
+      stopBits: '1',
+      parity: 'none',
+      flowMode: 'none',
+      timeoutMs: 1000,
+      retries: 3,
+    },
+    sendForm: {
+      frameType: FrameType.FrameTypeRequest,
+      targetAddress: 2,
+      priority: 2,
+      sourceAddress: 1,
+      messageNumber: 1,
+      groupNumber: 0,
+      functionCode: FunctionCode.FunctionQueryDeviceStatus,
+      payloadHex: '',
+      expectAnswer: true,
+      timeoutMs: 1000,
+      retries: 3,
+      inputMode: 'hex',
+      structuredFields: {},
+    },
+    slaveForm: {
+      address: 2,
+      statusCode: StatusCode.StatusReceivedOK,
+      autoStatusAnswer: true,
+      acceptBroadcast: true,
+    },
+    slaveUnits: [{
+      address: 2,
+      statusCode: StatusCode.StatusReceivedOK,
+      autoStatusAnswer: true,
+      acceptBroadcast: true,
+    }],
+    customFunctions: [],
+    frameFilters: {},
+    framePages: {},
+    history: [],
+  }
+}
+
 function modbusState(id: string, portName: string): ModbusWorkspaceState {
   const state = emptyModbusState()
   const config = {
@@ -515,6 +595,138 @@ function modbusState(id: string, portName: string): ModbusWorkspaceState {
 
 function modbusTabId(id: string): string {
   return `modbus:${id}`
+}
+
+function fecbusState(id: string, portName: string): FecbusWorkspaceState {
+  const state = emptyFecbusState()
+  const config = {
+    PortName: portName,
+    BaudRate: 9600,
+    DataBits: 8,
+    StopBits: '1',
+    Parity: 'none',
+    FlowMode: 'none',
+    ReadBufKB: 32,
+  }
+  state.activeSessionId = id
+  state.sessions = [{
+    ID: id,
+    Name: 'FECbus 主控演示',
+    Role: FecbusSessionRole.SessionRoleMaster,
+    Config: config,
+    Status: 'stopped',
+    RxBytes: 0,
+    TxBytes: 0,
+    SlaveRunning: false,
+    SourceAddress: 1,
+    TargetAddress: 2,
+    SlaveUnits: [],
+    StartedAt: '',
+    StoppedAt: '',
+    LastError: '',
+  }]
+  state.portForm = {
+    ...state.portForm,
+    sessionId: `next-${id}`,
+    port: portName,
+    name: 'FECbus 主控演示',
+    role: 'master',
+  }
+  state.sendForm = {
+    ...state.sendForm,
+    targetAddress: 2,
+    sourceAddress: 1,
+    priority: 2,
+    messageNumber: 7,
+    functionCode: FunctionCode.FunctionQueryProtocolVersion,
+    payloadHex: '',
+    expectAnswer: true,
+  }
+  state.slaveForm = {
+    address: 2,
+    statusCode: StatusCode.StatusReceivedOK,
+    autoStatusAnswer: true,
+    acceptBroadcast: true,
+  }
+  state.slaveUnits = [state.slaveForm]
+  state.customFunctions = [{
+    Code: 46 as FunctionCode,
+    Name: '用户自定义演示',
+    Description: '演示用户自定义功能码和数据段字段。',
+    Direction: 'custom',
+    Answer: true,
+    Fields: [{ Key: 'value', Label: '演示值', Offset: 1, Length: 2, Type: 'uint16', Endian: 'little', Enum: null, Meaning: '' }],
+  }]
+  state.frameFilters = {
+    [id]: { direction: '', search: '' },
+  }
+  state.framePages = {
+    [id]: {
+      Frames: [{
+        Seq: 1,
+        SessionID: id,
+        Direction: 'tx',
+        Frame: {
+          Type: FrameType.FrameTypeRequest,
+          TargetAddress: 2,
+          Priority: 2,
+          SourceAddress: 1,
+          MessageNumber: 7,
+          GroupNumber: 0,
+          Data: 'LA==',
+          Raw: null,
+          CRCOK: true,
+          Timestamp: '',
+        },
+        Hex: '7e 00 02 02 01 07 00 01 2c 7d 9f 7e',
+        Error: '',
+        Timestamp: '',
+        Annotated: fecbusAnnotation(),
+      }],
+      Offset: 0,
+      Limit: 200,
+      Total: 1,
+      EOF: true,
+    },
+  }
+  return state
+}
+
+function fecbusTabId(id: string): string {
+  return `fecbus:${id}`
+}
+
+function fecbusAnnotation() {
+  return {
+    Segments: [
+      { Key: 'frame_head', Label: '帧头', Start: 0, End: 1, Hex: '7e', Value: 0x7e, ValueText: '126', Meaning: '0x7E' },
+      { Key: 'function', Label: '功能码', Start: 8, End: 9, Hex: '2c', Value: 44, ValueText: '44', Meaning: '查 FECbus 协议版本号' },
+    ],
+    DataFields: [{
+      Key: 'function',
+      Label: '功能码',
+      Start: 8,
+      End: 9,
+      Hex: '2c',
+      Value: 44,
+      ValueText: '查 FECbus 协议版本号',
+      Meaning: '查 FECbus 协议版本号',
+    }],
+    Function: {
+      Code: FunctionCode.FunctionQueryProtocolVersion,
+      Hex: '2CH',
+      Name: '查 FECbus 协议版本号',
+      Description: '',
+      Direction: 'controller_to_device',
+      Answer: true,
+      Custom: false,
+      Reserved: false,
+    },
+    GroupKey: '',
+    GroupColorIndex: -1,
+    Summary: '查 FECbus 协议版本号',
+    Warnings: [],
+  }
 }
 
 function toPortPath(portName: string): string {

@@ -14,10 +14,13 @@ import VirtualPairPanel from './VirtualPairPanel.vue'
 import BridgePanel from './BridgePanel.vue'
 import MonitorPanel from './MonitorPanel.vue'
 import ModbusPanel from './ModbusPanel.vue'
+import FecbusPanel from './FecbusPanel.vue'
 import { useSerialWorkspaceStore, type SerialOperation } from '../stores/workspaceStore'
 import { useMonitorStore } from '../stores/monitorStore'
 import { useModbusStore } from '../stores/modbusStore'
 import { SessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { useFecbusStore } from '../stores/fecbusStore'
+import { SessionRole as FecbusSessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
 
 const props = defineProps<{
   activeViewId: string | null
@@ -28,6 +31,7 @@ const serialStore = useSerialStore()
 const bufferStore = useBufferStore()
 const monitorStore = useMonitorStore()
 const modbusStore = useModbusStore()
+const fecbusStore = useFecbusStore()
 const workspaceStore = useSerialWorkspaceStore()
 
 const editorLayout = computed({
@@ -60,6 +64,7 @@ onMounted(() => {
   serialStore.refreshHandles()
   monitorStore.refreshSessions()
   modbusStore.refreshSessions()
+  fecbusStore.refreshSessions()
 })
 
 onUnmounted(() => {
@@ -67,6 +72,7 @@ onUnmounted(() => {
   serialStore.stopStatsPolling()
   monitorStore.cleanup()
   modbusStore.cleanup()
+  fecbusStore.cleanup()
   stopTabDrag()
 })
 
@@ -89,6 +95,12 @@ const tabs = computed(() => [
     kind: 'modbus' as const,
     sourceId: session.ID,
   })),
+  ...fecbusStore.sessionList.map(session => ({
+    id: fecbusTabId(session.ID),
+    name: session.Name || `${session.Role === FecbusSessionRole.SessionRoleSlave ? 'FECbus Slave' : 'FECbus Master'} ${session.Config.PortName}`,
+    kind: 'fecbus' as const,
+    sourceId: session.ID,
+  })),
 ])
 
 function operationFromView(viewId: string | null): SerialOperation | null {
@@ -101,6 +113,8 @@ function operationFromView(viewId: string | null): SerialOperation | null {
       return 'monitor'
     case 'serial.modbus':
       return 'modbus'
+    case 'serial.fecbus':
+      return 'fecbus'
     case 'serial.open':
       return 'open'
     default:
@@ -137,15 +151,18 @@ watch(
     const serialActiveTab = serialStore.activePortId
     const monitorActiveTab = monitorStore.activeMonitorId ? monitorTabId(monitorStore.activeMonitorId) : null
     const modbusActiveTab = modbusStore.activeSessionId ? modbusTabId(modbusStore.activeSessionId) : null
+    const fecbusActiveTab = fecbusStore.activeSessionId ? fecbusTabId(fecbusStore.activeSessionId) : null
     for (const group of groups) {
       const current = activeByGroup.value[group.id]
       const activeSerialInGroup = serialActiveTab && group.tabs.includes(serialActiveTab) ? serialActiveTab : null
       const activeMonitorInGroup = monitorActiveTab && group.tabs.includes(monitorActiveTab) ? monitorActiveTab : null
       const activeModbusInGroup = modbusActiveTab && group.tabs.includes(modbusActiveTab) ? modbusActiveTab : null
-      const newlyAddedActive = [activeModbusInGroup, activeMonitorInGroup, activeSerialInGroup]
+      const activeFecbusInGroup = fecbusActiveTab && group.tabs.includes(fecbusActiveTab) ? fecbusActiveTab : null
+      const newlyAddedActive = [activeFecbusInGroup, activeModbusInGroup, activeMonitorInGroup, activeSerialInGroup]
         .find((id): id is string => Boolean(id && missing.includes(id)))
       active[group.id] = newlyAddedActive
         ?? (current && group.tabs.includes(current) ? current : null)
+        ?? activeFecbusInGroup
         ?? activeModbusInGroup
         ?? activeMonitorInGroup
         ?? activeSerialInGroup
@@ -171,6 +188,10 @@ async function handleCloseTab(id: string) {
     await monitorStore.deleteMonitor(monitorIdFromTabId(id))
     return
   }
+  if (isFecbusTabId(id)) {
+    await fecbusStore.closeSession(fecbusIdFromTabId(id))
+    return
+  }
   if (isModbusTabId(id)) {
     await modbusStore.closeSession(modbusIdFromTabId(id))
     return
@@ -190,6 +211,11 @@ function handleMonitorStarted(id: string) {
 
 function handleModbusOpened(id: string) {
   modbusStore.setActiveSession(id)
+  selectedOperation.value = null
+}
+
+function handleFecbusOpened(id: string) {
+  fecbusStore.setActiveSession(id)
   selectedOperation.value = null
 }
 
@@ -213,6 +239,8 @@ function setActiveTab(groupId: string, handleId: string) {
   activeByGroup.value = { ...activeByGroup.value, [groupId]: handleId }
   if (isMonitorTabId(handleId)) {
     monitorStore.setActiveMonitor(monitorIdFromTabId(handleId))
+  } else if (isFecbusTabId(handleId)) {
+    fecbusStore.setActiveSession(fecbusIdFromTabId(handleId))
   } else if (isModbusTabId(handleId)) {
     modbusStore.setActiveSession(modbusIdFromTabId(handleId))
   } else {
@@ -520,6 +548,8 @@ function commitLayout(nextLayout: EditorLayoutTreeNode, activeGroupId: string, a
   activeByGroup.value = active
   if (isMonitorTabId(activeHandleId)) {
     monitorStore.setActiveMonitor(monitorIdFromTabId(activeHandleId))
+  } else if (isFecbusTabId(activeHandleId)) {
+    fecbusStore.setActiveSession(fecbusIdFromTabId(activeHandleId))
   } else if (isModbusTabId(activeHandleId)) {
     modbusStore.setActiveSession(modbusIdFromTabId(activeHandleId))
   } else {
@@ -550,6 +580,18 @@ function isModbusTabId(id: string): boolean {
 function modbusIdFromTabId(id: string): string {
   return id.replace(/^modbus:/, '')
 }
+
+function fecbusTabId(id: string): string {
+  return `fecbus:${id}`
+}
+
+function isFecbusTabId(id: string): boolean {
+  return id.startsWith('fecbus:')
+}
+
+function fecbusIdFromTabId(id: string): string {
+  return id.replace(/^fecbus:/, '')
+}
 </script>
 
 <template>
@@ -571,6 +613,10 @@ function modbusIdFromTabId(id: string): string {
       <ModbusPanel
         v-else-if="selectedOperation === 'modbus'"
         @opened="handleModbusOpened"
+      />
+      <FecbusPanel
+        v-else-if="selectedOperation === 'fecbus'"
+        @opened="handleFecbusOpened"
       />
     </div>
     <div class="serial-view__main">

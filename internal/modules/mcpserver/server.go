@@ -17,6 +17,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/errors"
 	"github.com/suyue/mocktrue/internal/modules/serial"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
+	fb "github.com/suyue/mocktrue/internal/modules/serial/fecbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
 	mb "github.com/suyue/mocktrue/internal/modules/serial/modbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
@@ -62,6 +63,18 @@ type SerialRuntime interface {
 	ModbusScanUnitIDs(mb.UnitScanRequest) (*mb.UnitScanResult, error)
 	ModbusReadRegisters(mb.RegisterReadRequest) (*mb.RegisterReadResult, error)
 	ModbusScanRegisters(mb.RegisterScanRequest) (*mb.RegisterScanResult, error)
+	OpenFecbusSession(context.Context, fb.OpenSessionRequest) (*fb.SessionInfo, error)
+	CloseFecbusSession(string) error
+	ListFecbusSessions() []fb.SessionInfo
+	FecbusSendRequest(fb.SendRequest) (*fb.Transaction, error)
+	StartFecbusSlave(fb.StartSlaveRequest) (*fb.SessionInfo, error)
+	StopFecbusSlave(string) error
+	UpdateFecbusSlaveState(string, fb.SlaveState) error
+	AddFecbusSlaveUnit(string, fb.SlaveUnitState) error
+	RemoveFecbusSlaveUnit(string, byte) error
+	ListFecbusSlaveUnits(string) ([]fb.SlaveUnitInfo, error)
+	QueryFecbusFrames(fb.QueryRequest) (*fb.FramePage, error)
+	ClearFecbusFrames(string) error
 }
 
 type noArgs struct{}
@@ -268,6 +281,91 @@ type modbusScanRegistersArgs struct {
 	ChunkSize    int    `json:"chunk_size,omitempty"`
 	TimeoutMs    int    `json:"timeout_ms,omitempty"`
 	Retries      int    `json:"retries,omitempty"`
+}
+
+type fecbusOpenSessionArgs struct {
+	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
+	Port      string `json:"port"`
+	Role      string `json:"role,omitempty"`
+	BaudRate  int    `json:"baud_rate,omitempty"`
+	DataBits  int    `json:"data_bits,omitempty"`
+	StopBits  string `json:"stop_bits,omitempty"`
+	Parity    string `json:"parity,omitempty"`
+	FlowMode  string `json:"flow_mode,omitempty"`
+	ReadBufKB int    `json:"read_buf_kb,omitempty"`
+	TimeoutMs int    `json:"timeout_ms,omitempty"`
+	Retries   int    `json:"retries,omitempty"`
+}
+
+type fecbusSessionIDArgs struct {
+	SessionID string `json:"session_id"`
+}
+
+type fecbusSendRequestArgs struct {
+	SessionID     string `json:"session_id"`
+	FrameType     int    `json:"frame_type,omitempty"`
+	TargetAddress int    `json:"target_address"`
+	Priority      int    `json:"priority,omitempty"`
+	SourceAddress int    `json:"source_address,omitempty"`
+	MessageNumber int    `json:"message_number,omitempty"`
+	GroupNumber   int    `json:"group_number,omitempty"`
+	Function      int    `json:"function"`
+	DataHex       string `json:"data_hex,omitempty"`
+	ExpectAnswer  bool   `json:"expect_answer,omitempty"`
+	TimeoutMs     int    `json:"timeout_ms,omitempty"`
+	Retries       int    `json:"retries,omitempty"`
+}
+
+type fecbusSlaveStateArgs struct {
+	SessionID        string `json:"session_id"`
+	Address          int    `json:"address,omitempty"`
+	StatusCode       int    `json:"status_code,omitempty"`
+	AutoStatusAnswer bool   `json:"auto_status_answer,omitempty"`
+	AcceptBroadcast  bool   `json:"accept_broadcast,omitempty"`
+	Units            []struct {
+		Address          int  `json:"address"`
+		StatusCode       int  `json:"status_code,omitempty"`
+		AutoStatusAnswer bool `json:"auto_status_answer,omitempty"`
+		AcceptBroadcast  bool `json:"accept_broadcast,omitempty"`
+	} `json:"units,omitempty"`
+}
+
+type fecbusSlaveUnitArgs struct {
+	SessionID        string `json:"session_id"`
+	Address          int    `json:"address"`
+	StatusCode       int    `json:"status_code,omitempty"`
+	AutoStatusAnswer bool   `json:"auto_status_answer,omitempty"`
+	AcceptBroadcast  bool   `json:"accept_broadcast,omitempty"`
+}
+
+type fecbusQueryFramesArgs struct {
+	SessionID string                    `json:"session_id"`
+	Offset    int64                     `json:"offset,omitempty"`
+	Limit     int                       `json:"limit,omitempty"`
+	Direction string                    `json:"direction,omitempty"`
+	Search    string                    `json:"search,omitempty"`
+	Custom    []fecbusCustomFunctionArg `json:"custom,omitempty"`
+}
+
+type fecbusCustomFunctionArg struct {
+	Code        int                   `json:"code"`
+	Name        string                `json:"name,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Direction   string                `json:"direction,omitempty"`
+	Answer      bool                  `json:"answer,omitempty"`
+	Fields      []fecbusCustomDataArg `json:"fields,omitempty"`
+}
+
+type fecbusCustomDataArg struct {
+	Key     string            `json:"key"`
+	Label   string            `json:"label,omitempty"`
+	Offset  int               `json:"offset"`
+	Length  int               `json:"length"`
+	Type    string            `json:"type,omitempty"`
+	Endian  string            `json:"endian,omitempty"`
+	Enum    map[string]string `json:"enum,omitempty"`
+	Meaning string            `json:"meaning,omitempty"`
 }
 
 func newMCPServer(serialService SerialRuntime) *mcp.Server {
@@ -661,6 +759,135 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 		}
 		return nil, map[string]any{"result": result}, nil
 	})
+
+	addReadTool[noArgs, map[string]any](server, "fecbus_function_catalog", "List FECbus function codes from GB 4717-2024 Appendix C table C.2.", func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"functions": fb.FunctionCatalog()}, nil
+	})
+
+	addWriteTool[fecbusOpenSessionArgs, map[string]any](server, "fecbus_open_session", "Open a dedicated FECbus serial session.", false, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusOpenSessionArgs) (*mcp.CallToolResult, map[string]any, error) {
+		session, err := serialService.OpenFecbusSession(ctx, fb.OpenSessionRequest{
+			ID:   args.ID,
+			Name: args.Name,
+			Role: fb.SessionRole(args.Role),
+			Config: port.SerialConfig{
+				PortName:  args.Port,
+				BaudRate:  args.BaudRate,
+				DataBits:  args.DataBits,
+				StopBits:  args.StopBits,
+				Parity:    args.Parity,
+				FlowMode:  args.FlowMode,
+				ReadBufKB: args.ReadBufKB,
+			},
+			TimeoutMs: args.TimeoutMs,
+			Retries:   args.Retries,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"session": session}, nil
+	})
+
+	addWriteTool[fecbusSessionIDArgs, map[string]any](server, "fecbus_close_session", "Close a FECbus serial session.", true, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSessionIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.CloseFecbusSession(args.SessionID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"closed": true}, nil
+	})
+
+	addReadTool[noArgs, map[string]any](server, "fecbus_list_sessions", "List open FECbus sessions.", func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"sessions": serialService.ListFecbusSessions()}, nil
+	})
+
+	addWriteTool[fecbusSendRequestArgs, map[string]any](server, "fecbus_send_request", "Send one FECbus frame and optionally wait for an answer.", false, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSendRequestArgs) (*mcp.CallToolResult, map[string]any, error) {
+		tx, err := serialService.FecbusSendRequest(fb.SendRequest{
+			SessionID:     args.SessionID,
+			FrameType:     fb.FrameType(clampInt(args.FrameType, 0, 1)),
+			TargetAddress: byte(clampInt(args.TargetAddress, 0, 63)),
+			Priority:      byte(clampInt(args.Priority, 0, 3)),
+			SourceAddress: byte(clampInt(args.SourceAddress, 0, 63)),
+			MessageNumber: byte(clampInt(args.MessageNumber, 0, 63)),
+			GroupNumber:   byte(clampInt(args.GroupNumber, 0, 127)),
+			Function:      fb.FunctionCode(clampInt(args.Function, 0, 255)),
+			DataHex:       args.DataHex,
+			ExpectAnswer:  args.ExpectAnswer,
+			TimeoutMs:     args.TimeoutMs,
+			Retries:       args.Retries,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"transaction": tx}, nil
+	})
+
+	addWriteTool[fecbusSlaveStateArgs, map[string]any](server, "fecbus_start_slave", "Start FECbus electrical-control-device simulation.", false, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSlaveStateArgs) (*mcp.CallToolResult, map[string]any, error) {
+		session, err := serialService.StartFecbusSlave(fb.StartSlaveRequest{
+			SessionID: args.SessionID,
+			State:     fecbusSlaveState(args),
+			Units:     fecbusSlaveUnits(args),
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"session": session}, nil
+	})
+
+	addWriteTool[fecbusSessionIDArgs, map[string]any](server, "fecbus_stop_slave", "Stop FECbus device simulation.", true, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSessionIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.StopFecbusSlave(args.SessionID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"stopped": true}, nil
+	})
+
+	addWriteTool[fecbusSlaveStateArgs, map[string]any](server, "fecbus_update_slave_state", "Replace FECbus device simulation status-answer state.", false, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSlaveStateArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.UpdateFecbusSlaveState(args.SessionID, fecbusSlaveState(args)); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"updated": true}, nil
+	})
+
+	addReadTool[fecbusSessionIDArgs, map[string]any](server, "fecbus_list_slave_units", "List configured FECbus simulated slave addresses.", func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSessionIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		units, err := serialService.ListFecbusSlaveUnits(args.SessionID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"units": units}, nil
+	})
+
+	addWriteTool[fecbusSlaveUnitArgs, map[string]any](server, "fecbus_add_slave_unit", "Add or replace one FECbus simulated slave address.", false, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSlaveUnitArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.AddFecbusSlaveUnit(args.SessionID, fecbusSlaveUnit(args)); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"updated": true}, nil
+	})
+
+	addWriteTool[fecbusSlaveUnitArgs, map[string]any](server, "fecbus_remove_slave_unit", "Remove one FECbus simulated slave address.", true, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSlaveUnitArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.RemoveFecbusSlaveUnit(args.SessionID, byte(clampInt(args.Address, 1, 63))); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"removed": true}, nil
+	})
+
+	addReadTool[fecbusQueryFramesArgs, map[string]any](server, "fecbus_query_frames", "Read a filtered page of FECbus TX/RX frames.", func(ctx context.Context, req *mcp.CallToolRequest, args fecbusQueryFramesArgs) (*mcp.CallToolResult, map[string]any, error) {
+		page, err := serialService.QueryFecbusFrames(fb.QueryRequest{
+			SessionID: args.SessionID,
+			Offset:    args.Offset,
+			Limit:     args.Limit,
+			Direction: args.Direction,
+			Search:    args.Search,
+			Custom:    fecbusCustomFunctions(args.Custom),
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"page": page}, nil
+	})
+
+	addWriteTool[fecbusSessionIDArgs, map[string]any](server, "fecbus_clear_frames", "Clear captured FECbus frames and counters.", true, func(ctx context.Context, req *mcp.CallToolRequest, args fecbusSessionIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.ClearFecbusFrames(args.SessionID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"cleared": true}, nil
+	})
 }
 
 func addReadTool[In, Out any](server *mcp.Server, name, description string, handler mcp.ToolHandlerFor[In, Out]) {
@@ -735,6 +962,100 @@ func registerMappings(args []modbusRegisterMappingArg) []mb.RegisterMapping {
 		})
 	}
 	return out
+}
+
+func fecbusSlaveState(args fecbusSlaveStateArgs) fb.SlaveState {
+	status := args.StatusCode
+	if status == 0 {
+		status = int(fb.StatusReceivedOK)
+	}
+	return fb.SlaveState{
+		Address:          byte(clampInt(args.Address, 1, 63)),
+		DefaultStatus:    fb.StatusCode(clampInt(status, 0, 255)),
+		AutoStatusAnswer: args.AutoStatusAnswer,
+		AcceptBroadcast:  args.AcceptBroadcast,
+	}
+}
+
+func fecbusSlaveUnits(args fecbusSlaveStateArgs) []fb.SlaveUnitState {
+	if len(args.Units) == 0 {
+		return nil
+	}
+	out := make([]fb.SlaveUnitState, 0, len(args.Units))
+	for _, unit := range args.Units {
+		status := unit.StatusCode
+		if status == 0 {
+			status = int(fb.StatusReceivedOK)
+		}
+		out = append(out, fb.SlaveUnitState{
+			Address:          byte(clampInt(unit.Address, 1, 63)),
+			DefaultStatus:    fb.StatusCode(clampInt(status, 0, 255)),
+			AutoStatusAnswer: unit.AutoStatusAnswer,
+			AcceptBroadcast:  unit.AcceptBroadcast,
+		})
+	}
+	return out
+}
+
+func fecbusSlaveUnit(args fecbusSlaveUnitArgs) fb.SlaveUnitState {
+	status := args.StatusCode
+	if status == 0 {
+		status = int(fb.StatusReceivedOK)
+	}
+	return fb.SlaveUnitState{
+		Address:          byte(clampInt(args.Address, 1, 63)),
+		DefaultStatus:    fb.StatusCode(clampInt(status, 0, 255)),
+		AutoStatusAnswer: args.AutoStatusAnswer,
+		AcceptBroadcast:  args.AcceptBroadcast,
+	}
+}
+
+func fecbusCustomFunctions(args []fecbusCustomFunctionArg) []fb.CustomFunctionDefinition {
+	out := make([]fb.CustomFunctionDefinition, 0, len(args))
+	for _, item := range args {
+		fields := make([]fb.CustomDataFieldDefinition, 0, len(item.Fields))
+		for _, field := range item.Fields {
+			enum := make(map[byte]string, len(field.Enum))
+			for raw, label := range field.Enum {
+				key := clampInt(parseFlexibleInt(raw), 0, 255)
+				enum[byte(key)] = label
+			}
+			fields = append(fields, fb.CustomDataFieldDefinition{
+				Key:     field.Key,
+				Label:   field.Label,
+				Offset:  field.Offset,
+				Length:  field.Length,
+				Type:    field.Type,
+				Endian:  field.Endian,
+				Enum:    enum,
+				Meaning: field.Meaning,
+			})
+		}
+		out = append(out, fb.CustomFunctionDefinition{
+			Code:        fb.FunctionCode(clampInt(item.Code, 0, 255)),
+			Name:        item.Name,
+			Description: item.Description,
+			Direction:   item.Direction,
+			Answer:      item.Answer,
+			Fields:      fields,
+		})
+	}
+	return out
+}
+
+func parseFlexibleInt(value string) int {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToLower(value), "0x") {
+		parsed, err := strconv.ParseInt(value[2:], 16, 32)
+		if err == nil {
+			return int(parsed)
+		}
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0
+	}
+	return parsed
 }
 
 func clampInt(value int, min int, max int) int {

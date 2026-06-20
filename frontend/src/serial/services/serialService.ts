@@ -5,6 +5,18 @@ import {
   ListPorts,
   ResetCounters,
   RestoreCounters,
+  OpenFecbusSession,
+  CloseFecbusSession,
+  ListFecbusSessions,
+  FecbusSendRequest,
+  StartFecbusSlave,
+  StopFecbusSlave,
+  UpdateFecbusSlaveState,
+  AddFecbusSlaveUnit,
+  RemoveFecbusSlaveUnit,
+  ListFecbusSlaveUnits,
+  QueryFecbusFrames,
+  ClearFecbusFrames,
   OpenModbusSession,
   CloseModbusSession,
   ListModbusSessions,
@@ -23,6 +35,18 @@ import {
 
 import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
 import type { HandleStatus, OpenRequest } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models.js'
+import type {
+  FramePage as FecbusFramePage,
+  OpenSessionRequest as FecbusOpenSessionRequest,
+  QueryRequest as FecbusQueryRequest,
+  SendRequest as FecbusSendRequestType,
+  SessionInfo as FecbusSessionInfo,
+  SlaveState as FecbusSlaveState,
+  SlaveUnitInfo as FecbusSlaveUnitInfo,
+  SlaveUnitState as FecbusSlaveUnitState,
+  StartSlaveRequest as FecbusStartSlaveRequest,
+  Transaction as FecbusTransaction,
+} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
 import type {
   DataModelSnapshot,
   MasterRequest,
@@ -88,6 +112,70 @@ export class SerialService {
 
   async restoreCounters(id: string, rxBytes: number, txBytes: number): Promise<void> {
     await RestoreCounters(id, rxBytes, txBytes)
+  }
+
+  async openFecbusSession(request: FecbusOpenSessionRequest): Promise<FecbusSessionInfo> {
+    const result = await OpenFecbusSession(request)
+    if (!result) {
+      throw new Error('Failed to open FECbus session: no status returned')
+    }
+    return result
+  }
+
+  async closeFecbusSession(id: string): Promise<void> {
+    await CloseFecbusSession(id)
+  }
+
+  async listFecbusSessions(): Promise<FecbusSessionInfo[]> {
+    return await ListFecbusSessions() ?? []
+  }
+
+  async fecbusSendRequest(request: FecbusSendRequestType): Promise<FecbusTransaction> {
+    const result = await FecbusSendRequest(request)
+    if (!result) {
+      throw new Error('Failed to run FECbus request: no transaction returned')
+    }
+    return result
+  }
+
+  async startFecbusSlave(request: FecbusStartSlaveRequest): Promise<FecbusSessionInfo> {
+    const result = await StartFecbusSlave(request)
+    if (!result) {
+      throw new Error('Failed to start FECbus slave: no session returned')
+    }
+    return result
+  }
+
+  async stopFecbusSlave(id: string): Promise<void> {
+    await StopFecbusSlave(id)
+  }
+
+  async updateFecbusSlaveState(sessionID: string, state: FecbusSlaveState): Promise<void> {
+    await UpdateFecbusSlaveState(sessionID, state)
+  }
+
+  async addFecbusSlaveUnit(sessionID: string, unit: FecbusSlaveUnitState): Promise<void> {
+    await AddFecbusSlaveUnit(sessionID, unit)
+  }
+
+  async removeFecbusSlaveUnit(sessionID: string, address: number): Promise<void> {
+    await RemoveFecbusSlaveUnit(sessionID, address)
+  }
+
+  async listFecbusSlaveUnits(sessionID: string): Promise<FecbusSlaveUnitInfo[]> {
+    return await ListFecbusSlaveUnits(sessionID) ?? []
+  }
+
+  async queryFecbusFrames(request: FecbusQueryRequest): Promise<FecbusFramePage> {
+    const result = await QueryFecbusFrames(request)
+    if (!result) {
+      throw new Error('Failed to query FECbus frames: no page returned')
+    }
+    return result
+  }
+
+  async clearFecbusFrames(id: string): Promise<void> {
+    await ClearFecbusFrames(id)
   }
 
   async openModbusSession(request: OpenSessionRequest): Promise<SessionInfo> {

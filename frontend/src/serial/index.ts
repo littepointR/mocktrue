@@ -10,6 +10,7 @@ export const serialModule: ModuleFrontend = {
     { id: 'serial.bridge', title: '添加串口桥接', component: 'serial/Bridge' },
     { id: 'serial.monitor', title: '串口监控', component: 'serial/Monitor' },
     { id: 'serial.modbus', title: 'Modbus 调试', component: 'serial/Modbus' },
+    { id: 'serial.fecbus', title: 'FECbus 调试', component: 'serial/FECbus' },
   ],
   async onActivate() {
     // Initialize Store event listeners
@@ -17,10 +18,12 @@ export const serialModule: ModuleFrontend = {
     const { useBufferStore } = await import('./stores/bufferStore')
     const { useMonitorStore } = await import('./stores/monitorStore')
     const { useModbusStore } = await import('./stores/modbusStore')
+    const { useFecbusStore } = await import('./stores/fecbusStore')
     useSerialStore().initEventListeners()
     useBufferStore().initEventListeners()
     useMonitorStore().refreshSessions()
     useModbusStore().refreshSessions()
+    useFecbusStore().refreshSessions()
   },
   async onDeactivate() {
     // Cleanup
@@ -28,10 +31,12 @@ export const serialModule: ModuleFrontend = {
     const { useBufferStore } = await import('./stores/bufferStore')
     const { useMonitorStore } = await import('./stores/monitorStore')
     const { useModbusStore } = await import('./stores/modbusStore')
+    const { useFecbusStore } = await import('./stores/fecbusStore')
     useSerialStore().cleanup()
     useBufferStore().cleanup()
     useMonitorStore().cleanup()
     useModbusStore().cleanup()
+    useFecbusStore().cleanup()
   },
 }
 
@@ -39,4 +44,5 @@ export * from './stores/serialStore'
 export * from './stores/bufferStore'
 export * from './stores/monitorStore'
 export * from './stores/modbusStore'
+export * from './stores/fecbusStore'
 export * from './services'

@@ -14,6 +14,7 @@ describe('demoWorkspaces', () => {
       'bridge-demo',
       'monitor-demo',
       'modbus-demo',
+      'fecbus-demo',
       'full-workspace-demo',
     ])
     expect(demos.every(demo => !('readonly' in demo))).toBe(true)
@@ -48,8 +49,10 @@ describe('demoWorkspaces', () => {
     expect(Object.values(snapshot?.serial.monitors.frames ?? {}).flat()).toHaveLength(0)
     expect(snapshot?.serial.modbus.sessions).toHaveLength(1)
     expect(snapshot?.serial.modbus.history).toHaveLength(0)
+    expect(snapshot?.serial.fecbus.sessions).toHaveLength(1)
+    expect(snapshot?.serial.fecbus.framePages[snapshot.serial.fecbus.activeSessionId ?? '']?.Total).toBe(1)
     expect(snapshot?.serial.workspace.editorLayout.type).toBe('group')
-    expect(snapshot?.serial.workspace.selectedOperation).toBe('modbus')
+    expect(snapshot?.serial.workspace.selectedOperation).toBe('fecbus')
   })
 
   it('opens Modbus examples with a normal saved session tab', () => {
@@ -65,16 +68,39 @@ describe('demoWorkspaces', () => {
       expect(session?.Config.PortName).toBe(snapshot?.serial.modbus.portForm.port)
       expect(layout?.type).toBe('group')
       if (layout?.type === 'group') {
-        expect(layout.tabs).toEqual([`modbus:${session?.ID}`])
-        expect(snapshot?.serial.workspace.activeByGroup[layout.id]).toBe(`modbus:${session?.ID}`)
+        expect(layout.tabs).toContain(`modbus:${session?.ID}`)
+        if (id === 'modbus-demo') {
+          expect(snapshot?.serial.workspace.activeByGroup[layout.id]).toBe(`modbus:${session?.ID}`)
+        }
       }
     }
   })
 
-  it('does not include runtime-only serial, monitor, or Modbus content in any example', () => {
+  it('opens FECbus examples with a normal saved session tab', () => {
+    for (const id of ['fecbus-demo', 'full-workspace-demo']) {
+      const snapshot = createDemoWorkspaceSnapshot(id)
+      const session = snapshot?.serial.fecbus.sessions[0]
+      const layout = snapshot?.serial.workspace.editorLayout
+
+      expect(session?.ID).toBe(snapshot?.serial.fecbus.activeSessionId)
+      expect(session?.Status).toBe('stopped')
+      expect(session?.RxBytes).toBe(0)
+      expect(session?.TxBytes).toBe(0)
+      expect(session?.Config.PortName).toBe(snapshot?.serial.fecbus.portForm.port)
+      expect(snapshot?.serial.fecbus.sendForm.functionCode).toBe(44)
+      expect(layout?.type).toBe('group')
+      if (layout?.type === 'group') {
+        expect(layout.tabs).toContain(`fecbus:${session?.ID}`)
+        expect(snapshot?.serial.workspace.activeByGroup[layout.id]).toBe(`fecbus:${session?.ID}`)
+      }
+    }
+  })
+
+  it('does not include runtime-only serial or monitor content in any example', () => {
     for (const demo of listDemoWorkspaces()) {
       const snapshot = createDemoWorkspaceSnapshot(demo.id)
       const expectedModbusSessions = ['modbus-demo', 'full-workspace-demo'].includes(demo.id) ? 1 : 0
+      const expectedFecbusSessions = ['fecbus-demo', 'full-workspace-demo'].includes(demo.id) ? 1 : 0
 
       expect(snapshot?.serial.activePortId).toBeNull()
       expect(snapshot?.serial.handles).toHaveLength(0)
@@ -87,6 +113,8 @@ describe('demoWorkspaces', () => {
       expect(snapshot?.serial.modbus.unitScanResult).toBeNull()
       expect(snapshot?.serial.modbus.registerScanResult).toBeNull()
       expect(snapshot?.serial.modbus.history).toHaveLength(0)
+      expect(snapshot?.serial.fecbus.sessions).toHaveLength(expectedFecbusSessions)
+      expect(snapshot?.serial.fecbus.history).toHaveLength(0)
     }
   })
 })

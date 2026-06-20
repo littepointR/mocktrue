@@ -6,7 +6,9 @@ import { useSerialStore } from '../stores/serialStore'
 import { useSerialWorkspaceStore } from '../stores/workspaceStore'
 import { useMonitorStore } from '../stores/monitorStore'
 import { useModbusStore } from '../stores/modbusStore'
+import { useFecbusStore } from '../stores/fecbusStore'
 import { FrameMode, SessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { SessionRole as FecbusSessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
 import { createDemoWorkspaceSnapshot } from '../../workspace/demoWorkspaces'
 import { restoreWorkspaceSnapshot } from '../../workspace/workspaceSession'
 
@@ -14,6 +16,8 @@ vi.mock('../services/serialService', () => ({
   serialService: {
     listPorts: vi.fn(async () => []),
     listModbusSessions: vi.fn(async () => []),
+    listFecbusSessions: vi.fn(async () => []),
+    queryFecbusFrames: vi.fn(async () => ({ Frames: [], Offset: 0, Limit: 200, Total: 0, EOF: true })),
   },
 }))
 
@@ -37,6 +41,15 @@ vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/ser
   StartModbusSlave: vi.fn(async () => null),
   StopModbusSlave: vi.fn(async () => undefined),
   UpdateModbusSlaveData: vi.fn(async () => undefined),
+  ListFecbusSessions: vi.fn(async () => []),
+  OpenFecbusSession: vi.fn(async () => null),
+  CloseFecbusSession: vi.fn(async () => undefined),
+  FecbusSendRequest: vi.fn(async () => null),
+  StartFecbusSlave: vi.fn(async () => null),
+  StopFecbusSlave: vi.fn(async () => undefined),
+  UpdateFecbusSlaveState: vi.fn(async () => undefined),
+  QueryFecbusFrames: vi.fn(async () => ({ Frames: [], Offset: 0, Limit: 200, Total: 0, EOF: true })),
+  ClearFecbusFrames: vi.fn(async () => undefined),
 }))
 
 describe('SerialView workspace layout', () => {
@@ -178,6 +191,16 @@ describe('SerialView workspace layout', () => {
     expect(wrapper.find('[data-testid="modbus-stub"]').exists()).toBe(true)
   })
 
+  it('opens the FECbus operation panel from the serial module view id', async () => {
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+    await wrapper.setProps({ activeViewId: 'serial.fecbus', activeViewVersion: 1 })
+
+    expect(wrapper.find('[data-testid="fecbus-stub"]').exists()).toBe(true)
+  })
+
   it('shows the selected operation panel when the serial module opens on its default view', async () => {
     const wrapper = mount(SerialView, {
       props: { activeViewId: 'serial.open', activeViewVersion: 1 },
@@ -230,6 +253,51 @@ describe('SerialView workspace layout', () => {
     if (layout.type === 'group') {
       expect(layout.tabs).toEqual(['modbus:modbus-1'])
       expect(useSerialWorkspaceStore().activeByGroup[layout.id]).toBe('modbus:modbus-1')
+    }
+  })
+
+  it('adds FECbus sessions to the editor tab layout', () => {
+    const fecbus = useFecbusStore()
+    fecbus.restoreState({
+      ...fecbus.exportState(),
+      activeSessionId: 'fec-1',
+      sessions: [{
+        ID: 'fec-1',
+        Name: 'FECbus 主控',
+        Role: FecbusSessionRole.SessionRoleMaster,
+        Config: {
+          PortName: '/tmp/ttyF0',
+          BaudRate: 9600,
+          DataBits: 8,
+          StopBits: '1',
+          Parity: 'none',
+          FlowMode: 'none',
+          ReadBufKB: 32,
+        },
+        Status: 'open',
+        RxBytes: 0,
+        TxBytes: 0,
+        SlaveRunning: false,
+        SourceAddress: 1,
+        TargetAddress: 2,
+        SlaveUnits: [],
+        StartedAt: '',
+        StoppedAt: '',
+        LastError: '',
+      }],
+    })
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+
+    expect(wrapper.find('.tabs-json').text()).toContain('fecbus:fec-1')
+    const layout = useSerialWorkspaceStore().editorLayout
+    expect(layout.type).toBe('group')
+    if (layout.type === 'group') {
+      expect(layout.tabs).toEqual(['fecbus:fec-1'])
+      expect(useSerialWorkspaceStore().activeByGroup[layout.id]).toBe('fecbus:fec-1')
     }
   })
 
@@ -321,5 +389,8 @@ const stubs = {
   MonitorPanel: true,
   ModbusPanel: {
     template: '<div data-testid="modbus-stub" class="modbus-panel" />',
+  },
+  FecbusPanel: {
+    template: '<div data-testid="fecbus-stub" class="fecbus-panel" />',
   },
 }

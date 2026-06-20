@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
 import appSource from './App.vue?raw'
 import { __resetRegistryForTest, useRegistry } from './core/registry'
@@ -26,6 +26,10 @@ describe('App settings effects', () => {
     registry.register(settingsModule)
   })
 
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('applies the configured light theme to the shell', () => {
     const settings = useSettingsStore()
     settings.updateGlobal({ Theme: 'light' })
@@ -35,6 +39,23 @@ describe('App settings effects', () => {
     })
 
     expect(wrapper.find('.app-shell').classes()).toContain('app-shell--light')
+  })
+
+  it('updates the shell when the system color scheme changes', async () => {
+    const media = installSystemThemeMedia(true)
+    const settings = useSettingsStore()
+    settings.updateGlobal({ Theme: 'system' })
+
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+
+    expect(wrapper.find('.app-shell').classes()).toContain('app-shell--light')
+
+    media.setMatches(false)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.app-shell').classes()).toContain('app-shell--dark')
   })
 
   it('defines shared content theme variables used by Modbus panels', () => {
@@ -77,4 +98,33 @@ const stubs = {
   EditorGroups: { template: '<main />' },
   Panel: { template: '<section />' },
   StatusBar: { name: 'StatusBar', props: ['dirty', 'configPath'], template: '<footer>{{ dirty ? "dirty" : "clean" }}</footer>' },
+}
+
+function installSystemThemeMedia(initialMatches: boolean) {
+  let matches = initialMatches
+  const listeners = new Set<(event: MediaQueryListEvent) => void>()
+  const query = '(prefers-color-scheme: light)'
+  const media = {
+    get matches() {
+      return matches
+    },
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn((event: string, listener: (event: MediaQueryListEvent) => void) => {
+      if (event === 'change') listeners.add(listener)
+    }),
+    removeEventListener: vi.fn((event: string, listener: (event: MediaQueryListEvent) => void) => {
+      if (event === 'change') listeners.delete(listener)
+    }),
+    addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => listeners.add(listener)),
+    removeListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener)),
+    dispatchEvent: vi.fn(),
+    setMatches(next: boolean) {
+      matches = next
+      const event = { matches, media: query } as MediaQueryListEvent
+      for (const listener of listeners) listener(event)
+    },
+  }
+  vi.stubGlobal('matchMedia', vi.fn(() => media))
+  return media
 }

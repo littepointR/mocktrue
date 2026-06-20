@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NConfigProvider, darkTheme, lightTheme, type GlobalThemeOverrides } from 'naive-ui'
 import ActivityBar from './shell/ActivityBar.vue'
 import Sidebar from './shell/Sidebar.vue'
@@ -19,10 +19,12 @@ const activeId = registry.active
 const activeViewId = registry.activeView
 const activeViewVersion = registry.activeViewVersion
 const workspaceReady = ref(false)
+const systemTheme = ref<'dark' | 'light'>(resolveSystemTheme())
+let systemThemeMedia: MediaQueryList | null = null
 
 const effectiveTheme = computed(() => {
   if (settings.global.Theme === 'system') {
-    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+    return systemTheme.value
   }
   return settings.global.Theme
 })
@@ -78,6 +80,11 @@ const lightThemeOverrides: GlobalThemeOverrides = {
 const themeOverrides = computed(() => effectiveTheme.value === 'light' ? lightThemeOverrides : darkThemeOverrides)
 
 onMounted(async () => {
+  systemThemeMedia = window.matchMedia?.('(prefers-color-scheme: light)') ?? null
+  syncSystemTheme()
+  if (systemThemeMedia) {
+    addSystemThemeListener(systemThemeMedia)
+  }
   try {
     const loaded = await workspaceFile.loadLast()
     if (!loaded) {
@@ -90,6 +97,13 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => {
+  if (systemThemeMedia) {
+    removeSystemThemeListener(systemThemeMedia)
+  }
+  systemThemeMedia = null
+})
+
 watch(
   () => buildWorkspaceSnapshot(),
   snapshot => {
@@ -98,6 +112,35 @@ watch(
   },
   { deep: true }
 )
+
+function resolveSystemTheme(): 'dark' | 'light' {
+  if (typeof window === 'undefined') return 'dark'
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+function syncSystemTheme() {
+  systemTheme.value = resolveSystemTheme()
+}
+
+function handleSystemThemeChange(event: MediaQueryListEvent) {
+  systemTheme.value = event.matches ? 'light' : 'dark'
+}
+
+function addSystemThemeListener(media: MediaQueryList) {
+  if (typeof media.addEventListener === 'function') {
+    media.addEventListener('change', handleSystemThemeChange)
+  } else {
+    media.addListener?.(handleSystemThemeChange)
+  }
+}
+
+function removeSystemThemeListener(media: MediaQueryList) {
+  if (typeof media.removeEventListener === 'function') {
+    media.removeEventListener('change', handleSystemThemeChange)
+  } else {
+    media.removeListener?.(handleSystemThemeChange)
+  }
+}
 </script>
 
 <template>

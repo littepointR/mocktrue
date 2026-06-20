@@ -19,17 +19,17 @@ describe('serial graph store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
-    bindings.StartSerialGraph.mockResolvedValue({
-      ID: 'serial.graph',
+    bindings.StartSerialGraph.mockImplementation(async (req: { ID: string }) => ({
+      ID: req.ID,
       Status: 'running',
       Error: '',
       Nodes: [
         { ID: 'node-1', Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 5, FrameCount: 0, ResourceID: '', Error: '' },
         { ID: 'node-2', Type: 'serial.receiver', Status: 'running', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
       ],
-    })
+    }))
     bindings.GetSerialGraphStatus.mockResolvedValue({
-      ID: 'serial.graph',
+      ID: 'graph-1',
       Status: 'running',
       Error: '',
       Nodes: [
@@ -63,6 +63,8 @@ describe('serial graph store', () => {
     expect(receiver.position).toEqual({ x: 320, y: 48 })
     expect(edge?.id).toBe('edge-1')
     expect(store.selectedNodeId).toBe(receiver.id)
+    expect(store.nodeTabs.map(tab => tab.nodeId)).toEqual([sender.id, receiver.id])
+    expect(store.activeNodeTabId).toBe(receiver.id)
     expect(store.validationErrors).toEqual([])
 
     const snapshot = store.exportState()
@@ -71,8 +73,59 @@ describe('serial graph store', () => {
     restored.restoreState(snapshot)
 
     expect(restored.nodes.map(node => node.type)).toEqual(['serial.sender', 'serial.receiver'])
-    expect(restored.edges).toEqual(snapshot.edges)
+    expect(restored.edges).toEqual(snapshot.graphs[0].edges)
     expect(restored.selectedNodeId).toBe(receiver.id)
+  })
+
+  it('creates and switches multiple topology graphs', () => {
+    const store = useSerialGraphStore()
+    store.renameGraph(store.activeGraphId!, '主拓扑')
+    const firstSender = store.addNode('serial.sender')
+
+    const second = store.createGraph('备用拓扑')
+    const secondReceiver = store.addNode('serial.receiver')
+
+    expect(store.graphList.map(graph => graph.name)).toEqual(['主拓扑', '备用拓扑'])
+    expect(store.activeGraphId).toBe(second.id)
+    expect(store.nodes.map(node => node.id)).toEqual([secondReceiver.id])
+
+    store.setActiveGraph('graph-1')
+
+    expect(store.nodes.map(node => node.id)).toEqual([firstSender.id])
+  })
+
+  it('duplicates topology graphs without stale runtime node status', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    await store.startRuntime()
+
+    const copy = store.duplicateGraph('graph-1')
+
+    expect(store.graphById('graph-1')?.nodes.find(node => node.id === sender.id)?.status).toBe('running')
+    expect(copy?.nodes.find(node => node.id === sender.id)?.status).toBeUndefined()
+    expect(copy?.nodes.find(node => node.id === sender.id)?.error).toBeUndefined()
+    expect(store.runtimeStateForGraph(copy?.id).runtimeStatus).toBe('idle')
+  })
+
+  it('restores legacy single-graph snapshots into the first topology graph', () => {
+    const store = useSerialGraphStore()
+    store.restoreState({
+      id: 'legacy',
+      name: '旧拓扑',
+      nodes: [
+        { id: 'node-1', type: 'serial.sender', position: { x: 0, y: 0 }, config: {} },
+      ],
+      edges: [],
+      selectedNodeId: 'node-1',
+      selectedEdgeId: null,
+      nodeTabs: [],
+      activeNodeTabId: null,
+    })
+
+    expect(store.graphList).toEqual([{ id: 'legacy', name: '旧拓扑' }])
+    expect(store.activeGraphId).toBe('legacy')
+    expect(store.nodes[0].type).toBe('serial.sender')
+    expect(store.nodeTabs).toEqual([])
   })
 
   it('removes connected edges when a node is removed', () => {
@@ -86,6 +139,18 @@ describe('serial graph store', () => {
     expect(store.nodes).toHaveLength(1)
     expect(store.edges).toEqual([])
     expect(store.selectedNodeId).toBeNull()
+    expect(store.nodeTabs.some(tab => tab.nodeId === sender.id)).toBe(false)
+  })
+
+  it('closes node tabs without deleting graph nodes', () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+
+    store.closeNodeTab(sender.id)
+
+    expect(store.nodes).toHaveLength(1)
+    expect(store.nodeTabs).toEqual([])
+    expect(store.activeNodeTabId).toBeNull()
   })
 
   it('rejects invalid graph connections', () => {
@@ -108,7 +173,7 @@ describe('serial graph store', () => {
     await store.startRuntime()
 
     expect(bindings.StartSerialGraph).toHaveBeenCalledWith(expect.objectContaining({
-      ID: 'serial.graph',
+      ID: 'graph-1',
       Nodes: [
         expect.objectContaining({ ID: sender.id, Type: 'serial.sender', Position: { X: 12, Y: 18 } }),
         expect.objectContaining({ ID: receiver.id, Type: 'serial.receiver', Position: { X: 260, Y: 18 } }),
@@ -122,6 +187,55 @@ describe('serial graph store', () => {
     expect(store.nodes.find(node => node.id === receiver.id)?.status).toBe('running')
   })
 
+  it('keeps runtime state isolated per topology graph', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    await store.startRuntime()
+
+    const second = store.createGraph('第二拓扑')
+    const secondReceiver = store.addNode('serial.receiver')
+
+    expect(store.runtimeStatus).toBe('idle')
+    expect(store.nodeStatuses.get(secondReceiver.id)).toBeUndefined()
+
+    store.setActiveGraph('graph-1')
+
+    expect(store.runtimeStatus).toBe('running')
+    expect(store.nodeStatuses.get(receiver.id)?.RxBytes).toBe(5)
+    expect(second.id).toBe('graph-2')
+  })
+
+  it('runs and queries a requested graph without switching the active graph', async () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.sender')
+
+    const second = store.createGraph('第二拓扑')
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.setActiveGraph('graph-1')
+
+    await store.startRuntimeForGraph(second.id)
+    await store.queryNodeBufferForGraph(second.id, receiver.id)
+
+    expect(store.activeGraphId).toBe('graph-1')
+    expect(bindings.StartSerialGraph).toHaveBeenCalledWith(expect.objectContaining({
+      ID: second.id,
+      Nodes: [
+        expect.objectContaining({ ID: sender.id, Type: 'serial.sender' }),
+        expect.objectContaining({ ID: receiver.id, Type: 'serial.receiver' }),
+      ],
+    }))
+    expect(bindings.QuerySerialGraphNodeBuffer).toHaveBeenCalledWith(expect.objectContaining({
+      GraphID: second.id,
+      NodeID: receiver.id,
+    }))
+    expect(store.runtimeStateForGraph(second.id).runtimeStatus).toBe('running')
+    expect(store.runtimeStateForGraph(second.id).nodeBufferText.get(receiver.id)).toBe('hello')
+  })
+
   it('sends through a runtime node and queries receiver data', async () => {
     const store = useSerialGraphStore()
     const sender = store.addNode('serial.sender')
@@ -133,13 +247,13 @@ describe('serial graph store', () => {
     await store.queryNodeBuffer(receiver.id)
 
     expect(bindings.SendSerialGraphNode).toHaveBeenCalledWith(expect.objectContaining({
-      GraphID: 'serial.graph',
+      GraphID: 'graph-1',
       NodeID: sender.id,
       Content: 'hello',
       Mode: 'ascii',
     }))
     expect(bindings.QuerySerialGraphNodeBuffer).toHaveBeenCalledWith(expect.objectContaining({
-      GraphID: 'serial.graph',
+      GraphID: 'graph-1',
       NodeID: receiver.id,
     }))
     expect(store.nodeBufferText.get(receiver.id)).toBe('hello')
@@ -157,10 +271,44 @@ describe('serial graph store', () => {
     await store.resetNodeCounters(receiver.id)
     await store.stopRuntime()
 
-    expect(bindings.ClearSerialGraphNodeBuffer).toHaveBeenCalledWith('serial.graph', receiver.id)
-    expect(bindings.ResetSerialGraphNodeCounters).toHaveBeenCalledWith('serial.graph', receiver.id)
-    expect(bindings.StopSerialGraph).toHaveBeenCalledWith('serial.graph')
+    expect(bindings.ClearSerialGraphNodeBuffer).toHaveBeenCalledWith('graph-1', receiver.id)
+    expect(bindings.ResetSerialGraphNodeCounters).toHaveBeenCalledWith('graph-1', receiver.id)
+    expect(bindings.StopSerialGraph).toHaveBeenCalledWith('graph-1')
     expect(store.nodeBufferText.has(receiver.id)).toBe(false)
     expect(store.runtimeStatus).toBe('stopped')
+  })
+
+  it('stops a running runtime before removing its topology graph', async () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.sender')
+    await store.startRuntime('graph-1-runtime')
+    store.createGraph('第二拓扑')
+
+    await store.removeGraph('graph-1')
+
+    expect(bindings.StopSerialGraph).toHaveBeenCalledWith('graph-1-runtime')
+    expect(store.graphList).toEqual([{ id: 'graph-2', name: '第二拓扑' }])
+    expect(store.runtimeStatus).toBe('idle')
+  })
+
+  it('does not replace the last remaining graph after an async remove race', async () => {
+    const stopResolvers: Array<() => void> = []
+    bindings.StopSerialGraph.mockImplementationOnce(() => new Promise<void>(resolve => {
+      stopResolvers.push(resolve)
+    }))
+    const store = useSerialGraphStore()
+    store.renameGraph('graph-1', '运行拓扑')
+    store.addNode('serial.sender')
+    await store.startRuntime('graph-1-runtime')
+    const second = store.createGraph('保留拓扑')
+
+    const removingFirst = store.removeGraph('graph-1')
+    await Promise.resolve()
+    await store.removeGraph(second.id)
+    stopResolvers[0]?.()
+    await removingFirst
+
+    expect(store.graphList).toEqual([{ id: 'graph-1', name: '运行拓扑' }])
+    expect(store.activeGraphId).toBe('graph-1')
   })
 })

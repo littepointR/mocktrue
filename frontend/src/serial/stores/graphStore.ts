@@ -15,74 +15,225 @@ import type { Frame } from '../../../bindings/github.com/suyue/mocktrue/internal
 import type { SerialGraphRuntimeInfo, SerialGraphNodeStatus } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/models.js'
 import {
   canConnect,
+  cloneSerialGraphDocument,
   cloneSerialGraphState,
   createSerialGraphNode,
+  defaultSerialGraphDocument,
   defaultSerialGraphState,
+  nodeTabTitle,
   providerByType,
   validateGraph,
+  type SerialGraphDocument,
   type SerialGraphEdge,
   type SerialGraphNode,
   type SerialGraphPosition,
   type SerialGraphWorkspaceState,
 } from '../graph/serialGraph'
 
-export const useSerialGraphStore = defineStore('serialGraph', () => {
-  const nodes = ref<SerialGraphNode[]>([])
-  const edges = ref<SerialGraphEdge[]>([])
-  const selectedNodeId = ref<string | null>(null)
-  const selectedEdgeId = ref<string | null>(null)
-  const nextNodeSeq = ref(1)
-  const nextEdgeSeq = ref(1)
-  const runtimeGraphId = ref<string | null>(null)
-  const runtimeStatus = ref<'idle' | 'running' | 'stopped' | 'error'>('idle')
-  const runtimeError = ref<string | null>(null)
-  const nodeStatuses = ref<Map<string, SerialGraphNodeStatus>>(new Map())
-  const nodeBuffers = ref<Map<string, Uint8Array>>(new Map())
-  const nodeBufferText = ref<Map<string, string>>(new Map())
-  const nodeFrames = ref<Map<string, Frame[]>>(new Map())
+type RuntimeStatus = 'idle' | 'running' | 'stopped' | 'error'
 
-  const graphState = computed<SerialGraphWorkspaceState>(() => ({
-    nodes: nodes.value,
-    edges: edges.value,
-    selectedNodeId: selectedNodeId.value,
-    selectedEdgeId: selectedEdgeId.value,
-  }))
-  const validation = computed(() => validateGraph(graphState.value))
+interface GraphRuntimeState {
+  runtimeGraphId: string | null
+  runtimeStatus: RuntimeStatus
+  runtimeError: string | null
+  nodeStatuses: Map<string, SerialGraphNodeStatus>
+  nodeBuffers: Map<string, Uint8Array>
+  nodeBufferText: Map<string, string>
+  nodeFrames: Map<string, Frame[]>
+}
+
+export const useSerialGraphStore = defineStore('serialGraph', () => {
+  const initial = defaultSerialGraphState()
+  const graphs = ref<SerialGraphDocument[]>(initial.graphs)
+  const activeGraphId = ref<string | null>(initial.activeGraphId)
+  const runtimeStates = ref<Record<string, GraphRuntimeState>>({})
+
+  const activeGraph = computed(() => (
+    graphs.value.find(graph => graph.id === activeGraphId.value) ?? graphs.value[0] ?? null
+  ))
+  const graphList = computed(() => graphs.value.map(graph => ({ id: graph.id, name: graph.name })))
+  const nodes = computed(() => activeGraph.value?.nodes ?? [])
+  const edges = computed(() => activeGraph.value?.edges ?? [])
+  const selectedNodeId = computed(() => activeGraph.value?.selectedNodeId ?? null)
+  const selectedEdgeId = computed(() => activeGraph.value?.selectedEdgeId ?? null)
+  const nodeTabs = computed(() => activeGraph.value?.nodeTabs ?? [])
+  const activeNodeTabId = computed(() => activeGraph.value?.activeNodeTabId ?? null)
+  const runtimeGraphId = computed(() => activeRuntimeState().runtimeGraphId)
+  const runtimeStatus = computed(() => activeRuntimeState().runtimeStatus)
+  const runtimeError = computed(() => activeRuntimeState().runtimeError)
+  const nodeStatuses = computed(() => activeRuntimeState().nodeStatuses)
+  const nodeBuffers = computed(() => activeRuntimeState().nodeBuffers)
+  const nodeBufferText = computed(() => activeRuntimeState().nodeBufferText)
+  const nodeFrames = computed(() => activeRuntimeState().nodeFrames)
+  const validation = computed(() => activeGraph.value ? validateGraph(activeGraph.value) : { valid: true, errors: [] })
   const validationErrors = computed(() => validation.value.errors)
 
+  function graphById(id: string | null | undefined): SerialGraphDocument | null {
+    if (!id) return null
+    return graphs.value.find(graph => graph.id === id) ?? null
+  }
+
+  function runtimeStateForGraph(id: string | null | undefined): GraphRuntimeState {
+    return runtimeFor(id ?? activeGraph.value?.id ?? activeGraphId.value ?? 'graph-1')
+  }
+
+  function validationForGraph(id: string | null | undefined) {
+    const graph = graphById(id)
+    return graph ? validateGraph(graph) : { valid: true, errors: [] }
+  }
+
+  function createGraph(name?: string, activate = true): SerialGraphDocument {
+    const id = nextGraphId()
+    const graph = defaultSerialGraphDocument(id, name ?? `拓扑图 ${graphNumber(id)}`)
+    graphs.value = [...graphs.value, graph]
+    if (activate) {
+      activeGraphId.value = graph.id
+    }
+    return graph
+  }
+
+  function duplicateGraph(id = activeGraphId.value, activate = true): SerialGraphDocument | null {
+    const source = graphs.value.find(graph => graph.id === id)
+    if (!source) return null
+    const nextId = nextGraphId()
+    const graph = cloneSerialGraphDocument({
+      ...source,
+      id: nextId,
+      name: `${source.name} 副本`,
+      nodes: source.nodes.map(node => {
+        const { status, error, ...rest } = node
+        void status
+        void error
+        return rest
+      }),
+    })
+    graphs.value = [...graphs.value, graph]
+    if (activate) {
+      activeGraphId.value = graph.id
+    }
+    return graph
+  }
+
+  async function removeGraph(id: string) {
+    if (graphs.value.length <= 1) return
+    const runtime = runtimeStates.value[id]
+    if (runtime?.runtimeGraphId && runtime.runtimeStatus === 'running') {
+      await StopSerialGraph(runtime.runtimeGraphId)
+    }
+    if (!graphs.value.some(graph => graph.id === id) || graphs.value.length <= 1) return
+    removeGraphLocal(id)
+  }
+
+  function removeGraphLocal(id: string) {
+    const remaining = graphs.value.filter(graph => graph.id !== id)
+    delete runtimeStates.value[id]
+    if (remaining.length === 0) {
+      const graph = defaultSerialGraphDocument()
+      graphs.value = [graph]
+      activeGraphId.value = graph.id
+      return
+    }
+    graphs.value = remaining
+    if (activeGraphId.value === id) {
+      activeGraphId.value = remaining[0].id
+    }
+  }
+
+  function renameGraph(id: string, name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    replaceGraph(id, graph => ({ ...graph, name: trimmed }))
+  }
+
+  function setActiveGraph(id: string | null) {
+    if (!id) return
+    if (graphs.value.some(graph => graph.id === id)) {
+      activeGraphId.value = id
+    }
+  }
+
   function addNode(type: string, position: SerialGraphPosition = defaultNodePosition()): SerialGraphNode {
+    const graph = ensureActiveGraph()
+    return addNodeToGraph(graph.id, type, position)
+  }
+
+  function addNodeToGraph(
+    graphId: string,
+    type: string,
+    position?: SerialGraphPosition
+  ): SerialGraphNode {
     if (!providerByType(type)) {
       throw new Error(`unknown graph provider: ${type}`)
     }
-    const node = createSerialGraphNode(nextNodeId(), type, position)
-    nodes.value = [...nodes.value, node]
-    selectedNodeId.value = node.id
-    selectedEdgeId.value = null
+    const graph = graphByIdOrThrow(graphId)
+    const node = createSerialGraphNode(nextNodeId(graph), type, position ?? defaultNodePositionForGraph(graph))
+    replaceGraph(graph.id, current => ({
+      ...current,
+      nodes: [...current.nodes, node],
+      selectedNodeId: node.id,
+      selectedEdgeId: null,
+      nodeTabs: [...current.nodeTabs, { nodeId: node.id, title: nodeTabTitle(node) }],
+      activeNodeTabId: node.id,
+    }))
     return node
   }
 
   function removeNode(id: string) {
-    nodes.value = nodes.value.filter(node => node.id !== id)
-    edges.value = edges.value.filter(edge => edge.source !== id && edge.target !== id)
-    if (selectedNodeId.value === id) selectedNodeId.value = null
-    nodeStatuses.value.delete(id)
-    nodeBuffers.value.delete(id)
-    nodeBufferText.value.delete(id)
-    nodeFrames.value.delete(id)
+    const graph = ensureActiveGraph()
+    removeNodeFromGraph(graph.id, id)
+  }
+
+  function removeNodeFromGraph(graphId: string, id: string) {
+    const graph = graphByIdOrThrow(graphId)
+    replaceGraph(graph.id, current => {
+      const nodeTabsNext = current.nodeTabs.filter(tab => tab.nodeId !== id)
+      return {
+        ...current,
+        nodes: current.nodes.filter(node => node.id !== id),
+        edges: current.edges.filter(edge => edge.source !== id && edge.target !== id),
+        selectedNodeId: current.selectedNodeId === id ? null : current.selectedNodeId,
+        selectedEdgeId: null,
+        nodeTabs: nodeTabsNext,
+        activeNodeTabId: current.activeNodeTabId === id ? nodeTabsNext[0]?.nodeId ?? null : current.activeNodeTabId,
+      }
+    })
+    const runtime = runtimeFor(graph.id)
+    runtime.nodeStatuses.delete(id)
+    runtime.nodeBuffers.delete(id)
+    runtime.nodeBufferText.delete(id)
+    runtime.nodeFrames.delete(id)
   }
 
   function moveNode(id: string, position: SerialGraphPosition) {
-    nodes.value = nodes.value.map(node => (
-      node.id === id ? { ...node, position: { ...position } } : node
-    ))
+    const graph = ensureActiveGraph()
+    moveNodeInGraph(graph.id, id, position)
+  }
+
+  function moveNodeInGraph(graphId: string, id: string, position: SerialGraphPosition) {
+    const graph = graphByIdOrThrow(graphId)
+    replaceGraph(graph.id, current => ({
+      ...current,
+      nodes: current.nodes.map(node => (
+        node.id === id ? { ...node, position: { ...position } } : node
+      )),
+    }))
   }
 
   function updateNodeConfig(id: string, patch: Record<string, unknown>) {
-    nodes.value = nodes.value.map(node => (
-      node.id === id
-        ? { ...node, config: { ...node.config, ...patch } }
-        : node
-    ))
+    const graph = ensureActiveGraph()
+    updateNodeConfigInGraph(graph.id, id, patch)
+  }
+
+  function updateNodeConfigInGraph(graphId: string, id: string, patch: Record<string, unknown>) {
+    const graph = graphByIdOrThrow(graphId)
+    replaceGraph(graph.id, current => ({
+      ...current,
+      nodes: current.nodes.map(node => (
+        node.id === id
+          ? { ...node, config: { ...node.config, ...patch } }
+          : node
+      )),
+    }))
   }
 
   function connect(
@@ -91,68 +242,145 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     target: string,
     targetHandle: string
   ): SerialGraphEdge | null {
+    const graph = ensureActiveGraph()
+    return connectInGraph(graph.id, source, sourceHandle, target, targetHandle)
+  }
+
+  function connectInGraph(
+    graphId: string,
+    source: string,
+    sourceHandle: string,
+    target: string,
+    targetHandle: string
+  ): SerialGraphEdge | null {
+    const graph = graphByIdOrThrow(graphId)
     const draft = { source, sourceHandle, target, targetHandle }
-    const result = canConnect(graphState.value, draft)
+    const result = canConnect(graph, draft)
     if (!result.valid) return null
 
     const edge: SerialGraphEdge = {
-      id: nextEdgeId(),
+      id: nextEdgeId(graph),
       ...draft,
     }
-    edges.value = [...edges.value, edge]
-    selectedEdgeId.value = edge.id
-    selectedNodeId.value = null
+    replaceGraph(graph.id, current => ({
+      ...current,
+      edges: [...current.edges, edge],
+      selectedEdgeId: edge.id,
+      selectedNodeId: null,
+    }))
     return edge
   }
 
   function removeEdge(id: string) {
-    edges.value = edges.value.filter(edge => edge.id !== id)
-    if (selectedEdgeId.value === id) selectedEdgeId.value = null
+    const graph = ensureActiveGraph()
+    removeEdgeFromGraph(graph.id, id)
+  }
+
+  function removeEdgeFromGraph(graphId: string, id: string) {
+    const graph = graphByIdOrThrow(graphId)
+    replaceGraph(graph.id, current => ({
+      ...current,
+      edges: current.edges.filter(edge => edge.id !== id),
+      selectedEdgeId: current.selectedEdgeId === id ? null : current.selectedEdgeId,
+    }))
   }
 
   function selectNode(id: string | null) {
-    selectedNodeId.value = id
-    if (id) selectedEdgeId.value = null
+    const graph = ensureActiveGraph()
+    selectNodeInGraph(graph.id, id)
+  }
+
+  function selectNodeInGraph(graphId: string, id: string | null) {
+    const graph = graphByIdOrThrow(graphId)
+    replaceGraph(graph.id, current => {
+      const node = id ? current.nodes.find(item => item.id === id) : null
+      const hasTab = Boolean(id && current.nodeTabs.some(tab => tab.nodeId === id))
+      return {
+        ...current,
+        selectedNodeId: id,
+        selectedEdgeId: id ? null : current.selectedEdgeId,
+        nodeTabs: node && !hasTab
+          ? [...current.nodeTabs, { nodeId: node.id, title: nodeTabTitle(node) }]
+          : current.nodeTabs,
+        activeNodeTabId: node ? node.id : current.activeNodeTabId,
+      }
+    })
   }
 
   function selectEdge(id: string | null) {
-    selectedEdgeId.value = id
-    if (id) selectedNodeId.value = null
+    const graph = ensureActiveGraph()
+    selectEdgeInGraph(graph.id, id)
+  }
+
+  function selectEdgeInGraph(graphId: string, id: string | null) {
+    const graph = graphByIdOrThrow(graphId)
+    replaceGraph(graph.id, current => ({
+      ...current,
+      selectedEdgeId: id,
+      selectedNodeId: id ? null : current.selectedNodeId,
+    }))
+  }
+
+  function setActiveNodeTab(nodeId: string) {
+    selectNode(nodeId)
+  }
+
+  function setActiveNodeTabInGraph(graphId: string, nodeId: string) {
+    selectNodeInGraph(graphId, nodeId)
+  }
+
+  function closeNodeTab(nodeId: string) {
+    const graph = ensureActiveGraph()
+    closeNodeTabInGraph(graph.id, nodeId)
+  }
+
+  function closeNodeTabInGraph(graphId: string, nodeId: string) {
+    const graph = graphByIdOrThrow(graphId)
+    replaceGraph(graph.id, current => {
+      const tabs = current.nodeTabs.filter(tab => tab.nodeId !== nodeId)
+      return {
+        ...current,
+        nodeTabs: tabs,
+        activeNodeTabId: current.activeNodeTabId === nodeId ? tabs[0]?.nodeId ?? null : current.activeNodeTabId,
+      }
+    })
   }
 
   function resetWorkspace() {
     const empty = defaultSerialGraphState()
-    nodes.value = empty.nodes
-    edges.value = empty.edges
-    selectedNodeId.value = empty.selectedNodeId
-    selectedEdgeId.value = empty.selectedEdgeId
-    nextNodeSeq.value = 1
-    nextEdgeSeq.value = 1
-    clearRuntimeState()
+    graphs.value = empty.graphs
+    activeGraphId.value = empty.activeGraphId
+    runtimeStates.value = {}
   }
 
   function exportState(): SerialGraphWorkspaceState {
-    return cloneSerialGraphState(graphState.value)
+    return cloneSerialGraphState({
+      graphs: graphs.value,
+      activeGraphId: activeGraphId.value,
+    })
   }
 
-  function restoreState(snapshot?: SerialGraphWorkspaceState | null) {
+  function restoreState(snapshot?: SerialGraphWorkspaceState | SerialGraphDocument | null) {
     const next = cloneSerialGraphState(snapshot)
-    nodes.value = next.nodes
-    edges.value = next.edges
-    selectedNodeId.value = next.selectedNodeId
-    selectedEdgeId.value = next.selectedEdgeId
-    nextNodeSeq.value = nextSequence(nodes.value.map(node => node.id), 'node-')
-    nextEdgeSeq.value = nextSequence(edges.value.map(edge => edge.id), 'edge-')
-    clearRuntimeState()
+    graphs.value = next.graphs
+    activeGraphId.value = next.activeGraphId
+    runtimeStates.value = {}
   }
 
-  async function startRuntime(id = 'serial.graph') {
-    if (!validation.value.valid) {
-      throw new Error(validationErrors.value.join('; '))
+  async function startRuntime(runtimeId = activeGraph.value?.id ?? 'graph-1') {
+    const graph = ensureActiveGraph()
+    return startRuntimeForGraph(graph.id, runtimeId)
+  }
+
+  async function startRuntimeForGraph(graphId: string, runtimeId = graphId) {
+    const graph = graphByIdOrThrow(graphId)
+    const graphValidation = validateGraph(graph)
+    if (!graphValidation.valid) {
+      throw new Error(graphValidation.errors.join('; '))
     }
     const info = await StartSerialGraph({
-      ID: id,
-      Nodes: nodes.value.map(node => ({
+      ID: runtimeId,
+      Nodes: graph.nodes.map(node => ({
         ID: node.id,
         Type: node.type,
         Config: node.config,
@@ -161,7 +389,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
           Y: node.position.y,
         },
       })),
-      Edges: edges.value.map(edge => ({
+      Edges: graph.edges.map(edge => ({
         ID: edge.id,
         Source: edge.source,
         SourceHandle: edge.sourceHandle,
@@ -170,64 +398,120 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
       })),
     })
     if (!info) throw new Error('serial graph did not return runtime info')
-    applyRuntimeInfo(info)
+    applyRuntimeInfo(graph.id, info)
     return info
   }
 
   async function stopRuntime() {
-    if (!runtimeGraphId.value) return
-    await StopSerialGraph(runtimeGraphId.value)
-    runtimeStatus.value = 'stopped'
-    for (const status of nodeStatuses.value.values()) {
-      status.Status = 'stopped'
+    const graph = ensureActiveGraph()
+    await stopRuntimeForGraph(graph.id)
+  }
+
+  async function stopRuntimeForGraph(graphId: string) {
+    const graph = graphByIdOrThrow(graphId)
+    const runtime = runtimeFor(graph.id)
+    if (!runtime.runtimeGraphId) return
+    await StopSerialGraph(runtime.runtimeGraphId)
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graph.id]: {
+        ...runtime,
+        runtimeStatus: 'stopped',
+        nodeStatuses: stoppedStatuses(runtime.nodeStatuses),
+      },
     }
   }
 
   async function refreshRuntime() {
-    if (!runtimeGraphId.value) return null
-    const info = await GetSerialGraphStatus(runtimeGraphId.value)
-    if (info) applyRuntimeInfo(info)
+    const graph = ensureActiveGraph()
+    return refreshRuntimeForGraph(graph.id)
+  }
+
+  async function refreshRuntimeForGraph(graphId: string) {
+    const graph = graphByIdOrThrow(graphId)
+    const runtime = runtimeFor(graph.id)
+    if (!runtime.runtimeGraphId) return null
+    const info = await GetSerialGraphStatus(runtime.runtimeGraphId)
+    if (info) applyRuntimeInfo(graph.id, info)
     return info
   }
 
   async function sendNode(nodeId: string, content: string, mode = 'ascii', encoding = 'utf-8') {
-    if (!runtimeGraphId.value) {
+    const graph = ensureActiveGraph()
+    return sendNodeForGraph(graph.id, nodeId, content, mode, encoding)
+  }
+
+  async function sendNodeForGraph(
+    graphId: string,
+    nodeId: string,
+    content: string,
+    mode = 'ascii',
+    encoding = 'utf-8'
+  ) {
+    const graph = graphByIdOrThrow(graphId)
+    const runtime = runtimeFor(graph.id)
+    if (!runtime.runtimeGraphId) {
       throw new Error('serial graph is not running')
     }
     const written = await SendSerialGraphNode({
-      GraphID: runtimeGraphId.value,
+      GraphID: runtime.runtimeGraphId,
       NodeID: nodeId,
       Content: content,
       Mode: mode,
       Encoding: encoding,
     })
-    await refreshRuntime()
+    await refreshRuntimeForGraph(graph.id)
     return written
   }
 
   async function queryNodeBuffer(nodeId: string, offset = 0, length = 4096): Promise<Snapshot> {
-    if (!runtimeGraphId.value) {
+    const graph = ensureActiveGraph()
+    return queryNodeBufferForGraph(graph.id, nodeId, offset, length)
+  }
+
+  async function queryNodeBufferForGraph(
+    graphId: string,
+    nodeId: string,
+    offset = 0,
+    length = 4096
+  ): Promise<Snapshot> {
+    const graph = graphByIdOrThrow(graphId)
+    const runtime = runtimeFor(graph.id)
+    if (!runtime.runtimeGraphId) {
       throw new Error('serial graph is not running')
     }
     const page = await QuerySerialGraphNodeBuffer({
-      GraphID: runtimeGraphId.value,
+      GraphID: runtime.runtimeGraphId,
       NodeID: nodeId,
       Offset: offset,
       Length: length,
     })
     if (!page) throw new Error('serial graph did not return buffer page')
     const bytes = snapshotBytes(page)
-    nodeBuffers.value.set(nodeId, bytes)
-    nodeBufferText.value.set(nodeId, new TextDecoder().decode(bytes))
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graph.id]: {
+        ...runtime,
+        nodeBuffers: new Map(runtime.nodeBuffers).set(nodeId, bytes),
+        nodeBufferText: new Map(runtime.nodeBufferText).set(nodeId, new TextDecoder().decode(bytes)),
+      },
+    }
     return page
   }
 
   async function queryNodeFrames(nodeId: string, offset = 0, limit = 100) {
-    if (!runtimeGraphId.value) {
+    const graph = ensureActiveGraph()
+    return queryNodeFramesForGraph(graph.id, nodeId, offset, limit)
+  }
+
+  async function queryNodeFramesForGraph(graphId: string, nodeId: string, offset = 0, limit = 100) {
+    const graph = graphByIdOrThrow(graphId)
+    const runtime = runtimeFor(graph.id)
+    if (!runtime.runtimeGraphId) {
       throw new Error('serial graph is not running')
     }
     const page = await QuerySerialGraphNodeFrames({
-      GraphID: runtimeGraphId.value,
+      GraphID: runtime.runtimeGraphId,
       NodeID: nodeId,
       Offset: offset,
       Limit: limit,
@@ -235,69 +519,141 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
       Search: '',
     })
     if (!page) throw new Error('serial graph did not return frame page')
-    nodeFrames.value.set(nodeId, page.Frames ?? [])
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graph.id]: {
+        ...runtime,
+        nodeFrames: new Map(runtime.nodeFrames).set(nodeId, page.Frames ?? []),
+      },
+    }
     return page
   }
 
   async function clearNodeBuffer(nodeId: string) {
-    if (!runtimeGraphId.value) return
-    await ClearSerialGraphNodeBuffer(runtimeGraphId.value, nodeId)
-    nodeBuffers.value.delete(nodeId)
-    nodeBufferText.value.delete(nodeId)
-    nodeFrames.value.delete(nodeId)
+    const graph = ensureActiveGraph()
+    await clearNodeBufferForGraph(graph.id, nodeId)
+  }
+
+  async function clearNodeBufferForGraph(graphId: string, nodeId: string) {
+    const graph = graphByIdOrThrow(graphId)
+    const runtime = runtimeFor(graph.id)
+    if (!runtime.runtimeGraphId) return
+    await ClearSerialGraphNodeBuffer(runtime.runtimeGraphId, nodeId)
+    const nodeBuffers = new Map(runtime.nodeBuffers)
+    const nodeBufferText = new Map(runtime.nodeBufferText)
+    const nodeFrames = new Map(runtime.nodeFrames)
+    nodeBuffers.delete(nodeId)
+    nodeBufferText.delete(nodeId)
+    nodeFrames.delete(nodeId)
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graph.id]: { ...runtime, nodeBuffers, nodeBufferText, nodeFrames },
+    }
   }
 
   async function resetNodeCounters(nodeId: string) {
-    if (!runtimeGraphId.value) return
-    await ResetSerialGraphNodeCounters(runtimeGraphId.value, nodeId)
-    const current = nodeStatuses.value.get(nodeId)
+    const graph = ensureActiveGraph()
+    await resetNodeCountersForGraph(graph.id, nodeId)
+  }
+
+  async function resetNodeCountersForGraph(graphId: string, nodeId: string) {
+    const graph = graphByIdOrThrow(graphId)
+    const runtime = runtimeFor(graph.id)
+    if (!runtime.runtimeGraphId) return
+    await ResetSerialGraphNodeCounters(runtime.runtimeGraphId, nodeId)
+    const nodeStatuses = new Map(runtime.nodeStatuses)
+    const current = nodeStatuses.get(nodeId)
     if (current) {
-      nodeStatuses.value.set(nodeId, { ...current, RxBytes: 0, TxBytes: 0, FrameCount: 0 })
+      nodeStatuses.set(nodeId, { ...current, RxBytes: 0, TxBytes: 0, FrameCount: 0 })
+      runtimeStates.value = {
+        ...runtimeStates.value,
+        [graph.id]: { ...runtime, nodeStatuses },
+      }
     }
   }
 
-  function applyRuntimeInfo(info: SerialGraphRuntimeInfo) {
-    runtimeGraphId.value = info.ID
-    runtimeStatus.value = normalizeRuntimeStatus(info.Status)
-    runtimeError.value = info.Error || null
-    const next = new Map<string, SerialGraphNodeStatus>()
+  function applyRuntimeInfo(graphId: string, info: SerialGraphRuntimeInfo) {
+    const runtime = runtimeFor(graphId)
+    const nodeStatuses = new Map<string, SerialGraphNodeStatus>()
     for (const status of info.Nodes ?? []) {
-      next.set(status.ID, status)
+      nodeStatuses.set(status.ID, status)
     }
-    nodeStatuses.value = next
-    nodes.value = nodes.value.map(node => {
-      const status = next.get(node.id)
-      return status
-        ? { ...node, status: normalizeNodeStatus(status.Status), error: status.Error || undefined }
-        : node
-    })
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graphId]: {
+        ...runtime,
+        runtimeGraphId: info.ID,
+        runtimeStatus: normalizeRuntimeStatus(info.Status),
+        runtimeError: info.Error || null,
+        nodeStatuses,
+      },
+    }
+    replaceGraph(graphId, graph => ({
+      ...graph,
+      nodes: graph.nodes.map(node => {
+        const status = nodeStatuses.get(node.id)
+        return status
+          ? { ...node, status: normalizeNodeStatus(status.Status), error: status.Error || undefined }
+          : node
+      }),
+    }))
   }
 
-  function clearRuntimeState() {
-    runtimeGraphId.value = null
-    runtimeStatus.value = 'idle'
-    runtimeError.value = null
-    nodeStatuses.value = new Map()
-    nodeBuffers.value = new Map()
-    nodeBufferText.value = new Map()
-    nodeFrames.value = new Map()
-    nodes.value = nodes.value.map(node => ({ ...node, status: 'idle', error: undefined }))
+  function ensureActiveGraph(): SerialGraphDocument {
+    const current = activeGraph.value
+    if (current) return current
+    return createGraph()
   }
 
-  function nextNodeId(): string {
-    const id = `node-${nextNodeSeq.value}`
-    nextNodeSeq.value += 1
-    return id
+  function graphByIdOrThrow(id: string): SerialGraphDocument {
+    const graph = graphById(id)
+    if (!graph) {
+      throw new Error(`serial graph not found: ${id}`)
+    }
+    return graph
   }
 
-  function nextEdgeId(): string {
-    const id = `edge-${nextEdgeSeq.value}`
-    nextEdgeSeq.value += 1
-    return id
+  function replaceGraph(id: string, update: (graph: SerialGraphDocument) => SerialGraphDocument) {
+    graphs.value = graphs.value.map(graph => (
+      graph.id === id ? cloneSerialGraphDocument(update(graph)) : graph
+    ))
+  }
+
+  function activeRuntimeState(): GraphRuntimeState {
+    return runtimeFor(activeGraph.value?.id ?? activeGraphId.value ?? 'graph-1')
+  }
+
+  function runtimeFor(graphId: string): GraphRuntimeState {
+    if (!runtimeStates.value[graphId]) {
+      runtimeStates.value = {
+        ...runtimeStates.value,
+        [graphId]: emptyRuntimeState(),
+      }
+    }
+    return runtimeStates.value[graphId]
+  }
+
+  function nextGraphId(): string {
+    const ids = new Set(graphs.value.map(graph => graph.id))
+    let seq = 1
+    while (ids.has(`graph-${seq}`)) seq += 1
+    return `graph-${seq}`
+  }
+
+  function nextNodeId(graph: SerialGraphDocument): string {
+    return `node-${nextSequence(graph.nodes.map(node => node.id), 'node-')}`
+  }
+
+  function nextEdgeId(graph: SerialGraphDocument): string {
+    return `edge-${nextSequence(graph.edges.map(edge => edge.id), 'edge-')}`
   }
 
   function defaultNodePosition(): SerialGraphPosition {
-    const index = nodes.value.length
+    return defaultNodePositionForGraph(ensureActiveGraph())
+  }
+
+  function defaultNodePositionForGraph(graph: SerialGraphDocument): SerialGraphPosition {
+    const index = graph.nodes.length
     return {
       x: 40 + (index % 3) * 220,
       y: 48 + Math.floor(index / 3) * 140,
@@ -305,10 +661,16 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
   }
 
   return {
+    graphs,
+    graphList,
+    activeGraphId,
+    activeGraph,
     nodes,
     edges,
     selectedNodeId,
     selectedEdgeId,
+    nodeTabs,
+    activeNodeTabId,
     runtimeGraphId,
     runtimeStatus,
     runtimeError,
@@ -318,27 +680,75 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     nodeFrames,
     validation,
     validationErrors,
+    graphById,
+    runtimeStateForGraph,
+    validationForGraph,
+    createGraph,
+    duplicateGraph,
+    removeGraph,
+    renameGraph,
+    setActiveGraph,
     addNode,
+    addNodeToGraph,
     removeNode,
+    removeNodeFromGraph,
     moveNode,
+    moveNodeInGraph,
     updateNodeConfig,
+    updateNodeConfigInGraph,
     connect,
+    connectInGraph,
     removeEdge,
+    removeEdgeFromGraph,
     selectNode,
+    selectNodeInGraph,
     selectEdge,
+    selectEdgeInGraph,
+    setActiveNodeTab,
+    setActiveNodeTabInGraph,
+    closeNodeTab,
+    closeNodeTabInGraph,
     resetWorkspace,
     exportState,
     restoreState,
     startRuntime,
+    startRuntimeForGraph,
     stopRuntime,
+    stopRuntimeForGraph,
     refreshRuntime,
+    refreshRuntimeForGraph,
     sendNode,
+    sendNodeForGraph,
     queryNodeBuffer,
+    queryNodeBufferForGraph,
     queryNodeFrames,
+    queryNodeFramesForGraph,
     clearNodeBuffer,
+    clearNodeBufferForGraph,
     resetNodeCounters,
+    resetNodeCountersForGraph,
   }
 })
+
+function emptyRuntimeState(): GraphRuntimeState {
+  return {
+    runtimeGraphId: null,
+    runtimeStatus: 'idle',
+    runtimeError: null,
+    nodeStatuses: new Map(),
+    nodeBuffers: new Map(),
+    nodeBufferText: new Map(),
+    nodeFrames: new Map(),
+  }
+}
+
+function stoppedStatuses(statuses: Map<string, SerialGraphNodeStatus>): Map<string, SerialGraphNodeStatus> {
+  const next = new Map<string, SerialGraphNodeStatus>()
+  for (const [id, status] of statuses.entries()) {
+    next.set(id, { ...status, Status: 'stopped' })
+  }
+  return next
+}
 
 function nextSequence(ids: string[], prefix: string): number {
   let max = 0
@@ -352,7 +762,12 @@ function nextSequence(ids: string[], prefix: string): number {
   return max + 1
 }
 
-function normalizeRuntimeStatus(status: string): 'idle' | 'running' | 'stopped' | 'error' {
+function graphNumber(id: string): number {
+  const value = Number(id.replace(/^graph-/, ''))
+  return Number.isFinite(value) ? value : 1
+}
+
+function normalizeRuntimeStatus(status: string): RuntimeStatus {
   if (status === 'running' || status === 'stopped' || status === 'error') return status
   return 'idle'
 }

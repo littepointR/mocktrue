@@ -5,12 +5,6 @@ export const serialModule: ModuleFrontend = {
   id: 'serial',
   activity: { icon: 'serial', title: '串口调试' },
   views: [
-    { id: 'serial.open', title: '打开串口', component: 'serial/OpenPort' },
-    { id: 'serial.virtual', title: '添加虚拟串口', component: 'serial/VirtualPort' },
-    { id: 'serial.bridge', title: '添加串口桥接', component: 'serial/Bridge' },
-    { id: 'serial.monitor', title: '串口监控', component: 'serial/Monitor' },
-    { id: 'serial.modbus', title: 'Modbus 调试', component: 'serial/Modbus' },
-    { id: 'serial.fecbus', title: 'FECbus 调试', component: 'serial/FECbus' },
     { id: 'serial.graph', title: '串口拓扑', component: 'serial/Graph' },
   ],
   async onActivate() {

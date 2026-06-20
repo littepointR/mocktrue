@@ -30,6 +30,7 @@ export interface SerialGraphNodeProvider {
 export interface SerialGraphNode {
   id: string
   type: string
+  name?: string
   position: SerialGraphPosition
   config: Record<string, unknown>
   status?: SerialGraphNodeStatus
@@ -44,12 +45,28 @@ export interface SerialGraphEdge {
   targetHandle: string
 }
 
-export interface SerialGraphWorkspaceState {
+export interface SerialGraphNodeTab {
+  nodeId: string
+  title: string
+}
+
+export interface SerialGraphDocument {
+  id: string
+  name: string
   nodes: SerialGraphNode[]
   edges: SerialGraphEdge[]
   selectedNodeId: string | null
   selectedEdgeId: string | null
+  nodeTabs: SerialGraphNodeTab[]
+  activeNodeTabId: string | null
 }
+
+export interface SerialGraphWorkspaceState {
+  graphs: SerialGraphDocument[]
+  activeGraphId: string | null
+}
+
+export type SerialGraphTopologyState = Pick<SerialGraphDocument, 'nodes' | 'edges'>
 
 export interface SerialGraphConnectionDraft {
   id?: string
@@ -203,15 +220,6 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
   },
 ]
 
-export function defaultSerialGraphState(): SerialGraphWorkspaceState {
-  return {
-    nodes: [],
-    edges: [],
-    selectedNodeId: null,
-    selectedEdgeId: null,
-  }
-}
-
 export function providerByType(type: string): SerialGraphNodeProvider | null {
   return serialGraphProviders.find(provider => provider.type === type) ?? null
 }
@@ -226,6 +234,7 @@ export function createSerialGraphNode(
   return {
     id,
     type,
+    name: provider?.title ?? type,
     position,
     config: {
       ...(provider?.defaultConfig ?? {}),
@@ -235,22 +244,85 @@ export function createSerialGraphNode(
   }
 }
 
-export function cloneSerialGraphState(state: SerialGraphWorkspaceState | null | undefined): SerialGraphWorkspaceState {
-  if (!state) return defaultSerialGraphState()
+export function defaultSerialGraphDocument(id = 'graph-1', name = '拓扑图 1'): SerialGraphDocument {
   return {
-    nodes: state.nodes.map(node => ({
-      ...node,
-      position: { ...node.position },
-      config: { ...node.config },
-    })),
-    edges: state.edges.map(edge => ({ ...edge })),
-    selectedNodeId: state.selectedNodeId ?? null,
-    selectedEdgeId: state.selectedEdgeId ?? null,
+    id,
+    name,
+    nodes: [],
+    edges: [],
+    selectedNodeId: null,
+    selectedEdgeId: null,
+    nodeTabs: [],
+    activeNodeTabId: null,
+  }
+}
+
+export function defaultSerialGraphState(): SerialGraphWorkspaceState {
+  const graph = defaultSerialGraphDocument()
+  return {
+    graphs: [graph],
+    activeGraphId: graph.id,
+  }
+}
+
+export function nodeTabTitle(node: SerialGraphNode): string {
+  return node.name || providerByType(node.type)?.title || node.id
+}
+
+export function cloneSerialGraphDocument(graph: Partial<SerialGraphDocument> & SerialGraphTopologyState): SerialGraphDocument {
+  const nodes = graph.nodes.map(node => ({
+    ...node,
+    name: node.name ?? providerByType(node.type)?.title ?? node.type,
+    position: { ...node.position },
+    config: { ...node.config },
+  }))
+  const nodeIds = new Set(nodes.map(node => node.id))
+  const nodeTabs = (graph.nodeTabs ?? [])
+    .filter(tab => nodeIds.has(tab.nodeId))
+    .map(tab => ({ ...tab }))
+  const activeNodeTabId = graph.activeNodeTabId && nodeIds.has(graph.activeNodeTabId)
+    ? graph.activeNodeTabId
+    : nodeTabs[0]?.nodeId ?? null
+
+  return {
+    id: graph.id ?? 'graph-1',
+    name: graph.name ?? '拓扑图 1',
+    nodes,
+    edges: graph.edges.map(edge => ({ ...edge })),
+    selectedNodeId: graph.selectedNodeId && nodeIds.has(graph.selectedNodeId) ? graph.selectedNodeId : null,
+    selectedEdgeId: graph.selectedEdgeId ?? null,
+    nodeTabs,
+    activeNodeTabId,
+  }
+}
+
+export function cloneSerialGraphState(state: SerialGraphWorkspaceState | SerialGraphDocument | null | undefined): SerialGraphWorkspaceState {
+  if (!state) return defaultSerialGraphState()
+  if (Array.isArray((state as SerialGraphWorkspaceState).graphs)) {
+    const graphs = (state as SerialGraphWorkspaceState).graphs.map(graph => cloneSerialGraphDocument(graph))
+    if (graphs.length === 0) return defaultSerialGraphState()
+    const activeGraphId = graphs.some(graph => graph.id === (state as SerialGraphWorkspaceState).activeGraphId)
+      ? (state as SerialGraphWorkspaceState).activeGraphId
+      : graphs[0].id
+    return { graphs, activeGraphId }
+  }
+
+  const legacy = state as SerialGraphDocument
+  const graph = cloneSerialGraphDocument({
+    ...legacy,
+    id: legacy.id ?? 'graph-1',
+    name: legacy.name ?? '拓扑图 1',
+    nodeTabs: legacy.nodeTabs ?? legacy.nodes.map(node => ({ nodeId: node.id, title: nodeTabTitle(node) })),
+    activeNodeTabId: legacy.activeNodeTabId ?? legacy.selectedNodeId ?? legacy.nodes[0]?.id ?? null,
+  })
+  return {
+    graphs: [graph],
+    activeGraphId: graph.id,
   }
 }
 
 export function canConnect(
-  state: SerialGraphWorkspaceState,
+  state: SerialGraphTopologyState,
   draft: SerialGraphConnectionDraft
 ): SerialGraphValidationResult {
   const errors: string[] = []
@@ -300,7 +372,7 @@ export function canConnect(
   return { valid: errors.length === 0, errors }
 }
 
-export function validateGraph(state: SerialGraphWorkspaceState): SerialGraphValidationResult {
+export function validateGraph(state: SerialGraphTopologyState): SerialGraphValidationResult {
   const errors: string[] = []
 
   for (const node of state.nodes) {
@@ -324,7 +396,7 @@ export function validateGraph(state: SerialGraphWorkspaceState): SerialGraphVali
   }
 }
 
-function validateResourceOwners(state: SerialGraphWorkspaceState): string[] {
+function validateResourceOwners(state: SerialGraphTopologyState): string[] {
   const errors: string[] = []
   const used = new Map<string, SerialGraphNode>()
 

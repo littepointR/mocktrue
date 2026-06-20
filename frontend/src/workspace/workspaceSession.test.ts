@@ -11,7 +11,7 @@ import { useMonitorStore } from '../serial/stores/monitorStore'
 import { defaultModbusWorkspaceState, useModbusStore } from '../serial/stores/modbusStore'
 import { defaultFecbusWorkspaceState, useFecbusStore } from '../serial/stores/fecbusStore'
 import { useSerialGraphStore } from '../serial/stores/graphStore'
-import { defaultSerialGraphState } from '../serial/graph/serialGraph'
+import { defaultSerialGraphState, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
 
 const serialServiceMock = vi.hoisted(() => ({
   openPort: vi.fn(async () => ({
@@ -92,6 +92,7 @@ describe('workspace session snapshot', () => {
     })
 
     const snapshot = buildWorkspaceSnapshot()
+    const graph = activeGraph(snapshot.serial.graph)
 
     expect(snapshot.kind).toBe('mocktrue.workspace.v1')
     expect((snapshot.settings as any).global).toBeUndefined()
@@ -102,12 +103,12 @@ describe('workspace session snapshot', () => {
     expect(snapshot.serial.monitors.activeMonitorId).toBe('mon-1')
     expect(snapshot.serial.modbus.masterForm.functionCode).toBe(3)
     expect(snapshot.serial.fecbus.sendForm.functionCode).toBe(34)
-    expect(snapshot.serial.graph.nodes.map(node => node.type)).toEqual(['serial.sender', 'serial.receiver'])
-    expect(snapshot.serial.graph.edges).toHaveLength(1)
+    expect(graph.nodes.map(node => node.type)).toEqual(['serial.sender', 'serial.receiver'])
+    expect(graph.edges).toHaveLength(1)
     expect(snapshot.serial.workspace.tabStates['port-1'].sendHeight).toBe(240)
   })
 
-  it('restores a snapshot and remaps old handle ids to newly opened handles', async () => {
+  it('restores a snapshot with a legacy single graph and remaps old handle ids to newly opened handles', async () => {
     useSettingsStore().updateGlobal({ Theme: 'dark' })
     const result = await restoreWorkspaceSnapshot({
       kind: 'mocktrue.workspace.v1',
@@ -165,7 +166,7 @@ describe('workspace session snapshot', () => {
           }],
           selectedNodeId: 'graph-receiver',
           selectedEdgeId: null,
-        },
+        } as any,
         workspace: {
           selectedOperation: null,
           editorLayout: { type: 'group', id: 'group-1', tabs: ['old-port'] },
@@ -189,6 +190,21 @@ describe('workspace session snapshot', () => {
     expect(useFecbusStore().portForm.port).toBe('/tmp/ttyF0')
     expect(useSerialGraphStore().nodes.map(node => node.id)).toEqual(['graph-sender', 'graph-receiver'])
     expect(useSerialGraphStore().selectedNodeId).toBe('graph-receiver')
+    expect(useSerialGraphStore().exportState()).toEqual({
+      graphs: [
+        expect.objectContaining({
+          id: 'graph-1',
+          nodes: [
+            expect.objectContaining({ id: 'graph-sender' }),
+            expect.objectContaining({ id: 'graph-receiver' }),
+          ],
+          edges: [expect.objectContaining({ id: 'graph-edge' })],
+          selectedNodeId: 'graph-receiver',
+          activeNodeTabId: 'graph-receiver',
+        }),
+      ],
+      activeGraphId: 'graph-1',
+    })
     expect(useSerialWorkspaceStore().editorLayout).toEqual({ type: 'group', id: 'group-1', tabs: ['new-port'] })
     expect(useSettingsStore().global.Theme).toBe('dark')
     expect(serialServiceMock.restoreCounters).toHaveBeenCalledWith('new-port', 3, 2)
@@ -218,4 +234,10 @@ function serialConfig(portName: string) {
     FlowMode: 'none',
     ReadBufKB: 32,
   }
+}
+
+function activeGraph(state: SerialGraphWorkspaceState) {
+  const graph = state.graphs.find(item => item.id === state.activeGraphId)
+  expect(graph).toBeDefined()
+  return graph!
 }

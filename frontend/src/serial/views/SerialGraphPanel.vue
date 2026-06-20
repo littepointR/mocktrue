@@ -8,6 +8,10 @@ import {
   type SerialGraphPortSpec,
 } from '../graph/serialGraph'
 
+const props = defineProps<{
+  graphId?: string
+}>()
+
 const nodeWidth = 180
 const nodeHeight = 104
 const store = useSerialGraphStore()
@@ -29,6 +33,7 @@ const panning = ref<{
 const suppressCanvasClick = ref(false)
 const runtimePollTimer = ref<number | null>(null)
 const runtimePollInFlight = ref(false)
+const localGraphId = ref<string | null>(null)
 
 const providerGroups = computed(() => {
   const groups = new Map<string, typeof serialGraphProviders>()
@@ -39,32 +44,83 @@ const providerGroups = computed(() => {
   }
   return Array.from(groups.entries()).map(([category, providers]) => ({ category, providers }))
 })
+const panelGraphId = computed(() => (
+  localGraphId.value ?? props.graphId ?? store.activeGraphId ?? store.graphList[0]?.id ?? null
+))
+const panelGraph = computed(() => {
+  const id = panelGraphId.value
+  return id ? store.graphById(id) : store.activeGraph
+})
+const panelRuntime = computed(() => store.runtimeStateForGraph(panelGraph.value?.id ?? panelGraphId.value))
+const panelValidation = computed(() => store.validationForGraph(panelGraph.value?.id ?? panelGraphId.value))
+const panelNodes = computed(() => panelGraph.value?.nodes ?? [])
+const panelEdges = computed(() => panelGraph.value?.edges ?? [])
+const panelNodeTabs = computed(() => panelGraph.value?.nodeTabs ?? [])
+const panelActiveNodeTabId = computed(() => panelGraph.value?.activeNodeTabId ?? null)
 const selectedNode = computed(() => (
-  store.nodes.find(node => node.id === store.selectedNodeId) ?? null
+  panelNodes.value.find(node => node.id === panelGraph.value?.selectedNodeId) ?? null
 ))
 const selectedEdge = computed(() => (
-  store.edges.find(edge => edge.id === store.selectedEdgeId) ?? null
+  panelEdges.value.find(edge => edge.id === panelGraph.value?.selectedEdgeId) ?? null
 ))
 const selectedProvider = computed(() => (
   selectedNode.value ? providerByType(selectedNode.value.type) : null
 ))
 const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}))
 const selectedStatus = computed(() => (
-  selectedNode.value ? store.nodeStatuses.get(selectedNode.value.id) ?? null : null
+  selectedNode.value ? panelRuntime.value.nodeStatuses.get(selectedNode.value.id) ?? null : null
 ))
 const selectedBufferText = computed(() => (
-  selectedNode.value ? store.nodeBufferText.get(selectedNode.value.id) ?? '' : ''
+  selectedNode.value ? panelRuntime.value.nodeBufferText.get(selectedNode.value.id) ?? '' : ''
 ))
 const selectedFrames = computed(() => (
-  selectedNode.value ? store.nodeFrames.get(selectedNode.value.id) ?? [] : []
+  selectedNode.value ? panelRuntime.value.nodeFrames.get(selectedNode.value.id) ?? [] : []
 ))
 const selectedPayload = computed(() => String(selectedNode.value?.config.payload ?? ''))
 const selectedMode = computed(() => String(selectedNode.value?.config.mode ?? 'ascii'))
-const runtimeRunning = computed(() => store.runtimeStatus === 'running')
+const runtimeRunning = computed(() => panelRuntime.value.runtimeStatus === 'running')
+const activeGraphName = computed(() => panelGraph.value?.name ?? '')
 
 function addNode(type: string) {
-  const node = store.addNode(type)
-  store.selectNode(node.id)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.addNodeToGraph(graphId, type)
+}
+
+function createGraph() {
+  const graph = store.createGraph(undefined, !props.graphId)
+  localGraphId.value = props.graphId ? graph.id : null
+}
+
+function duplicateGraph() {
+  const graph = store.duplicateGraph(panelGraph.value?.id ?? store.activeGraphId, !props.graphId)
+  if (graph) {
+    localGraphId.value = props.graphId ? graph.id : null
+  }
+}
+
+async function removeGraph() {
+  const id = panelGraph.value?.id
+  if (!id) return
+  await store.removeGraph(id)
+  if (!store.graphById(id)) {
+    localGraphId.value = store.activeGraphId ?? store.graphList[0]?.id ?? null
+  }
+}
+
+function switchGraph(id: string) {
+  if (props.graphId) {
+    localGraphId.value = id
+    return
+  }
+  localGraphId.value = null
+  store.setActiveGraph(id)
+}
+
+function renameGraph(value: string) {
+  const id = panelGraph.value?.id
+  if (!id) return
+  store.renameGraph(id, value)
 }
 
 function nodeTitle(node: SerialGraphNode): string {
@@ -85,7 +141,9 @@ function selectOutput(nodeId: string, handleId: string) {
 
 function connectInput(nodeId: string, handleId: string) {
   if (!pendingOutput.value) return
-  const edge = store.connect(pendingOutput.value.nodeId, pendingOutput.value.handleId, nodeId, handleId)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  const edge = store.connectInGraph(graphId, pendingOutput.value.nodeId, pendingOutput.value.handleId, nodeId, handleId)
   if (edge) {
     pendingOutput.value = null
   }
@@ -93,23 +151,32 @@ function connectInput(nodeId: string, handleId: string) {
 
 function updateConfig(key: string, value: string | boolean) {
   if (!selectedNode.value) return
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
   const current = selectedNode.value.config[key]
-  store.updateNodeConfig(selectedNode.value.id, { [key]: typedConfigValue(current, value) })
+  store.updateNodeConfigInGraph(graphId, selectedNode.value.id, { [key]: typedConfigValue(current, value) })
 }
 
 async function startRuntime() {
-  await store.startRuntime()
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  await store.startRuntimeForGraph(graphId)
   startRuntimePolling()
 }
 
 async function stopRuntime() {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
   stopRuntimePolling()
-  await store.stopRuntime()
+  await store.stopRuntimeForGraph(graphId)
 }
 
 async function sendSelectedNode() {
   if (!selectedNode.value) return
-  await store.sendNode(
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  await store.sendNodeForGraph(
+    graphId,
     selectedNode.value.id,
     String(selectedNode.value.config.payload ?? ''),
     String(selectedNode.value.config.mode ?? 'ascii'),
@@ -119,31 +186,62 @@ async function sendSelectedNode() {
 
 async function refreshSelectedBuffer() {
   if (!selectedNode.value) return
-  await store.queryNodeBuffer(selectedNode.value.id)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  await store.queryNodeBufferForGraph(graphId, selectedNode.value.id)
 }
 
 async function refreshSelectedFrames() {
   if (!selectedNode.value) return
-  await store.queryNodeFrames(selectedNode.value.id)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  await store.queryNodeFramesForGraph(graphId, selectedNode.value.id)
 }
 
 async function clearSelectedBuffer() {
   if (!selectedNode.value) return
-  await store.clearNodeBuffer(selectedNode.value.id)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  await store.clearNodeBufferForGraph(graphId, selectedNode.value.id)
 }
 
 async function resetSelectedCounters() {
   if (!selectedNode.value) return
-  await store.resetNodeCounters(selectedNode.value.id)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  await store.resetNodeCountersForGraph(graphId, selectedNode.value.id)
 }
 
 function removeSelectedEdge() {
   if (!selectedEdge.value) return
-  store.removeEdge(selectedEdge.value.id)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.removeEdgeFromGraph(graphId, selectedEdge.value.id)
+}
+
+function activateNodeTab(nodeId: string) {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.setActiveNodeTabInGraph(graphId, nodeId)
+}
+
+function closeNodeTab(nodeId: string) {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.closeNodeTabInGraph(graphId, nodeId)
+  const nextGraph = store.graphById(graphId)
+  const activeNodeTabId = nextGraph?.activeNodeTabId
+  if (activeNodeTabId) {
+    store.selectNodeInGraph(graphId, activeNodeTabId)
+    return
+  }
+  if (nextGraph?.selectedNodeId === nodeId) {
+    store.selectNodeInGraph(graphId, null)
+  }
 }
 
 function nodeRuntimeSummary(node: SerialGraphNode): string {
-  const status = store.nodeStatuses.get(node.id)
+  const status = panelRuntime.value.nodeStatuses.get(node.id)
   if (!status) return node.status ?? 'idle'
   return `${status.Status} RX ${status.RxBytes} TX ${status.TxBytes}`
 }
@@ -174,6 +272,10 @@ function supportsFrames(node: SerialGraphNode): boolean {
   return node.type === 'serial.monitor'
 }
 
+function panelGraphDocumentId(): string | null {
+  return panelGraph.value?.id ?? panelGraphId.value
+}
+
 function startRuntimePolling() {
   stopRuntimePolling()
   void pollSelectedRuntimeDetails()
@@ -190,17 +292,19 @@ function stopRuntimePolling() {
 
 async function pollSelectedRuntimeDetails() {
   if (!runtimeRunning.value || !selectedNode.value || runtimePollInFlight.value) return
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
 
   runtimePollInFlight.value = true
   try {
-    await store.refreshRuntime()
+    await store.refreshRuntimeForGraph(graphId)
     const node = selectedNode.value
     if (!runtimeRunning.value || !node) return
     if (supportsBuffer(node)) {
-      await store.queryNodeBuffer(node.id)
+      await store.queryNodeBufferForGraph(graphId, node.id)
     }
     if (supportsFrames(node)) {
-      await store.queryNodeFrames(node.id)
+      await store.queryNodeFramesForGraph(graphId, node.id)
     }
   } catch {
     // Runtime polling is best-effort; explicit actions still surface errors.
@@ -222,7 +326,9 @@ function typedConfigValue(current: unknown, value: string | boolean): unknown {
 function startNodeDrag(event: PointerEvent, node: SerialGraphNode) {
   if ((event.target as HTMLElement).closest('button, input, textarea, select')) return
   event.preventDefault()
-  store.selectNode(node.id)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.selectNodeInGraph(graphId, node.id)
   const point = canvasContentPoint(event)
   dragging.value = {
     nodeId: node.id,
@@ -236,10 +342,12 @@ function startNodeDrag(event: PointerEvent, node: SerialGraphNode) {
 
 function handlePointerMove(event: PointerEvent) {
   if (!dragging.value) return
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
   const point = canvasContentPoint(event)
   const nextX = point.x - dragging.value.offsetX
   const nextY = point.y - dragging.value.offsetY
-  store.moveNode(dragging.value.nodeId, {
+  store.moveNodeInGraph(graphId, dragging.value.nodeId, {
     x: Math.max(8, Math.round(nextX)),
     y: Math.max(8, Math.round(nextY)),
   })
@@ -296,8 +404,28 @@ function handleCanvasClick() {
     suppressCanvasClick.value = false
     return
   }
-  store.selectNode(null)
-  store.selectEdge(null)
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.selectNodeInGraph(graphId, null)
+  store.selectEdgeInGraph(graphId, null)
+}
+
+function selectNode(nodeId: string) {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.selectNodeInGraph(graphId, nodeId)
+}
+
+function selectEdge(edgeId: string) {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.selectEdgeInGraph(graphId, edgeId)
+}
+
+function removeNode(nodeId: string) {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.removeNodeFromGraph(graphId, nodeId)
 }
 
 function canvasContentPoint(event: PointerEvent): { x: number; y: number } {
@@ -310,10 +438,10 @@ function canvasContentPoint(event: PointerEvent): { x: number; y: number } {
 }
 
 function edgePath(edgeId: string): string {
-  const edge = store.edges.find(item => item.id === edgeId)
+  const edge = panelEdges.value.find(item => item.id === edgeId)
   if (!edge) return ''
-  const source = store.nodes.find(node => node.id === edge.source)
-  const target = store.nodes.find(node => node.id === edge.target)
+  const source = panelNodes.value.find(node => node.id === edge.source)
+  const target = panelNodes.value.find(node => node.id === edge.target)
   if (!source || !target) return ''
 
   const startX = source.position.x + nodeWidth
@@ -332,9 +460,16 @@ function isPendingOutput(nodeId: string, handleId: string): boolean {
   return pendingOutput.value?.nodeId === nodeId && pendingOutput.value.handleId === handleId
 }
 
-watch(() => store.selectedNodeId, () => {
+watch(() => panelGraph.value?.selectedNodeId, () => {
   if (runtimeRunning.value) void pollSelectedRuntimeDetails()
 })
+
+watch(
+  () => props.graphId,
+  () => {
+    localGraphId.value = null
+  }
+)
 
 onUnmounted(() => {
   stopRuntimePolling()
@@ -375,12 +510,54 @@ onUnmounted(() => {
 
     <main class="serial-graph__workspace">
       <div class="serial-graph__toolbar">
-        <span>{{ store.nodes.length }} 节点</span>
-        <span>{{ store.edges.length }} 连线</span>
+        <select
+          class="serial-graph__graph-select"
+          :value="panelGraph?.id ?? ''"
+          data-testid="serial-graph-switcher"
+          @change="switchGraph(($event.target as HTMLSelectElement).value)"
+        >
+          <option
+            v-for="graph in store.graphList"
+            :key="graph.id"
+            :value="graph.id"
+          >
+            {{ graph.name }}
+          </option>
+        </select>
+        <input
+          class="serial-graph__graph-name"
+          :value="activeGraphName"
+          data-testid="serial-graph-name"
+          @change="renameGraph(($event.target as HTMLInputElement).value)"
+        >
+        <button
+          type="button"
+          data-testid="serial-graph-new"
+          @click="createGraph"
+        >
+          新建
+        </button>
+        <button
+          type="button"
+          data-testid="serial-graph-duplicate"
+          @click="duplicateGraph"
+        >
+          复制
+        </button>
+        <button
+          type="button"
+          data-testid="serial-graph-remove"
+          :disabled="store.graphList.length <= 1"
+          @click="removeGraph"
+        >
+          删除
+        </button>
+        <span>{{ panelNodes.length }} 节点</span>
+        <span>{{ panelEdges.length }} 连线</span>
         <button
           type="button"
           data-testid="serial-graph-start"
-          :disabled="runtimeRunning || store.validationErrors.length > 0"
+          :disabled="runtimeRunning || panelValidation.errors.length > 0"
           @click="startRuntime"
         >
           启动
@@ -395,16 +572,16 @@ onUnmounted(() => {
         </button>
         <span
           class="serial-graph__runtime"
-          :class="`serial-graph__runtime--${store.runtimeStatus}`"
+          :class="`serial-graph__runtime--${panelRuntime.runtimeStatus}`"
           data-testid="serial-graph-runtime-status"
         >
-          {{ store.runtimeStatus }}
+          {{ panelRuntime.runtimeStatus }}
         </span>
         <span
           class="serial-graph__validation"
-          :class="{ 'serial-graph__validation--error': store.validationErrors.length > 0 }"
+          :class="{ 'serial-graph__validation--error': panelValidation.errors.length > 0 }"
         >
-          {{ store.validationErrors.length > 0 ? `${store.validationErrors.length} 个问题` : '拓扑有效' }}
+          {{ panelValidation.errors.length > 0 ? `${panelValidation.errors.length} 个问题` : '拓扑有效' }}
         </span>
       </div>
       <div
@@ -419,30 +596,30 @@ onUnmounted(() => {
           class="serial-graph__edges"
         >
           <template
-            v-for="edge in store.edges"
+            v-for="edge in panelEdges"
             :key="edge.id"
           >
             <path
               class="serial-graph__edge-hit"
               :data-testid="`serial-graph-edge-${edge.id}`"
               :d="edgePath(edge.id)"
-              @click.stop="store.selectEdge(edge.id)"
+              @click.stop="selectEdge(edge.id)"
             />
             <path
               class="serial-graph__edge"
-              :class="{ 'serial-graph__edge--selected': store.selectedEdgeId === edge.id }"
+              :class="{ 'serial-graph__edge--selected': panelGraph?.selectedEdgeId === edge.id }"
               :d="edgePath(edge.id)"
             />
           </template>
         </svg>
         <article
-          v-for="node in store.nodes"
+          v-for="node in panelNodes"
           :key="node.id"
           class="serial-graph__node"
-          :class="{ 'serial-graph__node--selected': store.selectedNodeId === node.id }"
+          :class="{ 'serial-graph__node--selected': panelGraph?.selectedNodeId === node.id }"
           :data-testid="`serial-graph-node-${node.id}`"
           :style="{ transform: `translate(${node.position.x}px, ${node.position.y}px)` }"
-          @click.stop="store.selectNode(node.id)"
+          @click.stop="selectNode(node.id)"
           @pointerdown="startNodeDrag($event, node)"
         >
           <header class="serial-graph__node-header">
@@ -450,7 +627,7 @@ onUnmounted(() => {
             <button
               type="button"
               aria-label="删除节点"
-              @click.stop="store.removeNode(node.id)"
+              @click.stop="removeNode(node.id)"
             >
               ×
             </button>
@@ -487,6 +664,137 @@ onUnmounted(() => {
           </div>
         </article>
       </div>
+      <section
+        v-if="panelNodeTabs.length > 0"
+        class="serial-graph__node-workbench"
+        data-testid="serial-graph-node-workbench"
+      >
+        <div class="serial-graph__node-tabs">
+          <button
+            v-for="tab in panelNodeTabs"
+            :key="tab.nodeId"
+            type="button"
+            class="serial-graph__node-tab"
+            :class="{ 'serial-graph__node-tab--active': panelActiveNodeTabId === tab.nodeId }"
+            :data-testid="`serial-graph-node-tab-${tab.nodeId}`"
+            @click="activateNodeTab(tab.nodeId)"
+          >
+            <span>{{ tab.title }}</span>
+            <span
+              class="serial-graph__node-tab-close"
+              role="button"
+              tabindex="0"
+              @click.stop="closeNodeTab(tab.nodeId)"
+              @keydown.enter.stop="closeNodeTab(tab.nodeId)"
+            >
+              ×
+            </span>
+          </button>
+        </div>
+        <div
+          v-if="selectedNode"
+          class="serial-graph__node-content"
+          data-testid="serial-graph-node-content"
+        >
+          <div class="serial-graph__status-grid serial-graph__status-grid--content">
+            <span>状态</span>
+            <strong>{{ selectedStatus?.Status ?? selectedNode.status ?? 'idle' }}</strong>
+            <span>RX</span>
+            <strong>{{ selectedStatus?.RxBytes ?? 0 }}</strong>
+            <span>TX</span>
+            <strong>{{ selectedStatus?.TxBytes ?? 0 }}</strong>
+          </div>
+          <template v-if="supportsSend(selectedNode)">
+            <div class="serial-graph__send-content">
+              <label class="serial-graph__field">
+                <span>mode</span>
+                <select
+                  :value="selectedMode"
+                  data-testid="serial-graph-content-send-mode"
+                  @change="updateConfig('mode', ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="ascii">ascii</option>
+                  <option value="hex">hex</option>
+                </select>
+              </label>
+              <label class="serial-graph__field serial-graph__field--grow">
+                <span>payload</span>
+                <textarea
+                  :value="selectedPayload"
+                  data-testid="serial-graph-content-send-payload"
+                  @input="updateConfig('payload', ($event.target as HTMLTextAreaElement).value)"
+                />
+              </label>
+              <button
+                type="button"
+                data-testid="serial-graph-content-send"
+                :disabled="!runtimeRunning"
+                @click="sendSelectedNode"
+              >
+                发送
+              </button>
+            </div>
+          </template>
+          <template v-if="supportsBuffer(selectedNode)">
+            <div class="serial-graph__button-row">
+              <button
+                type="button"
+                data-testid="serial-graph-content-refresh-buffer"
+                :disabled="!runtimeRunning"
+                @click="refreshSelectedBuffer"
+              >
+                刷新
+              </button>
+              <button
+                type="button"
+                data-testid="serial-graph-content-clear-buffer"
+                :disabled="!runtimeRunning"
+                @click="clearSelectedBuffer"
+              >
+                清空
+              </button>
+              <button
+                type="button"
+                data-testid="serial-graph-content-reset-counters"
+                :disabled="!runtimeRunning"
+                @click="resetSelectedCounters"
+              >
+                复位计数
+              </button>
+            </div>
+            <pre
+              class="serial-graph__buffer serial-graph__buffer--content"
+              data-testid="serial-graph-content-node-buffer"
+            >{{ selectedBufferText }}</pre>
+          </template>
+          <template v-if="supportsFrames(selectedNode)">
+            <button
+              type="button"
+              data-testid="serial-graph-content-refresh-frames"
+              :disabled="!runtimeRunning"
+              @click="refreshSelectedFrames"
+            >
+              刷新帧
+            </button>
+            <table
+              class="serial-graph__frames"
+              data-testid="serial-graph-content-node-frames"
+            >
+              <tbody>
+                <tr
+                  v-for="frame in selectedFrames"
+                  :key="frame.Seq"
+                >
+                  <td>{{ frame.Seq }}</td>
+                  <td>{{ frame.Direction }}</td>
+                  <td>{{ frame.Length }}</td>
+                  <td>{{ frame.DisplayHex || frame.DisplayText }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+        </div>
+      </section>
     </main>
 
     <aside class="serial-graph__inspector">
@@ -646,11 +954,11 @@ onUnmounted(() => {
         选择节点
       </p>
       <ul
-        v-if="store.validationErrors.length > 0"
+        v-if="panelValidation.errors.length > 0"
         class="serial-graph__errors"
       >
         <li
-          v-for="error in store.validationErrors"
+          v-for="error in panelValidation.errors"
           :key="error"
         >
           {{ error }}
@@ -743,6 +1051,23 @@ onUnmounted(() => {
   color: var(--app-text-muted, #858585);
   font-size: 12px;
 }
+.serial-graph__graph-select,
+.serial-graph__graph-name {
+  min-width: 0;
+  height: 24px;
+  border: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 4px;
+  background: var(--app-bg, #1e1e1e);
+  color: var(--app-text, #cccccc);
+  font-size: 12px;
+}
+.serial-graph__graph-select {
+  width: 110px;
+}
+.serial-graph__graph-name {
+  width: 132px;
+  padding: 0 6px;
+}
 .serial-graph__toolbar button,
 .serial-graph__runtime-panel button {
   padding: 4px 8px;
@@ -797,6 +1122,76 @@ onUnmounted(() => {
 }
 .serial-graph__canvas--panning {
   cursor: grabbing;
+}
+.serial-graph__node-workbench {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+  border-top: 1px solid var(--app-border, #2d2d2d);
+  background: var(--app-bg, #1e1e1e);
+}
+.serial-graph__node-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 31px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--app-border, #2d2d2d);
+  background: var(--app-surface, #252526);
+}
+.serial-graph__node-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 180px;
+  height: 31px;
+  padding: 0 9px;
+  border: 0;
+  border-right: 1px solid var(--app-border, #2d2d2d);
+  background: var(--app-hover-bg, #2d2d2d);
+  color: var(--app-text, #cccccc);
+  font: inherit;
+  font-size: 12px;
+  cursor: default;
+}
+.serial-graph__node-tab--active {
+  background: var(--app-bg, #1e1e1e);
+  color: var(--app-text, #ffffff);
+}
+.serial-graph__node-tab span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.serial-graph__node-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  color: var(--app-text-muted, #858585);
+}
+.serial-graph__node-tab-close:hover {
+  background: var(--app-hover-bg, #3c3c3c);
+  color: var(--app-text, #ffffff);
+}
+.serial-graph__node-content {
+  flex: 1;
+  min-height: 0;
+  padding: 10px;
+  overflow: auto;
+}
+.serial-graph__send-content {
+  display: grid;
+  grid-template-columns: 120px minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.serial-graph__field--grow textarea {
+  min-height: 112px;
 }
 .serial-graph__edges {
   position: absolute;
@@ -951,6 +1346,10 @@ onUnmounted(() => {
   margin-bottom: 10px;
   font-size: 12px;
 }
+.serial-graph__status-grid--content {
+  grid-template-columns: repeat(3, auto auto);
+  justify-content: start;
+}
 .serial-graph__status-grid span {
   color: var(--app-text-muted, #858585);
 }
@@ -973,6 +1372,9 @@ onUnmounted(() => {
   font-family: var(--terminal-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
   white-space: pre-wrap;
+}
+.serial-graph__buffer--content {
+  max-height: none;
 }
 .serial-graph__frames {
   width: 100%;

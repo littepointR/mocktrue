@@ -62,6 +62,7 @@ describe('serial workspace store', () => {
 
     expect(store.editorLayout).toEqual({ type: 'group', id: 'group-1', tabs: ['new-port'] })
     expect(store.activeByGroup['group-1']).toBe('new-port')
+    expect(store.selectedOperation).toBeNull()
     expect(store.tabState('new-port').sendPanel.sendData).toBe('hello')
   })
 })

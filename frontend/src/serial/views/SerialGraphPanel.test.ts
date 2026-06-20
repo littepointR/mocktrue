@@ -22,24 +22,24 @@ describe('SerialGraphPanel', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
-    bindings.StartSerialGraph.mockResolvedValue({
-      ID: 'serial.graph',
+    bindings.StartSerialGraph.mockImplementation(async (req: { ID: string }) => ({
+      ID: req.ID,
       Status: 'running',
       Error: '',
       Nodes: [
         { ID: 'node-1', Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 5, FrameCount: 0, ResourceID: '', Error: '' },
         { ID: 'node-2', Type: 'serial.receiver', Status: 'running', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
       ],
-    })
-    bindings.GetSerialGraphStatus.mockResolvedValue({
-      ID: 'serial.graph',
+    }))
+    bindings.GetSerialGraphStatus.mockImplementation(async (id: string) => ({
+      ID: id,
       Status: 'running',
       Error: '',
       Nodes: [
         { ID: 'node-1', Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 5, FrameCount: 0, ResourceID: '', Error: '' },
         { ID: 'node-2', Type: 'serial.receiver', Status: 'running', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
       ],
-    })
+    }))
     bindings.SendSerialGraphNode.mockResolvedValue(5)
     bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
       Offset: 0,
@@ -65,6 +65,163 @@ describe('SerialGraphPanel', () => {
     const store = useSerialGraphStore()
     expect(store.nodes[0].type).toBe('serial.sender')
     expect(wrapper.find(`[data-testid="serial-graph-node-${store.nodes[0].id}"]`).exists()).toBe(true)
+  })
+
+  it('manages graphs from the workbench toolbar', async () => {
+    const wrapper = mount(SerialGraphPanel)
+    const store = useSerialGraphStore()
+
+    expect(wrapper.find('[data-testid="serial-graph-switcher"]').findAll('option')).toHaveLength(1)
+    expect((wrapper.find('[data-testid="serial-graph-name"]').element as HTMLInputElement).value).toBe('拓扑图 1')
+
+    await wrapper.find('[data-testid="serial-graph-new"]').trigger('click')
+
+    expect(store.graphList.map(graph => graph.name)).toEqual(['拓扑图 1', '拓扑图 2'])
+    expect(store.activeGraphId).toBe('graph-2')
+    expect(wrapper.find('[data-testid="serial-graph-switcher"]').findAll('option')).toHaveLength(2)
+
+    const nameInput = wrapper.find('[data-testid="serial-graph-name"]')
+    ;(nameInput.element as HTMLInputElement).value = '生产拓扑'
+    await nameInput.trigger('change')
+
+    expect(store.activeGraph?.name).toBe('生产拓扑')
+
+    await wrapper.find('[data-testid="serial-graph-duplicate"]').trigger('click')
+
+    expect(store.graphList.map(graph => graph.name)).toEqual(['拓扑图 1', '生产拓扑', '生产拓扑 副本'])
+    expect(store.activeGraphId).toBe('graph-3')
+
+    await wrapper.find('[data-testid="serial-graph-switcher"]').setValue('graph-1')
+
+    expect(store.activeGraphId).toBe('graph-1')
+
+    await wrapper.find('[data-testid="serial-graph-remove"]').trigger('click')
+    await flushPromises()
+
+    expect(store.graphList.map(graph => graph.id)).toEqual(['graph-2', 'graph-3'])
+    expect(store.activeGraphId).toBe('graph-2')
+  })
+
+  it('renders the graph passed by tab id without switching the active graph', () => {
+    const store = useSerialGraphStore()
+    store.createGraph('辅助拓扑')
+    store.setActiveGraph('graph-2')
+
+    mount(SerialGraphPanel, {
+      props: { graphId: 'graph-1' },
+    })
+
+    expect(store.activeGraphId).toBe('graph-2')
+  })
+
+  it('renders the graph scoped by its graphId when multiple panels are mounted', () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.sender')
+    store.createGraph('辅助拓扑')
+    store.addNode('serial.receiver')
+
+    const first = mount(SerialGraphPanel, {
+      props: { graphId: 'graph-1' },
+    })
+    const second = mount(SerialGraphPanel, {
+      props: { graphId: 'graph-2' },
+    })
+
+    expect(store.activeGraphId).toBe('graph-2')
+    expect((first.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-1')
+    expect((second.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-2')
+    expect(first.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('发送器')
+    expect(first.find('[data-testid="serial-graph-node-node-1"]').text()).not.toContain('接收器')
+    expect(second.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('接收器')
+  })
+
+  it('starts a scoped graph panel runtime without switching the active graph', async () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.sender')
+    const second = store.createGraph('辅助拓扑')
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.setActiveGraph('graph-1')
+    const wrapper = mount(SerialGraphPanel, {
+      props: { graphId: second.id },
+    })
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+
+    expect(store.activeGraphId).toBe('graph-1')
+    expect(bindings.StartSerialGraph).toHaveBeenCalledWith(expect.objectContaining({
+      ID: second.id,
+      Nodes: [
+        expect.objectContaining({ ID: sender.id, Type: 'serial.sender' }),
+        expect.objectContaining({ ID: receiver.id, Type: 'serial.receiver' }),
+      ],
+    }))
+    expect(wrapper.find('[data-testid="serial-graph-runtime-status"]').text()).toBe('running')
+
+    wrapper.unmount()
+  })
+
+  it('keeps toolbar graph switching local to a scoped panel', async () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.sender')
+    store.createGraph('辅助拓扑')
+    store.addNode('serial.receiver')
+    store.setActiveGraph('graph-1')
+    const wrapper = mount(SerialGraphPanel, {
+      props: { graphId: 'graph-1' },
+    })
+
+    await wrapper.find('[data-testid="serial-graph-switcher"]').setValue('graph-2')
+
+    expect(store.activeGraphId).toBe('graph-1')
+    expect((wrapper.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-2')
+    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('接收器')
+    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).not.toContain('发送器')
+  })
+
+  it('opens node content tabs when nodes are created and keeps nodes when tabs close', async () => {
+    const wrapper = mount(SerialGraphPanel)
+    const store = useSerialGraphStore()
+
+    await wrapper.find('[data-testid="serial-graph-provider-serial.sender"]').trigger('click')
+
+    const sender = store.nodes[0]
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(true)
+    expect(wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"]`).text()).toContain('发送器')
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('payload')
+
+    await wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"] .serial-graph__node-tab-close`).trigger('click')
+
+    expect(store.nodes.map(node => node.id)).toEqual([sender.id])
+    expect(store.nodeTabs).toHaveLength(0)
+    expect(wrapper.find(`[data-testid="serial-graph-node-${sender.id}"]`).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(false)
+
+    await wrapper.find(`[data-testid="serial-graph-node-${sender.id}"]`).trigger('click')
+
+    expect(store.nodeTabs.map(tab => tab.nodeId)).toEqual([sender.id])
+    expect(wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"]`).exists()).toBe(true)
+  })
+
+  it('shows the remaining node content when the active node tab is closed', async () => {
+    const wrapper = mount(SerialGraphPanel)
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    await nextTick()
+
+    expect(store.activeNodeTabId).toBe(receiver.id)
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('刷新')
+
+    await wrapper.find(`[data-testid="serial-graph-node-tab-${receiver.id}"] .serial-graph__node-tab-close`).trigger('click')
+
+    expect(store.nodes.map(node => node.id)).toEqual([sender.id, receiver.id])
+    expect(store.nodeTabs.map(tab => tab.nodeId)).toEqual([sender.id])
+    expect(store.activeNodeTabId).toBe(sender.id)
+    expect(store.selectedNodeId).toBe(sender.id)
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('payload')
   })
 
   it('connects an output handle to an input handle through the UI', async () => {
@@ -162,7 +319,7 @@ describe('SerialGraphPanel', () => {
     await wrapper.find('[data-testid="serial-graph-send"]').trigger('click')
 
     expect(bindings.SendSerialGraphNode).toHaveBeenCalledWith(expect.objectContaining({
-      GraphID: 'serial.graph',
+      GraphID: 'graph-1',
       NodeID: sender.id,
       Content: 'hello',
     }))
@@ -189,7 +346,7 @@ describe('SerialGraphPanel', () => {
     await flushPromises()
 
     expect(bindings.QuerySerialGraphNodeBuffer).toHaveBeenCalledWith(expect.objectContaining({
-      GraphID: 'serial.graph',
+      GraphID: 'graph-1',
       NodeID: receiver.id,
     }))
     expect(wrapper.find('[data-testid="serial-graph-node-buffer"]').text()).toContain('hello')

@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useSerialStore } from '../stores/serialStore'
-import { useBufferStore } from '../stores/bufferStore'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import EditorLayoutNode from './EditorLayoutNode.vue'
 import type {
   EditorGroupNode,
@@ -9,44 +7,21 @@ import type {
   EditorSplitDirection,
   EditorSplitNode,
 } from './editorLayout'
-import PortConfigPanel from './PortConfigPanel.vue'
-import VirtualPairPanel from './VirtualPairPanel.vue'
-import BridgePanel from './BridgePanel.vue'
-import MonitorPanel from './MonitorPanel.vue'
-import ModbusPanel from './ModbusPanel.vue'
-import FecbusPanel from './FecbusPanel.vue'
-import { useSerialWorkspaceStore, type SerialOperation } from '../stores/workspaceStore'
-import { useMonitorStore } from '../stores/monitorStore'
-import { useModbusStore } from '../stores/modbusStore'
-import { SessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
-import { useFecbusStore } from '../stores/fecbusStore'
-import { SessionRole as FecbusSessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+import { useSerialWorkspaceStore } from '../stores/workspaceStore'
+import { useSerialGraphStore } from '../stores/graphStore'
 
 const props = defineProps<{
   activeViewId: string | null
   activeViewVersion: number
 }>()
 
-const serialStore = useSerialStore()
-const bufferStore = useBufferStore()
-const monitorStore = useMonitorStore()
-const modbusStore = useModbusStore()
-const fecbusStore = useFecbusStore()
 const workspaceStore = useSerialWorkspaceStore()
-const graphTabId = 'serial.graph'
+const graphStore = useSerialGraphStore()
 
 const editorLayout = computed({
   get: () => workspaceStore.editorLayout,
   set: value => workspaceStore.setEditorLayout(value),
 })
-const selectedOperation = computed({
-  get: () => workspaceStore.selectedOperation,
-  set: value => workspaceStore.setSelectedOperation(value),
-})
-const selectedPanelOperation = computed(() => (
-  selectedOperation.value === 'graph' ? null : selectedOperation.value
-))
-const hasGraphTabInLayout = computed(() => collectTabIds(editorLayout.value).includes(graphTabId))
 const activeByGroup = computed({
   get: () => workspaceStore.activeByGroup,
   set: value => workspaceStore.setActiveByGroup(value),
@@ -63,95 +38,35 @@ const dropPreview = ref<{
   style: Record<string, string>
 } | null>(null)
 
+const tabs = computed(() => graphStore.graphList.map(graph => ({
+  id: graphTabId(graph.id),
+  name: graph.name,
+  kind: 'graph' as const,
+  sourceId: graph.id,
+})))
+
 onMounted(() => {
-  serialStore.initEventListeners()
-  bufferStore.initEventListeners()
-  serialStore.refreshHandles()
-  monitorStore.refreshSessions()
-  modbusStore.refreshSessions()
-  fecbusStore.refreshSessions()
+  focusGraphTab()
 })
 
 onUnmounted(() => {
-  bufferStore.cleanup()
-  serialStore.stopStatsPolling()
-  monitorStore.cleanup()
-  modbusStore.cleanup()
-  fecbusStore.cleanup()
   stopTabDrag()
 })
 
-const tabs = computed(() => [
-  ...serialStore.openHandles.map(h => ({
-    id: h.ID,
-    name: h.Config.PortName,
-    kind: 'serial' as const,
-    sourceId: h.ID,
-  })),
-  ...monitorStore.sessionList.map(session => ({
-    id: monitorTabId(session.ID),
-    name: session.Name || `监控 ${session.PortA}`,
-    kind: 'monitor' as const,
-    sourceId: session.ID,
-  })),
-  ...modbusStore.sessionList.map(session => ({
-    id: modbusTabId(session.ID),
-    name: session.Name || `${session.Role === SessionRole.SessionRoleSlave ? 'Modbus Slave' : 'Modbus Master'} ${session.Config.PortName}`,
-    kind: 'modbus' as const,
-    sourceId: session.ID,
-  })),
-  ...fecbusStore.sessionList.map(session => ({
-    id: fecbusTabId(session.ID),
-    name: session.Name || `${session.Role === FecbusSessionRole.SessionRoleSlave ? 'FECbus Slave' : 'FECbus Master'} ${session.Config.PortName}`,
-    kind: 'fecbus' as const,
-    sourceId: session.ID,
-  })),
-  ...(selectedOperation.value === 'graph' || hasGraphTabInLayout.value
-    ? [{
-        id: graphTabId,
-        name: '节点编辑',
-        kind: 'graph' as const,
-        sourceId: graphTabId,
-      }]
-    : []),
-])
-
-function operationFromView(viewId: string | null): SerialOperation | null {
-  switch (viewId) {
-    case 'serial.virtual':
-      return 'virtual'
-    case 'serial.bridge':
-      return 'bridge'
-    case 'serial.monitor':
-      return 'monitor'
-    case 'serial.modbus':
-      return 'modbus'
-    case 'serial.fecbus':
-      return 'fecbus'
-    case 'serial.graph':
-      return 'graph'
-    case 'serial.open':
-      return 'open'
-    default:
-      return null
-  }
-}
-
 watch(
   () => props.activeViewVersion,
-  (_version, previousVersion) => {
-    const operation = operationFromView(props.activeViewId)
-    if (operation === 'graph') {
+  () => {
+    if (!props.activeViewId || props.activeViewId.startsWith('serial.')) {
       focusGraphTab()
-      return
     }
-    if (previousVersion === undefined) {
-      selectedOperation.value = operation
-      return
-    }
-    selectedOperation.value = selectedOperation.value === operation ? null : operation
-  },
-  { immediate: true }
+  }
+)
+
+watch(
+  () => graphStore.activeGraphId,
+  () => {
+    focusGraphTab()
+  }
 )
 
 watch(
@@ -165,112 +80,48 @@ watch(
       nextLayout = addTabsToFirstGroup(nextLayout, missing)
     }
 
+    const activeGraphTab = graphStore.activeGraphId ? graphTabId(graphStore.activeGraphId) : null
     const groups = collectGroups(nextLayout)
     const active: Record<string, string | null> = {}
-    const serialActiveTab = serialStore.activePortId
-    const monitorActiveTab = monitorStore.activeMonitorId ? monitorTabId(monitorStore.activeMonitorId) : null
-    const modbusActiveTab = modbusStore.activeSessionId ? modbusTabId(modbusStore.activeSessionId) : null
-    const fecbusActiveTab = fecbusStore.activeSessionId ? fecbusTabId(fecbusStore.activeSessionId) : null
     for (const group of groups) {
       const current = activeByGroup.value[group.id]
-      const activeSerialInGroup = serialActiveTab && group.tabs.includes(serialActiveTab) ? serialActiveTab : null
-      const activeMonitorInGroup = monitorActiveTab && group.tabs.includes(monitorActiveTab) ? monitorActiveTab : null
-      const activeModbusInGroup = modbusActiveTab && group.tabs.includes(modbusActiveTab) ? modbusActiveTab : null
-      const activeFecbusInGroup = fecbusActiveTab && group.tabs.includes(fecbusActiveTab) ? fecbusActiveTab : null
-      const activeGraphTab = selectedOperation.value === 'graph' && group.tabs.includes(graphTabId) ? graphTabId : null
-      const newlyAddedActive = [activeGraphTab, activeFecbusInGroup, activeModbusInGroup, activeMonitorInGroup, activeSerialInGroup]
-        .find((id): id is string => Boolean(id && missing.includes(id)))
-      active[group.id] = newlyAddedActive
-        ?? (current && group.tabs.includes(current) ? current : null)
-        ?? activeGraphTab
-        ?? activeFecbusInGroup
-        ?? activeModbusInGroup
-        ?? activeMonitorInGroup
-        ?? activeSerialInGroup
-        ?? group.tabs[0]
-        ?? null
+      active[group.id] = activeGraphTab && group.tabs.includes(activeGraphTab)
+        ? activeGraphTab
+        : current && group.tabs.includes(current) ? current : group.tabs[0] ?? null
     }
 
     editorLayout.value = nextLayout
     activeByGroup.value = active
-
-    const firstTabId = firstSerialTab(nextLayout, tabs.value)
-    if (serialStore.activePortId && !idSet.has(serialStore.activePortId)) {
-      serialStore.setActivePort(firstTabId)
-    } else if (!serialStore.activePortId && firstTabId) {
-      serialStore.setActivePort(firstTabId)
-    }
   },
   { immediate: true }
 )
 
-async function handleCloseTab(id: string) {
-  if (isGraphTabId(id)) {
-    closeGraphTab()
-    return
-  }
-  if (isMonitorTabId(id)) {
-    await monitorStore.deleteMonitor(monitorIdFromTabId(id))
-    return
-  }
-  if (isFecbusTabId(id)) {
-    await fecbusStore.closeSession(fecbusIdFromTabId(id))
-    return
-  }
-  if (isModbusTabId(id)) {
-    await modbusStore.closeSession(modbusIdFromTabId(id))
-    return
-  }
-  await serialStore.closePort(id)
-  bufferStore.clearBuffer(id)
-}
-
-function handlePortOpened() {
-  selectedOperation.value = null
-}
-
-function handleMonitorStarted(id: string) {
-  selectedOperation.value = null
-  monitorStore.setActiveMonitor(id)
-}
-
-function handleModbusOpened(id: string) {
-  modbusStore.setActiveSession(id)
-  selectedOperation.value = null
-}
-
-function handleFecbusOpened(id: string) {
-  fecbusStore.setActiveSession(id)
-  selectedOperation.value = null
-}
-
 function focusGraphTab() {
-  selectedOperation.value = 'graph'
+  if (graphStore.graphList.length === 0) {
+    graphStore.createGraph()
+  }
+  const activeGraphId = graphStore.activeGraphId ?? graphStore.graphList[0]?.id
+  if (!activeGraphId) return
+
+  const tabId = graphTabId(activeGraphId)
   let nextLayout = editorLayout.value
-  if (!collectTabIds(nextLayout).includes(graphTabId)) {
-    nextLayout = addTabsToFirstGroup(nextLayout, [graphTabId])
+  if (!collectTabIds(nextLayout).includes(tabId)) {
+    nextLayout = addTabsToFirstGroup(nextLayout, [tabId])
     editorLayout.value = nextLayout
   }
 
-  const graphGroup = collectGroups(nextLayout).find(group => group.tabs.includes(graphTabId))
-  if (!graphGroup) return
+  const group = collectGroups(nextLayout).find(item => item.tabs.includes(tabId))
+  if (!group) return
 
   activeByGroup.value = {
     ...activeByGroup.value,
-    [graphGroup.id]: graphTabId,
+    [group.id]: tabId,
   }
 }
 
-function closeGraphTab() {
-  selectedOperation.value = null
-  const nextLayout = removeTabFromLayout(editorLayout.value, graphTabId) ?? createGroup()
-  const active: Record<string, string | null> = {}
-  for (const group of collectGroups(nextLayout)) {
-    const current = activeByGroup.value[group.id]
-    active[group.id] = current && group.tabs.includes(current) ? current : group.tabs[0] ?? null
-  }
-  editorLayout.value = nextLayout
-  activeByGroup.value = active
+async function handleCloseTab(id: string) {
+  if (!isGraphTabId(id)) return
+  await graphStore.removeGraph(graphIdFromTabId(id))
 }
 
 function nextGroupId(): string {
@@ -292,15 +143,7 @@ function createSplit(direction: EditorSplitDirection, children: EditorLayoutTree
 function setActiveTab(groupId: string, handleId: string) {
   activeByGroup.value = { ...activeByGroup.value, [groupId]: handleId }
   if (isGraphTabId(handleId)) {
-    selectedOperation.value = 'graph'
-  } else if (isMonitorTabId(handleId)) {
-    monitorStore.setActiveMonitor(monitorIdFromTabId(handleId))
-  } else if (isFecbusTabId(handleId)) {
-    fecbusStore.setActiveSession(fecbusIdFromTabId(handleId))
-  } else if (isModbusTabId(handleId)) {
-    modbusStore.setActiveSession(modbusIdFromTabId(handleId))
-  } else {
-    serialStore.setActivePort(handleId)
+    graphStore.setActiveGraph(graphIdFromTabId(handleId))
   }
 }
 
@@ -437,11 +280,6 @@ function collectGroups(node: EditorLayoutTreeNode): EditorGroupNode[] {
 function collectTabIds(node: EditorLayoutTreeNode): string[] {
   if (node.type === 'group') return [...node.tabs]
   return node.children.flatMap(collectTabIds)
-}
-
-function firstSerialTab(node: EditorLayoutTreeNode, tabList: Array<{ id: string; kind: string }>): string | null {
-  const serialIds = new Set(tabList.filter(tab => tab.kind === 'serial').map(tab => tab.id))
-  return collectTabIds(node).find(id => serialIds.has(id)) ?? null
 }
 
 function filterLayoutTabs(node: EditorLayoutTreeNode, idSet: Set<string>): EditorLayoutTreeNode | null {
@@ -603,86 +441,25 @@ function commitLayout(nextLayout: EditorLayoutTreeNode, activeGroupId: string, a
   editorLayout.value = nextLayout
   activeByGroup.value = active
   if (isGraphTabId(activeHandleId)) {
-    selectedOperation.value = 'graph'
-  } else if (isMonitorTabId(activeHandleId)) {
-    monitorStore.setActiveMonitor(monitorIdFromTabId(activeHandleId))
-  } else if (isFecbusTabId(activeHandleId)) {
-    fecbusStore.setActiveSession(fecbusIdFromTabId(activeHandleId))
-  } else if (isModbusTabId(activeHandleId)) {
-    modbusStore.setActiveSession(modbusIdFromTabId(activeHandleId))
-  } else {
-    serialStore.setActivePort(activeHandleId)
+    graphStore.setActiveGraph(graphIdFromTabId(activeHandleId))
   }
 }
 
-function monitorTabId(id: string): string {
-  return `monitor:${id}`
+function graphTabId(id: string): string {
+  return `graph:${id}`
 }
 
 function isGraphTabId(id: string): boolean {
-  return id === graphTabId
+  return id.startsWith('graph:')
 }
 
-function isMonitorTabId(id: string): boolean {
-  return id.startsWith('monitor:')
-}
-
-function monitorIdFromTabId(id: string): string {
-  return id.replace(/^monitor:/, '')
-}
-
-function modbusTabId(id: string): string {
-  return `modbus:${id}`
-}
-
-function isModbusTabId(id: string): boolean {
-  return id.startsWith('modbus:')
-}
-
-function modbusIdFromTabId(id: string): string {
-  return id.replace(/^modbus:/, '')
-}
-
-function fecbusTabId(id: string): string {
-  return `fecbus:${id}`
-}
-
-function isFecbusTabId(id: string): boolean {
-  return id.startsWith('fecbus:')
-}
-
-function fecbusIdFromTabId(id: string): string {
-  return id.replace(/^fecbus:/, '')
+function graphIdFromTabId(id: string): string {
+  return id.replace(/^graph:/, '')
 }
 </script>
 
 <template>
   <div class="serial-view">
-    <div
-      class="serial-view__operation-panel"
-      :class="{
-        'is-open': selectedPanelOperation !== null,
-      }"
-    >
-      <PortConfigPanel
-        v-if="selectedPanelOperation === 'open'"
-        @opened="handlePortOpened"
-      />
-      <VirtualPairPanel v-else-if="selectedPanelOperation === 'virtual'" />
-      <BridgePanel v-else-if="selectedPanelOperation === 'bridge'" />
-      <MonitorPanel
-        v-else-if="selectedPanelOperation === 'monitor'"
-        @started="handleMonitorStarted"
-      />
-      <ModbusPanel
-        v-else-if="selectedPanelOperation === 'modbus'"
-        @opened="handleModbusOpened"
-      />
-      <FecbusPanel
-        v-else-if="selectedPanelOperation === 'fecbus'"
-        @opened="handleFecbusOpened"
-      />
-    </div>
     <div class="serial-view__main">
       <div
         v-if="tabs.length > 0"
@@ -704,7 +481,7 @@ function fecbusIdFromTabId(id: string): string {
         />
       </div>
       <div v-else class="serial-view__empty">
-        <p>选择左侧操作</p>
+        <p>新建拓扑图</p>
       </div>
     </div>
   </div>
@@ -716,20 +493,6 @@ function fecbusIdFromTabId(id: string): string {
   width: 100%;
   height: 100%;
   overflow: hidden;
-}
-.serial-view__operation-panel {
-  flex: 0 0 0;
-  width: 0;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-  background: var(--app-surface, #252526);
-  border-right: 0;
-}
-.serial-view__operation-panel.is-open {
-  flex-basis: 320px;
-  width: 320px;
-  border-right: 1px solid var(--app-border, #2d2d2d);
 }
 .serial-view__main {
   flex: 1;

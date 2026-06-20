@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { serialGraphProviders, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
 import { createDemoWorkspaceSnapshot, getDemoWorkspace, listDemoWorkspaces } from './demoWorkspaces'
 import { workspaceKind } from './workspaceSnapshot'
 
@@ -40,6 +41,7 @@ describe('demoWorkspaces', () => {
 
   it('builds a full example from normal configurable resources only', () => {
     const snapshot = createDemoWorkspaceSnapshot('full-workspace-demo')
+    const graph = activeGraph(snapshot?.serial.graph)
 
     expect(snapshot?.settings.serial.TerminalFontFamily).toBe('Menlo')
     expect(snapshot?.serial.virtualPorts.length).toBeGreaterThanOrEqual(3)
@@ -52,33 +54,38 @@ describe('demoWorkspaces', () => {
     expect(snapshot?.serial.modbus.history).toHaveLength(0)
     expect(snapshot?.serial.fecbus.sessions).toHaveLength(1)
     expect(snapshot?.serial.fecbus.framePages[snapshot.serial.fecbus.activeSessionId ?? '']?.Total).toBe(1)
-    expect(snapshot?.serial.graph.nodes.length).toBeGreaterThan(0)
-    expect(snapshot?.serial.graph.edges.length).toBeGreaterThan(0)
+    expect(graph.nodes.length).toBeGreaterThan(0)
+    expect(graph.edges.length).toBeGreaterThan(0)
     expect(snapshot?.serial.workspace.editorLayout.type).toBe('group')
-    expect(snapshot?.serial.workspace.selectedOperation).toBe('fecbus')
+    expect(snapshot?.serial.workspace.selectedOperation).toBe('graph')
   })
 
   it('opens the serial graph example with normal graph workspace state', () => {
     const snapshot = createDemoWorkspaceSnapshot('serial-graph-demo')
+    const graph = activeGraph(snapshot?.serial.graph)
 
-    expect(snapshot?.serial.graph.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
+    expect(snapshot?.serial.graph.graphs).toHaveLength(1)
+    expect(snapshot?.serial.graph.activeGraphId).toBe(graph.id)
+    expect(graph.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
       'serial.sender',
       'serial.virtual',
       'serial.tap',
       'serial.receiver',
       'serial.modbus.master',
     ]))
-    const sender = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.sender')
-    const virtualPort = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.virtual')
-    const receiver = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.receiver')
-    const tap = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.tap')
+    const providerTypes = new Set(serialGraphProviders.map(provider => provider.type))
+    expect(graph.nodes.every(node => providerTypes.has(node.type))).toBe(true)
+    const sender = graph.nodes.find(node => node.type === 'serial.sender')
+    const virtualPort = graph.nodes.find(node => node.type === 'serial.virtual')
+    const receiver = graph.nodes.find(node => node.type === 'serial.receiver')
+    const tap = graph.nodes.find(node => node.type === 'serial.tap')
     expect(sender?.config).toEqual(expect.objectContaining({
       autoSend: true,
       intervalMs: 1000,
       mode: 'ascii',
     }))
     expect(String(sender?.config.payload ?? '').length).toBeGreaterThan(0)
-    expect(snapshot?.serial.graph.edges).toEqual(expect.arrayContaining([
+    expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({
         source: sender?.id,
         sourceHandle: 'out',
@@ -98,13 +105,15 @@ describe('demoWorkspaces', () => {
         targetHandle: 'in',
       }),
     ]))
-    expect(snapshot?.serial.graph.selectedNodeId).toBe(receiver?.id)
-    expect(snapshot?.serial.graph.edges.length).toBeGreaterThanOrEqual(3)
+    expect(graph.selectedNodeId).toBe(receiver?.id)
+    expect(graph.nodeTabs.map(tab => tab.nodeId)).toEqual(graph.nodes.map(node => node.id))
+    expect(graph.activeNodeTabId).toBe(receiver?.id)
+    expect(graph.edges.length).toBeGreaterThanOrEqual(3)
     expect(snapshot?.serial.workspace.selectedOperation).toBe('graph')
     expect(snapshot?.serial.workspace.editorLayout.type).toBe('group')
     if (snapshot?.serial.workspace.editorLayout.type === 'group') {
-      expect(snapshot.serial.workspace.editorLayout.tabs).toContain('serial.graph')
-      expect(snapshot.serial.workspace.activeByGroup[snapshot.serial.workspace.editorLayout.id]).toBe('serial.graph')
+      expect(snapshot.serial.workspace.editorLayout.tabs).toContain(`graph:${graph.id}`)
+      expect(snapshot.serial.workspace.activeByGroup[snapshot.serial.workspace.editorLayout.id]).toBe(`graph:${graph.id}`)
     }
   })
 
@@ -121,10 +130,9 @@ describe('demoWorkspaces', () => {
       expect(session?.Config.PortName).toBe(snapshot?.serial.modbus.portForm.port)
       expect(layout?.type).toBe('group')
       if (layout?.type === 'group') {
-        expect(layout.tabs).toContain(`modbus:${session?.ID}`)
-        if (id === 'modbus-demo') {
-          expect(snapshot?.serial.workspace.activeByGroup[layout.id]).toBe(`modbus:${session?.ID}`)
-        }
+        const graph = activeGraph(snapshot?.serial.graph)
+        expect(layout.tabs).toContain(`graph:${graph.id}`)
+        expect(snapshot?.serial.workspace.activeByGroup[layout.id]).toBe(`graph:${graph.id}`)
       }
     }
   })
@@ -143,8 +151,9 @@ describe('demoWorkspaces', () => {
       expect(snapshot?.serial.fecbus.sendForm.functionCode).toBe(44)
       expect(layout?.type).toBe('group')
       if (layout?.type === 'group') {
-        expect(layout.tabs).toContain(`fecbus:${session?.ID}`)
-        expect(snapshot?.serial.workspace.activeByGroup[layout.id]).toBe(`fecbus:${session?.ID}`)
+        const graph = activeGraph(snapshot?.serial.graph)
+        expect(layout.tabs).toContain(`graph:${graph.id}`)
+        expect(snapshot?.serial.workspace.activeByGroup[layout.id]).toBe(`graph:${graph.id}`)
       }
     }
   })
@@ -170,4 +179,32 @@ describe('demoWorkspaces', () => {
       expect(snapshot?.serial.fecbus.history).toHaveLength(0)
     }
   })
+
+  it('does not preload legacy virtual resources with graph-owned port names', () => {
+    for (const demo of listDemoWorkspaces()) {
+      const snapshot = createDemoWorkspaceSnapshot(demo.id)
+      const graph = activeGraph(snapshot?.serial.graph)
+      const graphPortNames = new Set(graph.nodes
+        .filter(node => node.type === 'serial.virtual')
+        .map(node => String(node.config.portName ?? '').trim())
+        .filter(Boolean))
+      const graphPortPaths = new Set([...graphPortNames].map(portName => `/tmp/${portName}`))
+
+      const duplicatedVirtualPorts = snapshot?.serial.virtualPorts
+        .filter(port => graphPortNames.has(port.Port))
+        .map(port => port.Port)
+      const duplicatedBridgePorts = snapshot?.serial.bridges
+        .flatMap(bridge => [bridge.Port1, bridge.Port2])
+        .filter(port => graphPortNames.has(port) || graphPortPaths.has(port))
+
+      expect(duplicatedVirtualPorts, `${demo.id} virtual ports`).toEqual([])
+      expect(duplicatedBridgePorts, `${demo.id} bridge ports`).toEqual([])
+    }
+  })
 })
+
+function activeGraph(state: SerialGraphWorkspaceState | undefined) {
+  const graph = state?.graphs.find(item => item.id === state.activeGraphId)
+  expect(graph).toBeDefined()
+  return graph!
+}

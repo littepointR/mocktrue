@@ -122,7 +122,7 @@ export const useSerialWorkspaceStore = defineStore('serialWorkspace', () => {
   }
 
   function restoreState(snapshot: SerialWorkspaceState, handleMap: Record<string, string> = {}) {
-    selectedOperation.value = snapshot.selectedOperation
+    selectedOperation.value = snapshot.selectedOperation === 'graph' ? 'graph' : null
     editorLayout.value = remapLayout(snapshot.editorLayout, handleMap)
     activeByGroup.value = remapActiveByGroup(snapshot.activeByGroup, handleMap)
     tabStates.value = remapTabStates(snapshot.tabStates, handleMap)

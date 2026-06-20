@@ -202,8 +202,11 @@ describe('workspaceFileStore', () => {
         buffers: {},
         monitors: expect.objectContaining({ sessions: [], frames: {} }),
         workspace: expect.objectContaining({
-          selectedOperation: 'monitor',
-          editorLayout: expect.objectContaining({ type: 'group', tabs: [] }),
+          selectedOperation: 'graph',
+          editorLayout: expect.objectContaining({
+            type: 'group',
+            tabs: expect.arrayContaining([expect.stringMatching(/^graph:/)]),
+          }),
         }),
       }),
     }))

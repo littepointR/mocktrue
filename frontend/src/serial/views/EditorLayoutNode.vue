@@ -3,10 +3,6 @@ import { computed } from 'vue'
 import { Splitpanes, Pane } from 'splitpanes'
 import 'splitpanes/dist/splitpanes.css'
 import type { EditorLayoutNode, EditorTabInfo } from './editorLayout'
-import SerialTabContent from './SerialTabContent.vue'
-import MonitorTabContent from './MonitorTabContent.vue'
-import ModbusTabContent from './ModbusTabContent.vue'
-import FecbusTabContent from './FecbusTabContent.vue'
 import SerialGraphPanel from './SerialGraphPanel.vue'
 
 const props = defineProps<{
@@ -86,24 +82,9 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
       </button>
     </div>
     <div class="editor-group__content">
-      <SerialTabContent
-        v-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'serial'"
-        :handle-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
-      />
-      <MonitorTabContent
-        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'monitor'"
-        :monitor-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
-      />
-      <ModbusTabContent
-        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'modbus'"
-        :session-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
-      />
-      <FecbusTabContent
-        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'fecbus'"
-        :session-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
-      />
       <SerialGraphPanel
-        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'graph'"
+        v-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'graph'"
+        :graph-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
       />
     </div>
   </div>

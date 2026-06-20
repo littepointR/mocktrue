@@ -5,7 +5,7 @@ import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 import type { EditorLayoutNode } from '../serial/views/editorLayout'
-import { defaultSerialGraphState, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
+import { defaultSerialGraphState, nodeTabTitle, type SerialGraphNode, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
 import { FrameMode, SessionRole } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
 import { FrameType, FunctionCode, SessionRole as FecbusSessionRole, StatusCode } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
 import { workspaceKind, type WorkspaceSnapshot } from './workspaceSnapshot'
@@ -91,28 +91,24 @@ export function createDemoWorkspaceSnapshot(id: string): WorkspaceSnapshot | nul
 function createSerialOpenDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `mocktrue-demo-open-${suffix}`
+  const graph = serialGraphState(suffix, `${portName}-graph`)
 
   return snapshot({
     virtualPorts: [virtualPort(`demo-open-port-${suffix}`, portName)],
-    workspace: workspace({
-      selectedOperation: 'open',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [] },
-      activeByGroup: { 'group-1': null },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
 function createVirtualPortDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portNames = ['sensor', 'gateway', 'logger'].map(name => `mocktrue-demo-${name}-${suffix}`)
+  const graph = serialGraphState(suffix, `${portNames[0]}-graph`)
 
   return snapshot({
     virtualPorts: portNames.map((portName, index) => virtualPort(`demo-vport-${index + 1}-${suffix}`, portName)),
-    workspace: workspace({
-      selectedOperation: 'virtual',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [] },
-      activeByGroup: { 'group-1': null },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
@@ -120,6 +116,7 @@ function createBridgeDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portA = `mocktrue-demo-bridge-a-${suffix}`
   const portB = `mocktrue-demo-bridge-b-${suffix}`
+  const graph = serialGraphState(suffix, `${portA}-graph`)
 
   return snapshot({
     virtualPorts: [
@@ -132,25 +129,20 @@ function createBridgeDemo(): WorkspaceSnapshot {
       Port2: toPortPath(portB),
       BaudRate: 115200,
     }],
-    workspace: workspace({
-      selectedOperation: 'bridge',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [] },
-      activeByGroup: { 'group-1': null },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
 function createMonitorDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const sourcePort = `mocktrue-demo-monitor-${suffix}`
+  const graph = serialGraphState(suffix, `${sourcePort}-graph`)
 
   return snapshot({
     virtualPorts: [virtualPort(`demo-monitor-port-${suffix}`, sourcePort)],
-    workspace: workspace({
-      selectedOperation: 'monitor',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [] },
-      activeByGroup: { 'group-1': null },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
@@ -158,15 +150,13 @@ function createModbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `mocktrue-demo-modbus-${suffix}`
   const sessionId = `demo-modbus-${suffix}`
+  const graph = serialGraphState(suffix, `${portName}-graph`)
 
   return snapshot({
     virtualPorts: [virtualPort(`demo-modbus-port-${suffix}`, portName)],
     modbus: modbusState(sessionId, toPortPath(portName)),
-    workspace: workspace({
-      selectedOperation: 'modbus',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [modbusTabId(sessionId)] },
-      activeByGroup: { 'group-1': modbusTabId(sessionId) },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
@@ -174,29 +164,24 @@ function createFecbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `mocktrue-demo-fecbus-${suffix}`
   const sessionId = `demo-fecbus-${suffix}`
+  const graph = serialGraphState(suffix, `${portName}-graph`)
 
   return snapshot({
     virtualPorts: [virtualPort(`demo-fecbus-port-${suffix}`, portName)],
     fecbus: fecbusState(sessionId, toPortPath(portName)),
-    workspace: workspace({
-      selectedOperation: 'fecbus',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [fecbusTabId(sessionId)] },
-      activeByGroup: { 'group-1': fecbusTabId(sessionId) },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
 function createSerialGraphDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `mocktrue-demo-graph-${suffix}`
+  const graph = serialGraphState(suffix, portName)
 
   return snapshot({
-    graph: serialGraphState(suffix, portName),
-    workspace: workspace({
-      selectedOperation: 'graph',
-      editorLayout: { type: 'group', id: 'group-1', tabs: ['serial.graph'] },
-      activeByGroup: { 'group-1': 'serial.graph' },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
@@ -207,6 +192,7 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const bridgePortB = `mocktrue-demo-full-b-${suffix}`
   const fecbusPort = `mocktrue-demo-full-fecbus-${suffix}`
   const graphPort = `mocktrue-demo-full-graph-${suffix}`
+  const graph = serialGraphState(suffix, graphPort)
 
   return snapshot({
     settings: {
@@ -233,12 +219,8 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
     }],
     modbus: modbusState(`demo-full-modbus-${suffix}`, toPortPath(terminalPort)),
     fecbus: fecbusState(`demo-full-fecbus-${suffix}`, toPortPath(fecbusPort)),
-    graph: serialGraphState(suffix, graphPort),
-    workspace: workspace({
-      selectedOperation: 'fecbus',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [modbusTabId(`demo-full-modbus-${suffix}`), fecbusTabId(`demo-full-fecbus-${suffix}`)] },
-      activeByGroup: { 'group-1': fecbusTabId(`demo-full-fecbus-${suffix}`) },
-    }),
+    graph,
+    workspace: graphWorkspace(graph),
   })
 }
 
@@ -280,6 +262,15 @@ function workspace(input: Partial<SerialWorkspaceState>): SerialWorkspaceState {
     activeByGroup: input.activeByGroup ?? { 'group-1': null },
     tabStates: input.tabStates ?? {},
   }
+}
+
+function graphWorkspace(graph: SerialGraphWorkspaceState): SerialWorkspaceState {
+  const tabId = graphTabId(graph.activeGraphId ?? graph.graphs[0]?.id ?? 'graph-1')
+  return workspace({
+    selectedOperation: 'graph',
+    editorLayout: { type: 'group', id: 'group-1', tabs: [tabId] },
+    activeByGroup: { 'group-1': tabId },
+  })
 }
 
 function emptyLayout(): EditorLayoutNode {
@@ -618,8 +609,8 @@ function modbusState(id: string, portName: string): ModbusWorkspaceState {
   return state
 }
 
-function modbusTabId(id: string): string {
-  return `modbus:${id}`
+function graphTabId(id: string): string {
+  return `graph:${id}`
 }
 
 function fecbusState(id: string, portName: string): FecbusWorkspaceState {
@@ -717,103 +708,110 @@ function fecbusState(id: string, portName: string): FecbusWorkspaceState {
   return state
 }
 
-function fecbusTabId(id: string): string {
-  return `fecbus:${id}`
-}
-
 function serialGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+  const graphId = `graph-demo-${suffix}`
+  const selectedNodeId = `graph-receiver-${suffix}`
+  const nodes: SerialGraphNode[] = [
+    {
+      id: `graph-sender-${suffix}`,
+      type: 'serial.sender',
+      position: { x: 32, y: 32 },
+      config: {
+        mode: 'ascii',
+        encoding: 'utf-8',
+        payload: `MockTrue graph ${suffix}\r\n`,
+        autoSend: true,
+        intervalMs: 1000,
+      },
+    },
+    {
+      id: `graph-vport-${suffix}`,
+      type: 'serial.virtual',
+      position: { x: 264, y: 32 },
+      config: {
+        portName,
+        baudRate: 115200,
+        dataBits: 8,
+        stopBits: '1',
+        parity: 'none',
+        flowMode: 'none',
+        readBufKB: 32,
+      },
+    },
+    {
+      id: `graph-tap-${suffix}`,
+      type: 'serial.tap',
+      position: { x: 496, y: 32 },
+      config: {},
+    },
+    {
+      id: selectedNodeId,
+      type: 'serial.receiver',
+      position: { x: 752, y: 32 },
+      config: { viewMode: 'hexClassic', autoScroll: true },
+    },
+    {
+      id: `graph-modbus-${suffix}`,
+      type: 'serial.modbus.master',
+      position: { x: 752, y: 168 },
+      config: { mode: 'rtu', unitIds: '1,2', functionCode: 3 },
+    },
+    {
+      id: `graph-monitor-${suffix}`,
+      type: 'serial.monitor',
+      position: { x: 752, y: 304 },
+      config: { mode: 'auto-virtual', displayMode: 'hex' },
+    },
+  ]
+
   return {
-    nodes: [
-      {
-        id: `graph-sender-${suffix}`,
-        type: 'serial.sender',
-        position: { x: 32, y: 32 },
-        config: {
-          mode: 'ascii',
-          encoding: 'utf-8',
-          payload: `MockTrue graph ${suffix}\r\n`,
-          autoSend: true,
-          intervalMs: 1000,
+    graphs: [{
+      id: graphId,
+      name: '串口拓扑演示',
+      nodes,
+      edges: [
+        {
+          id: `graph-edge-sender-vport-${suffix}`,
+          source: `graph-sender-${suffix}`,
+          sourceHandle: 'out',
+          target: `graph-vport-${suffix}`,
+          targetHandle: 'tx',
         },
-      },
-      {
-        id: `graph-vport-${suffix}`,
-        type: 'serial.virtual',
-        position: { x: 264, y: 32 },
-        config: {
-          portName,
-          baudRate: 115200,
-          dataBits: 8,
-          stopBits: '1',
-          parity: 'none',
-          flowMode: 'none',
-          readBufKB: 32,
+        {
+          id: `graph-edge-vport-tap-${suffix}`,
+          source: `graph-vport-${suffix}`,
+          sourceHandle: 'rx',
+          target: `graph-tap-${suffix}`,
+          targetHandle: 'in',
         },
-      },
-      {
-        id: `graph-tap-${suffix}`,
-        type: 'serial.tap',
-        position: { x: 496, y: 32 },
-        config: {},
-      },
-      {
-        id: `graph-receiver-${suffix}`,
-        type: 'serial.receiver',
-        position: { x: 752, y: 32 },
-        config: { viewMode: 'hexClassic', autoScroll: true },
-      },
-      {
-        id: `graph-modbus-${suffix}`,
-        type: 'serial.modbus.master',
-        position: { x: 752, y: 168 },
-        config: { mode: 'rtu', unitIds: '1,2', functionCode: 3 },
-      },
-      {
-        id: `graph-monitor-${suffix}`,
-        type: 'serial.monitor',
-        position: { x: 752, y: 304 },
-        config: { mode: 'auto-virtual', displayMode: 'hex' },
-      },
-    ],
-    edges: [
-      {
-        id: `graph-edge-sender-vport-${suffix}`,
-        source: `graph-sender-${suffix}`,
-        sourceHandle: 'out',
-        target: `graph-vport-${suffix}`,
-        targetHandle: 'tx',
-      },
-      {
-        id: `graph-edge-vport-tap-${suffix}`,
-        source: `graph-vport-${suffix}`,
-        sourceHandle: 'rx',
-        target: `graph-tap-${suffix}`,
-        targetHandle: 'in',
-      },
-      {
-        id: `graph-edge-tap-receiver-${suffix}`,
-        source: `graph-tap-${suffix}`,
-        sourceHandle: 'out',
-        target: `graph-receiver-${suffix}`,
-        targetHandle: 'in',
-      },
-      {
-        id: `graph-edge-tap-modbus-${suffix}`,
-        source: `graph-tap-${suffix}`,
-        sourceHandle: 'out',
-        target: `graph-modbus-${suffix}`,
-        targetHandle: 'rx',
-      },
-      {
-        id: `graph-edge-tap-monitor-${suffix}`,
-        source: `graph-tap-${suffix}`,
-        sourceHandle: 'out',
-        target: `graph-monitor-${suffix}`,
-        targetHandle: 'in',
-      },
-    ],
-    selectedNodeId: `graph-receiver-${suffix}`,
-    selectedEdgeId: null,
+        {
+          id: `graph-edge-tap-receiver-${suffix}`,
+          source: `graph-tap-${suffix}`,
+          sourceHandle: 'out',
+          target: selectedNodeId,
+          targetHandle: 'in',
+        },
+        {
+          id: `graph-edge-tap-modbus-${suffix}`,
+          source: `graph-tap-${suffix}`,
+          sourceHandle: 'out',
+          target: `graph-modbus-${suffix}`,
+          targetHandle: 'rx',
+        },
+        {
+          id: `graph-edge-tap-monitor-${suffix}`,
+          source: `graph-tap-${suffix}`,
+          sourceHandle: 'out',
+          target: `graph-monitor-${suffix}`,
+          targetHandle: 'in',
+        },
+      ],
+      selectedNodeId,
+      selectedEdgeId: null,
+      nodeTabs: nodes.map(node => ({ nodeId: node.id, title: nodeTabTitle(node) })),
+      activeNodeTabId: selectedNodeId,
+    }],
+    activeGraphId: graphId,
   }
 }
 

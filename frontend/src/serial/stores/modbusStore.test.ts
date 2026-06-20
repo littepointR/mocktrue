@@ -1,7 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultModbusMasterGrid,
+  defaultModbusMasterUnitGrid,
   defaultModbusRegisterTables,
   parseBoolPoints,
   parseBoolValues,
@@ -15,6 +16,39 @@ import {
 } from './modbusStore'
 import { DataType, WordOrder } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
 import { FrameMode } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+
+const serialServiceMock = vi.hoisted(() => ({
+  listModbusSessions: vi.fn(async () => []),
+  openModbusSession: vi.fn(async (request: any) => sampleSession(request.ID ?? 'modbus-1', request.Role ?? 'master')),
+  closeModbusSession: vi.fn(async () => undefined),
+  modbusMasterRequest: vi.fn(async () => null),
+  modbusReadRegisters: vi.fn(async () => ({
+    Transaction: null,
+    RawRegisters: [],
+    Bits: [],
+    Values: [],
+  })),
+  modbusScanUnitIDs: vi.fn(async () => ({
+    SessionID: 'modbus-1',
+    ActiveUnitIDs: [],
+    Results: [],
+  })),
+  modbusScanRegisters: vi.fn(async () => ({
+    SessionID: 'modbus-1',
+    UnitID: 1,
+    Values: [],
+    Ranges: [],
+  })),
+  startModbusSlave: vi.fn(async (request: any) => sampleSession(request.SessionID ?? 'modbus-1')),
+  stopModbusSlave: vi.fn(async () => undefined),
+  updateModbusSlaveUnitData: vi.fn(async () => undefined),
+  addModbusSlaveUnit: vi.fn(async () => undefined),
+  removeModbusSlaveUnit: vi.fn(async () => undefined),
+}))
+
+vi.mock('../services/serialService', () => ({
+  serialService: serialServiceMock,
+}))
 
 describe('modbusStore helpers', () => {
   it('parses master values', () => {
@@ -134,6 +168,7 @@ describe('modbusStore helpers', () => {
 
 describe('modbusStore workspace state', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     setActivePinia(createPinia())
   })
 
@@ -207,6 +242,31 @@ describe('modbusStore workspace state', () => {
           }
         : table
     ))
+    store.masterUnitGrids = [{
+      ...defaultModbusMasterUnitGrid(2),
+      registerType: 'input_registers',
+      littleEndian: true,
+      rawVisible: true,
+      logVisible: true,
+      registerTables: store.masterRegisterTables,
+      registerReadResult: {
+        Transaction: null,
+        RawRegisters: [24],
+        Bits: [],
+        Values: [],
+      },
+      unitScanResult: {
+        SessionID: 'session-1',
+        ActiveUnitIDs: [1, 2],
+        Results: [],
+      },
+      registerScanResult: {
+        SessionID: 'session-1',
+        UnitID: 1,
+        Values: [{ Address: 0, Value: 24 }],
+        Ranges: [],
+      },
+    }]
     store.slaveUnitGrids = [{
       unitId: 2,
       coils: [{ id: 'coil-0', address: 0, value: true }],
@@ -275,6 +335,8 @@ describe('modbusStore workspace state', () => {
     expect(store.masterGrid.littleEndian).toBe(true)
     expect(store.masterMappings[0].comment).toBe('demo value')
     expect(store.masterRegisterTables.find(table => table.type === 'input_registers')?.mappings[0].comment).toBe('table demo value')
+    expect(store.masterUnitGrids[0].unitId).toBe(2)
+    expect(store.masterUnitGrids[0].registerTables.find(table => table.type === 'input_registers')?.mappings[0].comment).toBe('table demo value')
     expect(store.slaveUnitGrids.find(unit => unit.unitId === 2)?.holdingRegisters[0].value).toBe(42)
     expect(store.unitScanForm.unitIds).toBe('1-4')
     expect(store.registerScanForm.endAddress).toBe(16)
@@ -282,6 +344,37 @@ describe('modbusStore workspace state', () => {
     expect(store.unitScanResult?.ActiveUnitIDs).toEqual([1, 2])
     expect(store.registerScanResult?.Values).toEqual([{ Address: 0, Value: 24 }])
     expect(store.history[0].Response.Values).toEqual([24, 42])
+  })
+
+  it('keeps master register tables isolated per Unit ID', () => {
+    const store = useModbusStore()
+
+    store.addMasterUnit(2)
+    store.selectMasterUnit(1)
+    store.masterRegisterTables.find(table => table.type === 'holding_registers')!.rows[0].value = '11'
+    store.masterRegisterTables.find(table => table.type === 'holding_registers')!.mappings[0].comment = 'unit 1'
+
+    store.selectMasterUnit(2)
+    store.masterRegisterTables.find(table => table.type === 'holding_registers')!.rows[0].value = '22'
+    store.masterRegisterTables.find(table => table.type === 'holding_registers')!.mappings[0].comment = 'unit 2'
+
+    store.selectMasterUnit(1)
+    expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.rows[0].value).toBe('11')
+    expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.mappings[0].comment).toBe('unit 1')
+    store.selectMasterUnit(2)
+    expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.rows[0].value).toBe('22')
+    expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.mappings[0].comment).toBe('unit 2')
+  })
+
+  it('rejects duplicate and out-of-range Unit IDs', () => {
+    const store = useModbusStore()
+
+    expect(store.addMasterUnit(2)).toBe(true)
+    expect(store.addMasterUnit(2)).toBe(false)
+    expect(store.error).toContain('Unit 2 已存在')
+    expect(store.addMasterUnit(0)).toBe(false)
+    expect(store.error).toContain('Unit ID 必须在 1-247')
+    expect(store.addSlaveUnit(300)).resolves.toBe(false)
   })
 
   it('defaults old snapshots to master role', () => {
@@ -421,9 +514,11 @@ describe('modbusStore workspace state', () => {
       groupEnd: false,
     }]
     delete (snapshot as any).masterRegisterTables
+    delete (snapshot as any).masterUnitGrids
 
     store.restoreState(snapshot)
 
+    expect(store.masterUnitGrids[0].unitId).toBe(3)
     const table = store.masterRegisterTables.find(item => item.type === 'input_registers')
     expect(table).toMatchObject({
       unitId: 3,
@@ -437,36 +532,58 @@ describe('modbusStore workspace state', () => {
     expect(store.masterGrid.registerType).toBe('input_registers')
   })
 
+  it('uses the active master Unit ID when building register requests', () => {
+    const store = useModbusStore()
+    openRealSession(store, 'modbus-1', 'master')
+
+    store.addMasterUnit(9)
+    store.selectMasterUnit(9)
+    const holding = store.masterRegisterTables.find(table => table.type === 'holding_registers')!
+    holding.address = 20
+    holding.length = 2
+
+    expect(store.buildRegisterReadRequest()).toMatchObject({
+      SessionID: 'modbus-1',
+      UnitID: 9,
+      Function: 3,
+      Address: 20,
+      Quantity: 2,
+    })
+  })
+
+  it('starts and applies only the active slave Unit ID', async () => {
+    const store = useModbusStore()
+    openRealSession(store, 'modbus-1', 'slave')
+    await store.addSlaveUnit(2)
+    store.selectSlaveUnit(2)
+    store.slaveUnitGrids.find(unit => unit.unitId === 2)!.holdingRegisters[0].value = 77
+    serialServiceMock.startModbusSlave.mockClear()
+    serialServiceMock.updateModbusSlaveUnitData.mockClear()
+
+    await store.startSlave()
+    await store.applySlaveData()
+
+    expect(serialServiceMock.startModbusSlave).toHaveBeenCalledWith(expect.objectContaining({
+      UnitID: 2,
+      Units: [{
+        UnitID: 2,
+        DataModel: expect.objectContaining({
+          HoldingRegisters: expect.arrayContaining([expect.objectContaining({ Address: 0, Value: 77 })]),
+        }),
+      }],
+    }))
+    expect(serialServiceMock.updateModbusSlaveUnitData).toHaveBeenCalledWith(
+      'modbus-1',
+      2,
+      expect.objectContaining({
+        HoldingRegisters: expect.arrayContaining([expect.objectContaining({ Address: 0, Value: 77 })]),
+      })
+    )
+  })
+
   it('builds scan requests from the current master workbench state', () => {
     const store = useModbusStore()
-    store.restoreState({
-      ...store.exportState(),
-      activeSessionId: 'modbus-1',
-      sessions: [{
-        ID: 'modbus-1',
-        Name: 'Modbus 主站',
-        Mode: FrameMode.FrameModeRTU,
-        Role: 'master' as any,
-        Config: {
-          PortName: '/tmp/ttyM0',
-          BaudRate: 115200,
-          DataBits: 8,
-          StopBits: '1',
-          Parity: 'none',
-          FlowMode: 'none',
-          ReadBufKB: 32,
-        },
-        Status: 'open',
-        RxBytes: 0,
-        TxBytes: 0,
-        SlaveRunning: false,
-        UnitID: 1,
-        UnitIDs: [],
-        StartedAt: '',
-        StoppedAt: '',
-        LastError: '',
-      }],
-    })
+    openRealSession(store, 'modbus-1', 'master')
     store.masterGrid = {
       ...defaultModbusMasterGrid(),
       unitId: 9,
@@ -505,3 +622,35 @@ describe('modbusStore workspace state', () => {
     })
   })
 })
+
+function openRealSession(store: ReturnType<typeof useModbusStore>, id: string, role: 'master' | 'slave') {
+  store.sessions.set(id, sampleSession(id, role))
+  store.setActiveSession(id)
+}
+
+function sampleSession(id: string, role: 'master' | 'slave' = 'slave') {
+  return {
+    ID: id,
+    Name: 'Modbus',
+    Mode: FrameMode.FrameModeRTU,
+    Role: role as any,
+    Config: {
+      PortName: '/tmp/ttyM0',
+      BaudRate: 115200,
+      DataBits: 8,
+      StopBits: '1',
+      Parity: 'none',
+      FlowMode: 'none',
+      ReadBufKB: 32,
+    },
+    Status: 'open',
+    RxBytes: 0,
+    TxBytes: 0,
+    SlaveRunning: false,
+    UnitID: 1,
+    UnitIDs: [],
+    StartedAt: '',
+    StoppedAt: '',
+    LastError: '',
+  }
+}

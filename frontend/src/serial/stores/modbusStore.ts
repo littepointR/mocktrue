@@ -75,6 +75,18 @@ export interface ModbusMasterRegisterTableState {
   mappings: ModbusRegisterMappingRow[]
 }
 
+export interface ModbusMasterUnitGridState {
+  unitId: number
+  registerType: ModbusRegisterType
+  littleEndian: boolean
+  rawVisible: boolean
+  logVisible: boolean
+  registerTables: ModbusMasterRegisterTableState[]
+  registerReadResult: RegisterReadResult | null
+  unitScanResult: UnitScanResult | null
+  registerScanResult: RegisterScanResult | null
+}
+
 export interface ModbusSlaveBoolRow {
   id: string
   address: number
@@ -171,6 +183,8 @@ export interface ModbusWorkspaceState {
   portForm: ModbusPortFormState
   masterForm: ModbusMasterFormState
   slaveForm: ModbusSlaveFormState
+  activeMasterUnitId?: number
+  masterUnitGrids?: ModbusMasterUnitGridState[]
   activeSlaveUnitId: number
   slaveUnitForms: ModbusSlaveFormState[]
   masterGrid: ModbusMasterGridState
@@ -308,8 +322,8 @@ export function defaultModbusMasterMappings(): ModbusRegisterMappingRow[] {
   ]
 }
 
-export function defaultModbusRegisterTables(): ModbusMasterRegisterTableState[] {
-  const base = defaultModbusMasterGrid()
+export function defaultModbusRegisterTables(unitId = 1): ModbusMasterRegisterTableState[] {
+  const base = { ...defaultModbusMasterGrid(), unitId: normalizeUnitId(unitId) }
   return registerTypes.map(type => ({
     type,
     unitId: base.unitId,
@@ -322,6 +336,22 @@ export function defaultModbusRegisterTables(): ModbusMasterRegisterTableState[] 
     rows: defaultMasterRows(type, type === 'coils' || type === 'discrete_inputs' ? 8 : base.length),
     mappings: type === 'input_registers' || type === 'holding_registers' ? defaultModbusMasterMappings() : [],
   }))
+}
+
+export function defaultModbusMasterUnitGrid(unitId = 1): ModbusMasterUnitGridState {
+  const normalizedUnitId = normalizeUnitId(unitId)
+  const grid = { ...defaultModbusMasterGrid(), unitId: normalizedUnitId }
+  return {
+    unitId: normalizedUnitId,
+    registerType: grid.registerType,
+    littleEndian: grid.littleEndian,
+    rawVisible: grid.rawVisible,
+    logVisible: grid.logVisible,
+    registerTables: defaultModbusRegisterTables(normalizedUnitId),
+    registerReadResult: null,
+    unitScanResult: null,
+    registerScanResult: null,
+  }
 }
 
 export function defaultModbusSlaveUnitGrid(unitId = 1): ModbusSlaveUnitGridState {
@@ -349,17 +379,21 @@ export function defaultModbusSlaveUnitGrid(unitId = 1): ModbusSlaveUnitGridState
 
 export function defaultModbusWorkspaceState(): ModbusWorkspaceState {
   const slaveForm = defaultModbusSlaveForm()
+  const masterUnit = defaultModbusMasterUnitGrid(1)
+  const masterTable = masterUnit.registerTables.find(table => table.type === masterUnit.registerType) ?? masterUnit.registerTables[0]
   return {
     activeSessionId: null,
     sessions: [],
     portForm: defaultModbusPortForm(),
     masterForm: defaultModbusMasterForm(),
     slaveForm,
+    activeMasterUnitId: masterUnit.unitId,
+    masterUnitGrids: [masterUnit],
     activeSlaveUnitId: slaveForm.unitId,
     slaveUnitForms: [{ ...slaveForm }],
-    masterGrid: defaultModbusMasterGrid(),
-    masterMappings: defaultModbusMasterMappings(),
-    masterRegisterTables: defaultModbusRegisterTables(),
+    masterGrid: masterGridFromUnitGrid(masterUnit),
+    masterMappings: masterTable.mappings.map(row => ({ ...row })),
+    masterRegisterTables: cloneMasterRegisterTables(masterUnit.registerTables),
     slaveUnitGrids: [defaultModbusSlaveUnitGrid(slaveForm.unitId)],
     registerReadForm: defaultModbusRegisterReadForm(),
     unitScanForm: defaultModbusUnitScanForm(),
@@ -378,11 +412,13 @@ export const useModbusStore = defineStore('serialModbus', () => {
   const portForm = ref<ModbusPortFormState>(defaultModbusPortForm())
   const masterForm = ref<ModbusMasterFormState>(defaultModbusMasterForm())
   const slaveForm = ref<ModbusSlaveFormState>(defaultModbusSlaveForm())
+  const activeMasterUnitId = ref<number>(1)
+  const masterUnitGrids = ref<ModbusMasterUnitGridState[]>([defaultModbusMasterUnitGrid(1)])
   const activeSlaveUnitId = ref<number>(slaveForm.value.unitId)
   const slaveUnitForms = ref<ModbusSlaveFormState[]>([{ ...slaveForm.value }])
-  const masterGrid = ref<ModbusMasterGridState>(defaultModbusMasterGrid())
+  const masterGrid = ref<ModbusMasterGridState>(masterGridFromUnitGrid(masterUnitGrids.value[0]))
   const masterMappings = ref<ModbusRegisterMappingRow[]>(defaultModbusMasterMappings())
-  const masterRegisterTables = ref<ModbusMasterRegisterTableState[]>(defaultModbusRegisterTables())
+  const masterRegisterTables = ref<ModbusMasterRegisterTableState[]>(cloneMasterRegisterTables(masterUnitGrids.value[0].registerTables))
   const slaveUnitGrids = ref<ModbusSlaveUnitGridState[]>([defaultModbusSlaveUnitGrid(slaveForm.value.unitId)])
   const registerReadForm = ref<ModbusRegisterReadFormState>(defaultModbusRegisterReadForm())
   const unitScanForm = ref<ModbusUnitScanFormState>(defaultModbusUnitScanForm())
@@ -522,15 +558,16 @@ export const useModbusStore = defineStore('serialModbus', () => {
       return null
     }
     syncActiveSlaveState()
-    const units = normalizedSlaveUnitGrids()
+    const unit = normalizeSlaveGrid(currentSlaveUnitGrid())
+    const dataModel = slaveGridToDataModel(unit)
     const request: StartSlaveRequest = {
       SessionID: session.ID,
-      UnitID: activeSlaveUnitId.value,
-      DataModel: slaveDataModel(),
-      Units: units.map(unit => ({
+      UnitID: unit.unitId,
+      DataModel: dataModel,
+      Units: [{
         UnitID: unit.unitId,
-        DataModel: slaveGridToDataModel(unit),
-      })),
+        DataModel: dataModel,
+      }],
     }
     try {
       const next = await serialService.startModbusSlave(request)
@@ -609,6 +646,16 @@ export const useModbusStore = defineStore('serialModbus', () => {
     }
   }
 
+  function currentSlaveUnitGrid(): ModbusSlaveUnitGridState {
+    syncActiveSlaveGrid()
+    const unitId = normalizeUnitId(activeSlaveUnitId.value)
+    const existing = slaveUnitGrids.value.find(unit => unit.unitId === unitId)
+    if (existing) return existing
+    const next = defaultModbusSlaveUnitGrid(unitId)
+    slaveUnitGrids.value = [...slaveUnitGrids.value, next].sort((a, b) => a.unitId - b.unitId)
+    return next
+  }
+
   function normalizedSlaveUnitForms(): ModbusSlaveFormState[] {
     syncActiveSlaveForm()
     const byUnit = new Map<number, ModbusSlaveFormState>()
@@ -660,25 +707,124 @@ export const useModbusStore = defineStore('serialModbus', () => {
     }))
   }
 
+  function exportMasterUnitGrids(): ModbusMasterUnitGridState[] {
+    syncActiveMasterUnitFromLegacy()
+    return masterUnitGrids.value
+      .map(normalizeMasterUnitGrid)
+      .sort((a, b) => a.unitId - b.unitId)
+  }
+
+  function syncActiveMasterUnitFromLegacy() {
+    const legacyUnitId = normalizeUnitId(masterGrid.value.unitId)
+    const unitId = legacyUnitId !== activeMasterUnitId.value
+      ? legacyUnitId
+      : normalizeUnitId(activeMasterUnitId.value || legacyUnitId)
+    activeMasterUnitId.value = unitId
+    masterGrid.value = {
+      ...masterGrid.value,
+      unitId,
+    }
+    masterRegisterTables.value = normalizeMasterRegisterTables(masterRegisterTables.value, masterGrid.value, masterMappings.value, unitId)
+    const nextUnit = normalizeMasterUnitGrid({
+      unitId,
+      registerType: masterGrid.value.registerType,
+      littleEndian: masterGrid.value.littleEndian,
+      rawVisible: masterGrid.value.rawVisible,
+      logVisible: masterGrid.value.logVisible,
+      registerTables: masterRegisterTables.value,
+      registerReadResult: registerReadResult.value,
+      unitScanResult: unitScanResult.value,
+      registerScanResult: registerScanResult.value,
+    })
+    const existingIndex = masterUnitGrids.value.findIndex(unit => unit.unitId === unitId)
+    if (existingIndex >= 0) {
+      const next = masterUnitGrids.value.slice()
+      next[existingIndex] = nextUnit
+      masterUnitGrids.value = next.sort((a, b) => a.unitId - b.unitId)
+    } else {
+      masterUnitGrids.value = [...masterUnitGrids.value, nextUnit].sort((a, b) => a.unitId - b.unitId)
+    }
+  }
+
+  function loadMasterUnitIntoLegacy(unit: ModbusMasterUnitGridState) {
+    const normalized = normalizeMasterUnitGrid(unit)
+    activeMasterUnitId.value = normalized.unitId
+    masterGrid.value = masterGridFromUnitGrid(normalized)
+    masterRegisterTables.value = cloneMasterRegisterTables(normalized.registerTables)
+    const activeTable = masterRegisterTables.value.find(table => table.type === normalized.registerType) ?? masterRegisterTables.value[0]
+    masterMappings.value = activeTable?.mappings.map(row => ({ ...row })) ?? []
+    registerReadResult.value = normalized.registerReadResult
+    unitScanResult.value = normalized.unitScanResult
+    registerScanResult.value = normalized.registerScanResult
+  }
+
+  function selectMasterUnit(unitId: number): boolean {
+    const normalized = normalizeUnitId(unitId)
+    const next = masterUnitGrids.value.find(unit => unit.unitId === normalized)
+    if (!next) return false
+    syncActiveMasterUnitFromLegacy()
+    loadMasterUnitIntoLegacy(next)
+    error.value = null
+    return true
+  }
+
+  function addMasterUnit(unitId: number): boolean {
+    const normalized = validateUnitId(unitId)
+    if (!normalized) {
+      error.value = 'Unit ID 必须在 1-247'
+      return false
+    }
+    syncActiveMasterUnitFromLegacy()
+    if (masterUnitGrids.value.some(unit => unit.unitId === normalized)) {
+      error.value = `Unit ${normalized} 已存在`
+      return false
+    }
+    masterUnitGrids.value = [...masterUnitGrids.value, defaultModbusMasterUnitGrid(normalized)].sort((a, b) => a.unitId - b.unitId)
+    loadMasterUnitIntoLegacy(masterUnitGrids.value.find(unit => unit.unitId === normalized)!)
+    error.value = null
+    return true
+  }
+
+  function removeMasterUnit(unitId = activeMasterUnitId.value): boolean {
+    syncActiveMasterUnitFromLegacy()
+    if (masterUnitGrids.value.length <= 1) return false
+    const normalized = normalizeUnitId(unitId)
+    if (!masterUnitGrids.value.some(unit => unit.unitId === normalized)) return false
+    const remaining = masterUnitGrids.value.filter(unit => unit.unitId !== normalized).sort((a, b) => a.unitId - b.unitId)
+    masterUnitGrids.value = remaining
+    loadMasterUnitIntoLegacy(remaining[0])
+    error.value = null
+    return true
+  }
+
   function activeMasterTable(): ModbusMasterRegisterTableState {
+    const legacyUnitId = normalizeUnitId(masterGrid.value.unitId)
+    if (legacyUnitId !== activeMasterUnitId.value && !masterUnitGrids.value.some(unit => unit.unitId === legacyUnitId)) {
+      activeMasterUnitId.value = legacyUnitId
+    }
+    masterGrid.value.unitId = activeMasterUnitId.value
     const type = normalizeRegisterType(masterGrid.value.registerType)
     let table = masterRegisterTables.value.find(item => item.type === type)
     if (!table) {
       table = masterTableFromGrid(type, masterGrid.value, masterMappings.value)
-      masterRegisterTables.value = normalizeMasterRegisterTables([...masterRegisterTables.value, table], masterGrid.value, masterMappings.value)
+      masterRegisterTables.value = normalizeMasterRegisterTables([...masterRegisterTables.value, table], masterGrid.value, masterMappings.value, activeMasterUnitId.value)
       table = masterRegisterTables.value.find(item => item.type === type)!
     }
     if (tableDiffersFromGrid(table, masterGrid.value)) {
-      table.unitId = masterGrid.value.unitId
-      table.address = masterGrid.value.address
-      table.length = masterGrid.value.length
-      table.addressBase = masterGrid.value.addressBase
-      table.pollRateMs = masterGrid.value.pollRateMs
-      table.timeoutMs = masterGrid.value.timeoutMs
-      table.retries = masterGrid.value.retries
-      table.rows = defaultMasterRows(table.type, table.length, table.address)
-      if (masterMappings.value.length) {
-        table.mappings = masterMappings.value.map(row => ({ ...row }))
+      if (masterTableMatchesDefaults(table) && !masterGridMatchesDefaults(masterGrid.value, type, activeMasterUnitId.value)) {
+        table.unitId = activeMasterUnitId.value
+        table.address = masterGrid.value.address
+        table.length = masterGrid.value.length
+        table.addressBase = masterGrid.value.addressBase
+        table.pollRateMs = masterGrid.value.pollRateMs
+        table.timeoutMs = masterGrid.value.timeoutMs
+        table.retries = masterGrid.value.retries
+        table.rows = defaultMasterRows(table.type, table.length, table.address)
+        if (masterMappings.value.length) {
+          table.mappings = masterMappings.value.map(row => ({ ...row }))
+        }
+      } else {
+        syncMasterGridFromTable(table)
       }
     }
     return table
@@ -687,7 +833,7 @@ export const useModbusStore = defineStore('serialModbus', () => {
   function syncMasterGridFromTable(table: ModbusMasterRegisterTableState) {
     masterGrid.value = {
       ...masterGrid.value,
-      unitId: table.unitId,
+      unitId: activeMasterUnitId.value,
       registerType: table.type,
       address: table.address,
       length: table.length,
@@ -756,14 +902,21 @@ export const useModbusStore = defineStore('serialModbus', () => {
     syncActiveSlaveGrid()
   }
 
-  async function addSlaveUnit(unitId?: number) {
+  async function addSlaveUnit(unitId = 1): Promise<boolean> {
     syncActiveSlaveState()
     const used = new Set([
       ...slaveUnitForms.value.map(unit => unit.unitId),
       ...slaveUnitGrids.value.map(unit => unit.unitId),
     ])
-    let nextUnitId = normalizeUnitId(unitId ?? 1)
-    while (used.has(nextUnitId) && nextUnitId < 247) nextUnitId += 1
+    const nextUnitId = validateUnitId(unitId)
+    if (!nextUnitId) {
+      error.value = 'Unit ID 必须在 1-247'
+      return false
+    }
+    if (used.has(nextUnitId)) {
+      error.value = `Unit ${nextUnitId} 已存在`
+      return false
+    }
     const next = { ...defaultModbusSlaveForm(), unitId: nextUnitId }
     const nextGrid = defaultModbusSlaveUnitGrid(nextUnitId)
     slaveUnitForms.value = [...slaveUnitForms.value, next].sort((a, b) => a.unitId - b.unitId)
@@ -777,6 +930,8 @@ export const useModbusStore = defineStore('serialModbus', () => {
       })
       await refreshSessions()
     }
+    error.value = null
+    return true
   }
 
   async function removeSlaveUnit(unitId = activeSlaveUnitId.value) {
@@ -808,6 +963,7 @@ export const useModbusStore = defineStore('serialModbus', () => {
       const result = await serialService.modbusReadRegisters(request)
       registerReadResult.value = result
       applyRegisterReadResult(activeMasterTable(), result)
+      syncActiveMasterUnitFromLegacy()
       if (result.Transaction) {
         history.value = [result.Transaction, ...history.value].slice(0, 200)
       }
@@ -835,6 +991,7 @@ export const useModbusStore = defineStore('serialModbus', () => {
     try {
       const result = await serialService.modbusScanUnitIDs(request)
       unitScanResult.value = result
+      syncActiveMasterUnitFromLegacy()
       error.value = null
       await refreshSessions()
       return result
@@ -859,6 +1016,7 @@ export const useModbusStore = defineStore('serialModbus', () => {
     try {
       const result = await serialService.modbusScanRegisters(request)
       registerScanResult.value = result
+      syncActiveMasterUnitFromLegacy()
       error.value = null
       await refreshSessions()
       return result
@@ -956,6 +1114,8 @@ export const useModbusStore = defineStore('serialModbus', () => {
     portForm.value = next.portForm
     masterForm.value = next.masterForm
     slaveForm.value = next.slaveForm
+    activeMasterUnitId.value = next.activeMasterUnitId ?? 1
+    masterUnitGrids.value = next.masterUnitGrids?.map(normalizeMasterUnitGrid) ?? [defaultModbusMasterUnitGrid(1)]
     activeSlaveUnitId.value = next.activeSlaveUnitId
     slaveUnitForms.value = next.slaveUnitForms
     masterGrid.value = next.masterGrid
@@ -973,12 +1133,15 @@ export const useModbusStore = defineStore('serialModbus', () => {
   }
 
   function exportState(): ModbusWorkspaceState {
+    const exportedMasterUnits = exportMasterUnitGrids()
     return {
       activeSessionId: activeSessionId.value,
       sessions: sessionList.value,
       portForm: { ...portForm.value },
       masterForm: { ...masterForm.value },
       slaveForm: { ...slaveForm.value },
+      activeMasterUnitId: activeMasterUnitId.value,
+      masterUnitGrids: exportedMasterUnits,
       activeSlaveUnitId: activeSlaveUnitId.value,
       slaveUnitForms: exportSlaveUnitForms().map(unit => ({ ...unit })),
       masterGrid: { ...masterGrid.value },
@@ -1010,11 +1173,29 @@ export const useModbusStore = defineStore('serialModbus', () => {
     const selected = slaveUnitForms.value.find(unit => unit.unitId === activeSlaveUnitId.value) ?? slaveUnitForms.value[0]
     activeSlaveUnitId.value = selected.unitId
     slaveForm.value = { ...selected }
-    masterGrid.value = normalizeMasterGrid(source.masterGrid ?? masterGridFromRegisterReadForm(source.registerReadForm))
-    masterMappings.value = normalizeMappingRows(
+    const restoredMasterGrid = normalizeMasterGrid(source.masterGrid ?? masterGridFromRegisterReadForm(source.registerReadForm))
+    const restoredMappings = normalizeMappingRows(
       source.masterMappings?.length ? source.masterMappings : registerMappingTextToRows(source.registerReadForm?.mappingText ?? '')
     )
-    masterRegisterTables.value = normalizeMasterRegisterTables(source.masterRegisterTables, masterGrid.value, masterMappings.value)
+    const restoredTables = normalizeMasterRegisterTables(source.masterRegisterTables, restoredMasterGrid, restoredMappings, restoredMasterGrid.unitId)
+    const restoredMasterUnits = source.masterUnitGrids?.length
+      ? source.masterUnitGrids.map(normalizeMasterUnitGrid)
+      : [normalizeMasterUnitGrid({
+          unitId: restoredMasterGrid.unitId,
+          registerType: restoredMasterGrid.registerType,
+          littleEndian: restoredMasterGrid.littleEndian,
+          rawVisible: restoredMasterGrid.rawVisible,
+          logVisible: restoredMasterGrid.logVisible,
+          registerTables: restoredTables,
+          registerReadResult: source.registerReadResult ?? null,
+          unitScanResult: source.unitScanResult ?? null,
+          registerScanResult: source.registerScanResult ?? null,
+        })]
+    masterUnitGrids.value = restoredMasterUnits.sort((a, b) => a.unitId - b.unitId)
+    const selectedMasterUnitId = normalizeUnitId(source.activeMasterUnitId ?? restoredMasterGrid.unitId)
+    const selectedMasterUnit = masterUnitGrids.value.find(unit => unit.unitId === selectedMasterUnitId) ?? masterUnitGrids.value[0]
+    loadMasterUnitIntoLegacy(selectedMasterUnit)
+    masterMappings.value = restoredMappings.map(row => ({ ...row }))
     slaveUnitGrids.value = (source.slaveUnitGrids?.length ? source.slaveUnitGrids : slaveUnitForms.value.map(slaveFormToGrid))
       .map(normalizeSlaveGrid)
       .sort((a, b) => a.unitId - b.unitId)
@@ -1024,9 +1205,6 @@ export const useModbusStore = defineStore('serialModbus', () => {
     registerReadForm.value = { ...defaultModbusRegisterReadForm(), ...source.registerReadForm, polling: false }
     unitScanForm.value = { ...defaultModbusUnitScanForm(), ...source.unitScanForm }
     registerScanForm.value = { ...defaultModbusRegisterScanForm(), ...source.registerScanForm }
-    registerReadResult.value = source.registerReadResult ?? null
-    unitScanResult.value = source.unitScanResult ?? null
-    registerScanResult.value = source.registerScanResult ?? null
     history.value = source.history ?? []
     error.value = null
   }
@@ -1042,6 +1220,8 @@ export const useModbusStore = defineStore('serialModbus', () => {
     portForm,
     masterForm,
     slaveForm,
+    activeMasterUnitId,
+    masterUnitGrids,
     activeSlaveUnitId,
     slaveUnitForms,
     masterGrid,
@@ -1067,6 +1247,9 @@ export const useModbusStore = defineStore('serialModbus', () => {
     startSlave,
     stopSlave,
     applySlaveData,
+    selectMasterUnit,
+    addMasterUnit,
+    removeMasterUnit,
     selectSlaveUnit,
     addSlaveUnit,
     removeSlaveUnit,
@@ -1238,6 +1421,57 @@ function normalizeMasterGrid(grid?: Partial<ModbusMasterGridState>): ModbusMaste
   }
 }
 
+function masterGridFromUnitGrid(unit: ModbusMasterUnitGridState): ModbusMasterGridState {
+  const normalized = normalizeMasterUnitGrid(unit)
+  const table = normalized.registerTables.find(item => item.type === normalized.registerType) ?? normalized.registerTables[0]
+  return {
+    ...defaultModbusMasterGrid(),
+    unitId: normalized.unitId,
+    registerType: normalized.registerType,
+    address: table?.address ?? 0,
+    length: table?.length ?? 4,
+    addressBase: table?.addressBase ?? 0,
+    readConfigured: false,
+    littleEndian: normalized.littleEndian,
+    rawVisible: normalized.rawVisible,
+    logVisible: normalized.logVisible,
+    pollRateMs: table?.pollRateMs ?? 1000,
+    timeoutMs: table?.timeoutMs ?? 800,
+    retries: table?.retries ?? 0,
+  }
+}
+
+function normalizeMasterUnitGrid(unit: Partial<ModbusMasterUnitGridState>): ModbusMasterUnitGridState {
+  const unitId = normalizeUnitId(unit.unitId ?? 1)
+  const grid = normalizeMasterGrid({
+    unitId,
+    registerType: unit.registerType,
+    littleEndian: unit.littleEndian,
+    rawVisible: unit.rawVisible,
+    logVisible: unit.logVisible,
+  })
+  const registerTables = normalizeMasterRegisterTables(unit.registerTables, grid, defaultModbusMasterMappings(), unitId)
+  return {
+    unitId,
+    registerType: grid.registerType,
+    littleEndian: Boolean(grid.littleEndian),
+    rawVisible: unit.rawVisible ?? grid.rawVisible,
+    logVisible: unit.logVisible ?? grid.logVisible,
+    registerTables,
+    registerReadResult: unit.registerReadResult ?? null,
+    unitScanResult: unit.unitScanResult ?? null,
+    registerScanResult: unit.registerScanResult ?? null,
+  }
+}
+
+function cloneMasterRegisterTables(tables: ModbusMasterRegisterTableState[]): ModbusMasterRegisterTableState[] {
+  return tables.map(table => ({
+    ...table,
+    rows: table.rows.map(row => ({ ...row })),
+    mappings: table.mappings.map(row => ({ ...row })),
+  }))
+}
+
 function masterTableFromGrid(
   type: ModbusRegisterType,
   grid: Partial<ModbusMasterGridState>,
@@ -1261,17 +1495,19 @@ function masterTableFromGrid(
 function normalizeMasterRegisterTables(
   tables: ModbusMasterRegisterTableState[] | undefined,
   legacyGrid: ModbusMasterGridState,
-  legacyMappings: ModbusRegisterMappingRow[]
+  legacyMappings: ModbusRegisterMappingRow[],
+  unitId = legacyGrid.unitId
 ): ModbusMasterRegisterTableState[] {
+  const normalizedUnitId = normalizeUnitId(unitId)
   const source = tables?.length
     ? tables
     : [masterTableFromGrid(legacyGrid.registerType, legacyGrid, legacyMappings)]
   const byType = new Map<ModbusRegisterType, ModbusMasterRegisterTableState>()
   for (const table of source) {
     const type = normalizeRegisterType(table.type)
-    byType.set(type, normalizeMasterRegisterTable({ ...table, type }))
+    byType.set(type, normalizeMasterRegisterTable({ ...table, type, unitId: normalizedUnitId }))
   }
-  return registerTypes.map(type => byType.get(type) ?? normalizeMasterRegisterTable(defaultModbusRegisterTables().find(table => table.type === type)!))
+  return registerTypes.map(type => byType.get(type) ?? normalizeMasterRegisterTable(defaultModbusRegisterTables(normalizedUnitId).find(table => table.type === type)!))
 }
 
 function normalizeMasterRegisterTable(table: ModbusMasterRegisterTableState): ModbusMasterRegisterTableState {
@@ -1289,6 +1525,35 @@ function normalizeMasterRegisterTable(table: ModbusMasterRegisterTableState): Mo
     rows: normalizeMasterRows(table.rows?.length ? table.rows : defaultMasterRows(table.type, length, address)),
     mappings: normalizeMappingRows(table.mappings ?? [], true),
   }
+}
+
+function masterGridMatchesDefaults(grid: ModbusMasterGridState, type: ModbusRegisterType, unitId: number): boolean {
+  const defaults = {
+    ...defaultModbusMasterGrid(),
+    unitId: normalizeUnitId(unitId),
+    registerType: type,
+  }
+  return grid.unitId === defaults.unitId &&
+    grid.registerType === defaults.registerType &&
+    grid.address === defaults.address &&
+    grid.length === defaults.length &&
+    grid.addressBase === defaults.addressBase &&
+    grid.pollRateMs === defaults.pollRateMs &&
+    grid.timeoutMs === defaults.timeoutMs &&
+    grid.retries === defaults.retries
+}
+
+function masterTableMatchesDefaults(table: ModbusMasterRegisterTableState): boolean {
+  const defaults = defaultModbusRegisterTables(table.unitId).find(item => item.type === table.type)
+  if (!defaults) return false
+  return table.address === 0 &&
+    table.length === defaults.length &&
+    table.addressBase === defaults.addressBase &&
+    table.pollRateMs === defaults.pollRateMs &&
+    table.timeoutMs === defaults.timeoutMs &&
+    table.retries === defaults.retries &&
+    JSON.stringify(table.rows) === JSON.stringify(defaults.rows) &&
+    JSON.stringify(table.mappings) === JSON.stringify(defaults.mappings)
 }
 
 function defaultMasterRows(type: ModbusRegisterType, length: number, startAddress = 0): ModbusMasterTableRow[] {
@@ -1443,6 +1708,17 @@ function parseNumber(input: string): number {
 function normalizeUnitId(value: number): number {
   if (!Number.isFinite(value)) return 1
   return Math.min(247, Math.max(1, Math.trunc(value)))
+}
+
+function validateUnitId(value: number): number | null {
+  if (!Number.isFinite(value) || value < 1 || value > 247) {
+    return null
+  }
+  const unitId = Math.trunc(value)
+  if (unitId < 1 || unitId > 247) {
+    return null
+  }
+  return unitId
 }
 
 function normalizeDataType(value: string): DataType {

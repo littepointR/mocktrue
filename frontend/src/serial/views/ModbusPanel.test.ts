@@ -11,6 +11,8 @@ vi.mock('../services/serialService', () => ({
     listPorts: vi.fn(async () => []),
     listModbusSessions: vi.fn(async () => []),
     openModbusSession: vi.fn(async () => null),
+    addModbusSlaveUnit: vi.fn(async () => undefined),
+    removeModbusSlaveUnit: vi.fn(async () => undefined),
   },
 }))
 
@@ -81,6 +83,11 @@ describe('ModbusPanel', () => {
     expect(text).toContain('扫描寄存器')
     expect(text).toContain('Raw')
     expect(text).toContain('日志')
+    expect(wrapper.find('[data-testid="modbus-master-unit-tabs"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-master-unit-tab-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-master-unit-tabs"]').text()).toContain('主站 Unit')
+    expect(wrapper.find('[data-testid="modbus-master-config-summary"]').text()).toContain('Holding Registers')
+    expect(wrapper.find('.modbus-panel__collapse-state').text()).toBe('展开')
     expect(text).toContain('配置')
     expect(text).not.toContain('轮询 ms')
     expect(text).toContain('Coils')
@@ -96,6 +103,8 @@ describe('ModbusPanel', () => {
     expect(text).not.toContain('未映射')
     expect(wrapper.find('[data-testid="modbus-master-table-coils"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modbus-master-table-discrete_inputs"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-master-table-coils"]').classes()).toContain('modbus-panel__bool-table')
+    expect(wrapper.find('[data-testid="modbus-master-table-discrete_inputs"]').classes()).toContain('modbus-panel__bool-table')
     expect(wrapper.find('[data-testid="modbus-master-table-input_registers"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modbus-master-table-holding_registers"]').exists()).toBe(true)
     expect(wrapper.find('.modbus-panel__mapping-band').exists()).toBe(true)
@@ -120,6 +129,36 @@ describe('ModbusPanel', () => {
 
     expect(store.masterGrid.registerType).toBe('coils')
     expect(wrapper.find('[data-testid="modbus-master-card-coils"]').classes()).toContain('modbus-panel__register-card--active')
+  })
+
+  it('adds and switches master Unit tabs without sharing register rows', async () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-master',
+      sessions: [sampleSession('modbus-master', SessionRole.SessionRoleMaster)],
+    })
+
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+
+    store.masterRegisterTables.find(table => table.type === 'holding_registers')!.rows[0].value = '11'
+    await wrapper.find('[data-testid="modbus-add-master-unit"]').trigger('click')
+    await wrapper.find('[data-testid="modbus-new-master-unit-id"] input').setValue('2')
+    await wrapper.find('[data-testid="modbus-confirm-master-unit"]').trigger('click')
+
+    expect(store.activeMasterUnitId).toBe(2)
+    expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.rows[0].value).toBe('0')
+    store.masterRegisterTables.find(table => table.type === 'holding_registers')!.rows[0].value = '22'
+
+    await wrapper.find('[data-testid="modbus-master-unit-tab-1"]').trigger('click')
+    expect(store.activeMasterUnitId).toBe(1)
+    expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.rows[0].value).toBe('11')
+
+    await wrapper.find('[data-testid="modbus-master-unit-tab-2"]').trigger('click')
+    expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.rows[0].value).toBe('22')
   })
 
   it('uses the same header layout for every master register card', () => {
@@ -282,7 +321,7 @@ describe('ModbusPanel', () => {
     expect(wrapper.text()).toContain('重试')
   })
 
-  it('renders a slave workbench with unit selector and four data sections instead of textareas', () => {
+  it('renders a slave workbench with unit tabs and four data sections instead of textareas', () => {
     const store = useModbusStore()
     store.restoreState({
       ...store.exportState(),
@@ -305,11 +344,47 @@ describe('ModbusPanel', () => {
     expect(text).toContain('Input Registers')
     expect(text).toContain('Holding Registers')
     expect(wrapper.findAll('textarea')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="modbus-slave-unit-tabs"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-slave-unit-tab-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-slave-unit-tabs"]').text()).toContain('从站 Unit')
     expect(wrapper.find('[data-testid="modbus-slave-table-coils"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modbus-slave-table-discreteInputs"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-slave-table-coils"]').classes()).toContain('modbus-panel__bool-table')
+    expect(wrapper.find('[data-testid="modbus-slave-table-discreteInputs"]').classes()).toContain('modbus-panel__bool-table')
     expect(wrapper.find('[data-testid="modbus-slave-table-inputRegisters"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modbus-slave-table-holdingRegisters"]').exists()).toBe(true)
     expect(wrapper.find('.modbus-panel__row-actions').exists()).toBe(true)
+  })
+
+  it('adds and switches slave Unit tabs with independent data grids', async () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-slave',
+      sessions: [sampleSession('modbus-slave', SessionRole.SessionRoleSlave)],
+    })
+
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-slave' },
+      global: { stubs },
+    })
+
+    store.slaveUnitGrids.find(unit => unit.unitId === 1)!.holdingRegisters[0].value = 11
+    await wrapper.find('[data-testid="modbus-add-slave-unit"]').trigger('click')
+    await wrapper.find('[data-testid="modbus-new-slave-unit-id"] input').setValue('2')
+    await wrapper.find('[data-testid="modbus-confirm-slave-unit"]').trigger('click')
+
+    expect(store.activeSlaveUnitId).toBe(2)
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 2)?.holdingRegisters[0].value).toBe(24)
+    store.slaveUnitGrids.find(unit => unit.unitId === 2)!.holdingRegisters[0].value = 22
+
+    await wrapper.find('[data-testid="modbus-slave-unit-tab-1"]').trigger('click')
+    expect(store.activeSlaveUnitId).toBe(1)
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 1)?.holdingRegisters[0].value).toBe(11)
+
+    await wrapper.find('[data-testid="modbus-slave-unit-tab-2"]').trigger('click')
+    expect(store.activeSlaveUnitId).toBe(2)
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 2)?.holdingRegisters[0].value).toBe(22)
   })
 })
 

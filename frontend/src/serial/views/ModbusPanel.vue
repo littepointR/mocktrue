@@ -50,6 +50,10 @@ const scanningUnits = ref(false)
 const scanningRegisters = ref(false)
 const masterConfigOpen = ref(false)
 const slaveConfigOpen = ref(false)
+const masterUnitDialogOpen = ref(false)
+const slaveUnitDialogOpen = ref(false)
+const pendingMasterUnitId = ref(1)
+const pendingSlaveUnitId = ref(1)
 
 const baudOptions = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, 1000000, 2000000, 4000000].map(v => ({
   label: String(v),
@@ -155,12 +159,6 @@ const registerMappedValues = computed(() => modbusStore.registerReadResult?.Valu
 const registerBits = computed(() => modbusStore.registerReadResult?.Bits ?? [])
 const activeUnitIds = computed(() => modbusStore.unitScanResult?.ActiveUnitIDs ?? [])
 const registerScanValues = computed(() => modbusStore.registerScanResult?.Values ?? [])
-const slaveUnitOptions = computed(() =>
-  modbusStore.slaveUnitGrids.map(unit => ({
-    label: `Unit ${unit.unitId}`,
-    value: unit.unitId,
-  }))
-)
 const activeSlaveGrid = computed(() => currentSlaveGrid())
 const activeMasterTable = computed(() => currentMasterTable())
 
@@ -240,11 +238,31 @@ async function applySlaveData() {
   }
 }
 
-async function addSlaveUnit() {
+function openAddMasterUnitDialog() {
+  selectTargetSession()
+  pendingMasterUnitId.value = nextAvailableUnitId(modbusStore.masterUnitGrids.map(unit => unit.unitId))
+  masterUnitDialogOpen.value = true
+}
+
+function confirmAddMasterUnit() {
+  if (modbusStore.addMasterUnit(Number(pendingMasterUnitId.value))) {
+    masterUnitDialogOpen.value = false
+  }
+}
+
+function openAddSlaveUnitDialog() {
+  selectTargetSession()
+  pendingSlaveUnitId.value = nextAvailableUnitId(modbusStore.slaveUnitGrids.map(unit => unit.unitId))
+  slaveUnitDialogOpen.value = true
+}
+
+async function confirmAddSlaveUnit() {
   selectTargetSession()
   slaveLoading.value = true
   try {
-    await modbusStore.addSlaveUnit()
+    if (await modbusStore.addSlaveUnit(Number(pendingSlaveUnitId.value))) {
+      slaveUnitDialogOpen.value = false
+    }
   } finally {
     slaveLoading.value = false
   }
@@ -309,7 +327,7 @@ function currentMasterTable(): ModbusMasterRegisterTableState {
 
 function selectMasterTable(table: ModbusMasterRegisterTableState) {
   modbusStore.masterGrid.registerType = table.type
-  modbusStore.masterGrid.unitId = table.unitId
+  modbusStore.masterGrid.unitId = modbusStore.activeMasterUnitId
   modbusStore.masterGrid.address = table.address
   modbusStore.masterGrid.length = table.length
   modbusStore.masterGrid.addressBase = table.addressBase
@@ -321,6 +339,14 @@ function selectMasterTable(table: ModbusMasterRegisterTableState) {
 
 function registerTypeLabel(type: ModbusRegisterType): string {
   return registerTypeOptions.find(option => option.value === type)?.label ?? type
+}
+
+function nextAvailableUnitId(unitIds: number[]): number {
+  const used = new Set(unitIds)
+  for (let id = 1; id <= 247; id += 1) {
+    if (!used.has(id)) return id
+  }
+  return 247
 }
 
 function addMasterRow(table: ModbusMasterRegisterTableState) {
@@ -651,6 +677,33 @@ function responseSummary(tx: any): string {
         </div>
       </div>
 
+      <div class="modbus-panel__unit-tabs" data-testid="modbus-master-unit-tabs">
+        <span class="modbus-panel__unit-tabs-label">主站 Unit</span>
+        <div class="modbus-panel__unit-tab-list">
+          <button
+            v-for="unit in modbusStore.masterUnitGrids"
+            :key="unit.unitId"
+            class="modbus-panel__unit-tab"
+            :class="{ 'modbus-panel__unit-tab--active': unit.unitId === modbusStore.activeMasterUnitId }"
+            :data-testid="`modbus-master-unit-tab-${unit.unitId}`"
+            type="button"
+            @click="modbusStore.selectMasterUnit(unit.unitId)"
+          >
+            Unit {{ unit.unitId }}
+          </button>
+        </div>
+        <div class="modbus-panel__unit-tab-actions">
+          <NButton size="small" data-testid="modbus-add-master-unit" @click="openAddMasterUnitDialog">添加</NButton>
+          <NButton
+            size="small"
+            :disabled="modbusStore.masterUnitGrids.length <= 1"
+            @click="modbusStore.removeMasterUnit()"
+          >
+            删除
+          </NButton>
+        </div>
+      </div>
+
       <section class="modbus-panel__section modbus-panel__collapsible">
         <button
           class="modbus-panel__collapse-header"
@@ -658,15 +711,17 @@ function responseSummary(tx: any): string {
           type="button"
           @click="masterConfigOpen = !masterConfigOpen"
         >
-          <span class="modbus-panel__section-title">配置</span>
-          <span>Unit {{ activeMasterTable.unitId }} · {{ registerTypeLabel(activeMasterTable.type) }} · {{ activeMasterTable.addressBase === 1 ? 'PLC' : '0-based' }}</span>
+          <span class="modbus-panel__collapse-label">
+            <span class="modbus-panel__section-title">配置</span>
+            <span class="modbus-panel__collapse-state">{{ masterConfigOpen ? '收起' : '展开' }}</span>
+          </span>
+          <span class="modbus-panel__collapse-summary" data-testid="modbus-master-config-summary">
+            Unit {{ activeMasterTable.unitId }} · {{ registerTypeLabel(activeMasterTable.type) }} · {{ activeMasterTable.addressBase === 1 ? 'PLC' : '0-based' }}
+          </span>
         </button>
         <div v-if="masterConfigOpen" class="modbus-panel__config-strip">
           <NFormItem label="当前区域">
             <NSelect v-model:value="modbusStore.masterGrid.registerType" :options="registerTypeOptions" />
-          </NFormItem>
-          <NFormItem label="Unit">
-            <NInputNumber v-model:value="activeMasterTable.unitId" :min="1" :max="247" />
           </NFormItem>
           <NFormItem label="地址">
             <NInputNumber v-model:value="activeMasterTable.address" :min="0" />
@@ -711,7 +766,10 @@ function responseSummary(tx: any): string {
             </div>
           </div>
           <NTable
-            class="modbus-panel__dense-table"
+            :class="[
+              'modbus-panel__dense-table',
+              { 'modbus-panel__bool-table': table.type === 'coils' || table.type === 'discrete_inputs' },
+            ]"
             :data-testid="`modbus-master-table-${table.type}`"
             size="small"
             :bordered="false"
@@ -917,13 +975,7 @@ function responseSummary(tx: any): string {
     <section v-if="variant === 'tab' && isSlaveSession" class="modbus-panel__workbench">
       <div class="modbus-panel__toolbar">
         <div class="modbus-panel__toolbar-group">
-          <NSelect
-            class="modbus-panel__unit-select"
-            :value="modbusStore.activeSlaveUnitId"
-            :options="slaveUnitOptions"
-            @update:value="value => modbusStore.selectSlaveUnit(Number(value))"
-          />
-          <NButton size="small" :loading="slaveLoading" @click="addSlaveUnit">添加 Unit</NButton>
+          <NButton size="small" :loading="slaveLoading" data-testid="modbus-add-slave-unit" @click="openAddSlaveUnitDialog">添加 Unit</NButton>
           <NButton size="small" :disabled="modbusStore.slaveUnitGrids.length <= 1" :loading="slaveLoading" @click="removeSlaveUnit">删除 Unit</NButton>
         </div>
         <div class="modbus-panel__toolbar-group">
@@ -935,23 +987,38 @@ function responseSummary(tx: any): string {
         </div>
       </div>
 
+      <div class="modbus-panel__unit-tabs" data-testid="modbus-slave-unit-tabs">
+        <span class="modbus-panel__unit-tabs-label">从站 Unit</span>
+        <div class="modbus-panel__unit-tab-list">
+          <button
+            v-for="unit in modbusStore.slaveUnitGrids"
+            :key="unit.unitId"
+            class="modbus-panel__unit-tab"
+            :class="{ 'modbus-panel__unit-tab--active': unit.unitId === modbusStore.activeSlaveUnitId }"
+            :data-testid="`modbus-slave-unit-tab-${unit.unitId}`"
+            type="button"
+            @click="modbusStore.selectSlaveUnit(unit.unitId)"
+          >
+            Unit {{ unit.unitId }}
+          </button>
+        </div>
+      </div>
+
       <section class="modbus-panel__section modbus-panel__collapsible">
         <button
           class="modbus-panel__collapse-header"
           type="button"
           @click="slaveConfigOpen = !slaveConfigOpen"
         >
-          <span class="modbus-panel__section-title">配置</span>
-          <span>Unit {{ modbusStore.activeSlaveUnitId }} · {{ activeSession?.SlaveRunning ? '运行中' : '未启动' }}</span>
+          <span class="modbus-panel__collapse-label">
+            <span class="modbus-panel__section-title">配置</span>
+            <span class="modbus-panel__collapse-state">{{ slaveConfigOpen ? '收起' : '展开' }}</span>
+          </span>
+          <span class="modbus-panel__collapse-summary" data-testid="modbus-slave-config-summary">
+            Unit {{ modbusStore.activeSlaveUnitId }} · {{ activeSession?.SlaveRunning ? '运行中' : '未启动' }}
+          </span>
         </button>
         <div v-if="slaveConfigOpen" class="modbus-panel__config-strip">
-          <NFormItem label="Unit">
-            <NSelect
-              :value="modbusStore.activeSlaveUnitId"
-              :options="slaveUnitOptions"
-              @update:value="value => modbusStore.selectSlaveUnit(Number(value))"
-            />
-          </NFormItem>
           <NFormItem label="字序">
             <NSelect
               :value="modbusStore.masterGrid.littleEndian ? 'little' : 'big'"
@@ -968,7 +1035,7 @@ function responseSummary(tx: any): string {
             <span class="modbus-panel__section-title">Coils</span>
             <NButton size="tiny" @click="addBoolRow('coils')">添加</NButton>
           </div>
-          <NTable data-testid="modbus-slave-table-coils" size="small" :bordered="false" single-line>
+          <NTable class="modbus-panel__bool-table" data-testid="modbus-slave-table-coils" size="small" :bordered="false" single-line>
             <thead>
               <tr>
                 <th>地址</th>
@@ -997,7 +1064,7 @@ function responseSummary(tx: any): string {
             <span class="modbus-panel__section-title">Discrete Inputs</span>
             <NButton size="tiny" @click="addBoolRow('discreteInputs')">添加</NButton>
           </div>
-          <NTable data-testid="modbus-slave-table-discreteInputs" size="small" :bordered="false" single-line>
+          <NTable class="modbus-panel__bool-table" data-testid="modbus-slave-table-discreteInputs" size="small" :bordered="false" single-line>
             <thead>
               <tr>
                 <th>地址</th>
@@ -1090,6 +1157,46 @@ function responseSummary(tx: any): string {
         </section>
       </div>
     </section>
+
+    <div v-if="masterUnitDialogOpen" class="modbus-panel__dialog-backdrop">
+      <div class="modbus-panel__dialog" data-testid="modbus-master-unit-dialog">
+        <div class="modbus-panel__section-title">添加主站 Unit</div>
+        <NFormItem label="Unit ID">
+          <NInputNumber
+            v-model:value="pendingMasterUnitId"
+            :min="1"
+            :max="247"
+            data-testid="modbus-new-master-unit-id"
+          />
+        </NFormItem>
+        <div class="modbus-panel__dialog-actions">
+          <NButton size="small" @click="masterUnitDialogOpen = false">取消</NButton>
+          <NButton type="primary" size="small" data-testid="modbus-confirm-master-unit" @click="confirmAddMasterUnit">
+            添加
+          </NButton>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="slaveUnitDialogOpen" class="modbus-panel__dialog-backdrop">
+      <div class="modbus-panel__dialog" data-testid="modbus-slave-unit-dialog">
+        <div class="modbus-panel__section-title">添加从站 Unit</div>
+        <NFormItem label="Unit ID">
+          <NInputNumber
+            v-model:value="pendingSlaveUnitId"
+            :min="1"
+            :max="247"
+            data-testid="modbus-new-slave-unit-id"
+          />
+        </NFormItem>
+        <div class="modbus-panel__dialog-actions">
+          <NButton size="small" @click="slaveUnitDialogOpen = false">取消</NButton>
+          <NButton type="primary" size="small" :loading="slaveLoading" data-testid="modbus-confirm-slave-unit" @click="confirmAddSlaveUnit">
+            添加
+          </NButton>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1166,6 +1273,57 @@ function responseSummary(tx: any): string {
   min-width: 0;
   flex-wrap: wrap;
 }
+.modbus-panel__unit-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+}
+.modbus-panel__unit-tabs-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+}
+.modbus-panel__unit-tab-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+}
+.modbus-panel__unit-tab-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.modbus-panel__unit-tab {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--app-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.modbus-panel__unit-tab:hover {
+  background: var(--app-hover-bg);
+  color: var(--app-text);
+}
+.modbus-panel__unit-tab--active {
+  border-color: var(--app-accent);
+  background: color-mix(in srgb, var(--app-accent) 12%, var(--app-surface));
+  color: var(--app-text);
+}
 .modbus-panel__config-strip,
 .modbus-panel__scan-grid {
   display: grid;
@@ -1185,12 +1343,34 @@ function responseSummary(tx: any): string {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
+  min-height: 36px;
   padding: 8px 10px;
   border: 0;
   background: var(--app-surface);
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+.modbus-panel__collapse-label,
+.modbus-panel__collapse-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.modbus-panel__collapse-label {
+  flex: 0 0 auto;
+}
+.modbus-panel__collapse-state,
+.modbus-panel__collapse-summary {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+.modbus-panel__collapse-summary {
+  justify-content: flex-end;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .modbus-panel__collapse-header:hover {
   background: var(--app-hover-bg);
@@ -1307,8 +1487,40 @@ function responseSummary(tx: any): string {
   min-height: 22px;
   font-size: 12px;
 }
+.modbus-panel :deep(.modbus-panel__bool-table tbody tr:nth-child(odd) td) {
+  background: color-mix(in srgb, var(--app-accent) 7%, transparent);
+}
+.modbus-panel :deep(.modbus-panel__bool-table tbody tr:nth-child(even) td) {
+  background: color-mix(in srgb, var(--app-text-muted) 5%, transparent);
+}
+.modbus-panel :deep(.modbus-panel__bool-table tbody tr:hover td) {
+  background: color-mix(in srgb, var(--app-accent) 13%, transparent);
+}
 .modbus-panel__unit-select {
   min-width: 120px;
+}
+.modbus-panel__dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--app-bg) 62%, transparent);
+}
+.modbus-panel__dialog {
+  display: grid;
+  gap: 12px;
+  width: min(320px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+.modbus-panel__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .modbus-panel__raw-line {
   display: grid;

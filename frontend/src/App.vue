@@ -19,6 +19,7 @@ const activeId = registry.active
 const activeViewId = registry.activeView
 const activeViewVersion = registry.activeViewVersion
 const workspaceReady = ref(false)
+const sidebarExpanded = ref(true)
 const systemTheme = ref<'dark' | 'light'>(resolveSystemTheme())
 let systemThemeMedia: MediaQueryList | null = null
 
@@ -141,6 +142,15 @@ function removeSystemThemeListener(media: MediaQueryList) {
     media.removeListener?.(handleSystemThemeChange)
   }
 }
+
+function handleActivitySelect(id: string) {
+  if (id === activeId.value) {
+    sidebarExpanded.value = !sidebarExpanded.value
+    return
+  }
+  registry.setActive(id)
+  sidebarExpanded.value = true
+}
 </script>
 
 <template>
@@ -153,9 +163,10 @@ function removeSystemThemeListener(media: MediaQueryList) {
         <ActivityBar
           :contributions="contributions"
           :active-id="activeId"
-          @select="registry.setActive($event)"
+          @select="handleActivitySelect"
         />
         <Sidebar
+          v-if="sidebarExpanded"
           :contributions="contributions"
           :active-id="activeId"
           :active-view-id="activeViewId"

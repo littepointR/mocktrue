@@ -89,6 +89,35 @@ describe('App settings effects', () => {
 
     expect(status.props('configPath')).toBe('/tmp/current-workspace.json')
   })
+
+  it('toggles the operation sidebar from the active activity icon', async () => {
+    const wrapper = mount(App, {
+      global: { stubs: interactiveShellStubs },
+    })
+
+    await wrapper.find('[data-testid="activity-serial"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(useRegistry().active.value).toBe('serial')
+    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="activity-serial"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(useRegistry().active.value).toBe('serial')
+    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="activity-serial"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="activity-settings"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(useRegistry().active.value).toBe('settings')
+    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true)
+  })
 })
 
 const stubs = {
@@ -98,6 +127,32 @@ const stubs = {
   EditorGroups: { template: '<main />' },
   Panel: { template: '<section />' },
   StatusBar: { name: 'StatusBar', props: ['dirty', 'configPath'], template: '<footer>{{ dirty ? "dirty" : "clean" }}</footer>' },
+}
+
+const interactiveShellStubs = {
+  ...stubs,
+  ActivityBar: {
+    props: ['contributions', 'activeId'],
+    emits: ['select'],
+    template: `
+      <nav>
+        <button
+          v-for="item in contributions"
+          :key="item.moduleId"
+          :data-testid="'activity-' + item.moduleId"
+          type="button"
+          @click="$emit('select', item.moduleId)"
+        >
+          {{ item.activity.title }}
+        </button>
+      </nav>
+    `,
+  },
+  Sidebar: {
+    props: ['contributions', 'activeId', 'activeViewId'],
+    emits: ['selectView'],
+    template: '<aside data-testid="sidebar">{{ activeId }}</aside>',
+  },
 }
 
 function installSystemThemeMedia(initialMatches: boolean) {

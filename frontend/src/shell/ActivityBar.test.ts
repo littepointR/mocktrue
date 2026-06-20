@@ -32,4 +32,17 @@ describe('ActivityBar', () => {
     expect(buttons[1].classes()).toContain('is-active')
     expect(buttons[1].text()).toContain('⚙')
   })
+
+  it('emits the selected module id when an activity is clicked', async () => {
+    const wrapper = mount(ActivityBar, {
+      props: {
+        contributions,
+        activeId: null,
+      },
+    })
+
+    await wrapper.findAll('.activity-bar__item')[0].trigger('click')
+
+    expect(wrapper.emitted('select')).toEqual([['serial']])
+  })
 })

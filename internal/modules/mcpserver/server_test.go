@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,6 +74,17 @@ type fakeSerialService struct {
 	listFecbusID    string
 	queryFecbus     fb.QueryRequest
 	clearFecbus     string
+	graphs          []serial.SerialGraphRuntimeInfo
+	startGraph      serial.SerialGraphStartRequest
+	stopGraph       string
+	statusGraph     string
+	graphSend       serial.SerialGraphSendRequest
+	graphBuffer     serial.SerialGraphBufferQuery
+	graphFrames     serial.SerialGraphFrameQuery
+	clearGraphID    string
+	clearGraphNode  string
+	resetGraphID    string
+	resetGraphNode  string
 }
 
 func (f *fakeSerialService) EnumeratePorts(context.Context) ([]port.PortInfo, error) {
@@ -352,6 +364,61 @@ func (f *fakeSerialService) ClearFecbusFrames(id string) error {
 	return nil
 }
 
+func (f *fakeSerialService) StartSerialGraph(_ context.Context, req serial.SerialGraphStartRequest) (*serial.SerialGraphRuntimeInfo, error) {
+	f.startGraph = req
+	info := serial.SerialGraphRuntimeInfo{
+		ID:     req.ID,
+		Status: serial.SerialGraphStatusRunning,
+		Nodes:  []serial.SerialGraphNodeStatus{{ID: "receiver", Type: "serial.receiver", Status: serial.SerialGraphStatusRunning}},
+	}
+	f.graphs = []serial.SerialGraphRuntimeInfo{info}
+	return &info, nil
+}
+
+func (f *fakeSerialService) StopSerialGraph(id string) error {
+	f.stopGraph = id
+	return nil
+}
+
+func (f *fakeSerialService) ListSerialGraphs() []serial.SerialGraphRuntimeInfo {
+	return f.graphs
+}
+
+func (f *fakeSerialService) GetSerialGraphStatus(id string) (*serial.SerialGraphRuntimeInfo, error) {
+	f.statusGraph = id
+	return &serial.SerialGraphRuntimeInfo{ID: id, Status: serial.SerialGraphStatusRunning}, nil
+}
+
+func (f *fakeSerialService) SendSerialGraphNode(req serial.SerialGraphSendRequest) (int, error) {
+	f.graphSend = req
+	return len(req.Content), nil
+}
+
+func (f *fakeSerialService) QuerySerialGraphNodeBuffer(req serial.SerialGraphBufferQuery) (*buffer.Snapshot, error) {
+	f.graphBuffer = req
+	return &buffer.Snapshot{Offset: req.Offset, Data: []byte("hello"), Total: 5}, nil
+}
+
+func (f *fakeSerialService) QuerySerialGraphNodeFrames(req serial.SerialGraphFrameQuery) (*serial.SerialGraphFramePage, error) {
+	f.graphFrames = req
+	return &serial.SerialGraphFramePage{
+		Frames: []monitor.Frame{{Seq: 1, Direction: "接收", Length: 5, DisplayText: "hello"}},
+		Total:  1,
+	}, nil
+}
+
+func (f *fakeSerialService) ClearSerialGraphNodeBuffer(graphID string, nodeID string) error {
+	f.clearGraphID = graphID
+	f.clearGraphNode = nodeID
+	return nil
+}
+
+func (f *fakeSerialService) ResetSerialGraphNodeCounters(graphID string, nodeID string) error {
+	f.resetGraphID = graphID
+	f.resetGraphNode = nodeID
+	return nil
+}
+
 func TestOriginGuardAllowsMissingAndLocalOrigins(t *testing.T) {
 	t.Parallel()
 	handler := originGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -431,6 +498,16 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 		"serial_stop_monitor",
 		"serial_delete_monitor",
 		"serial_clear_monitor_frames",
+		"serial_graph_provider_catalog",
+		"serial_graph_validate",
+		"serial_graph_start",
+		"serial_graph_stop",
+		"serial_graph_status",
+		"serial_graph_send",
+		"serial_graph_query_node_buffer",
+		"serial_graph_query_node_frames",
+		"serial_graph_clear_node_buffer",
+		"serial_graph_reset_node_counters",
 		"modbus_open_session",
 		"modbus_close_session",
 		"modbus_list_sessions",
@@ -459,6 +536,276 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 		if !names[want] {
 			t.Fatalf("tools/list missing %s in %#v", want, names)
 		}
+	}
+}
+
+func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	catalog := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":40,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_provider_catalog","arguments":{}}
+	}`)
+	providers := catalog["structuredContent"].(map[string]any)["providers"].([]any)
+	if len(providers) < 10 {
+		t.Fatalf("provider count = %d, want at least 10", len(providers))
+	}
+	providerTypes := make(map[string]bool, len(providers))
+	for _, raw := range providers {
+		provider := raw.(map[string]any)
+		if _, ok := provider["inputs"].([]any); !ok {
+			t.Fatalf("provider %s inputs = %#v, want array", provider["type"], provider["inputs"])
+		}
+		if _, ok := provider["outputs"].([]any); !ok {
+			t.Fatalf("provider %s outputs = %#v, want array", provider["type"], provider["outputs"])
+		}
+		providerTypes[provider["type"].(string)] = true
+	}
+	for _, want := range []string{"serial.physical", "serial.virtual", "serial.tap", "serial.modbus.master", "serial.fecbus.slave"} {
+		if !providerTypes[want] {
+			t.Fatalf("catalog missing %s in %#v", want, providerTypes)
+		}
+	}
+
+	valid := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":41,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_validate","arguments":{
+			"nodes":[
+				{"id":"sender","type":"serial.sender","position":{"x":20,"y":20},"config":{}},
+				{"id":"receiver","type":"serial.receiver","position":{"x":260,"y":20},"config":{}}
+			],
+			"edges":[{"id":"edge-1","source":"sender","source_handle":"out","target":"receiver","target_handle":"in"}]
+		}}
+	}`)
+	if valid["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("valid graph result = %#v", valid["structuredContent"])
+	}
+
+	frontEndShape := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":411,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_validate","arguments":{
+			"nodes":[
+				{"id":"sender","type":"serial.sender","position":{"x":20,"y":20},"config":{}},
+				{"id":"receiver","type":"serial.receiver","position":{"x":260,"y":20},"config":{}}
+			],
+			"edges":[{"id":"edge-1","source":"sender","sourceHandle":"out","target":"receiver","targetHandle":"in"}]
+		}}
+	}`)
+	if frontEndShape["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("frontend-shaped graph result = %#v", frontEndShape["structuredContent"])
+	}
+
+	invalid := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":42,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_validate","arguments":{
+			"nodes":[
+				{"id":"a","type":"serial.bridge","position":{"x":20,"y":20},"config":{}},
+				{"id":"b","type":"serial.bridge","position":{"x":260,"y":20},"config":{}}
+			],
+			"edges":[
+				{"id":"edge-1","source":"a","source_handle":"a-out","target":"b","target_handle":"a-in"},
+				{"id":"edge-2","source":"b","source_handle":"a-out","target":"a","target_handle":"a-in"}
+			]
+		}}
+	}`)
+	invalidContent := invalid["structuredContent"].(map[string]any)
+	if invalidContent["valid"] != false {
+		t.Fatalf("cycle result = %#v, want invalid", invalidContent)
+	}
+	errors := invalidContent["errors"].([]any)
+	if len(errors) == 0 || !strings.Contains(errors[0].(string), "cycle") {
+		t.Fatalf("cycle errors = %#v", errors)
+	}
+}
+
+func TestSerialGraphRuntimeToolsCallSerialService(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSerialService{}
+	handler := mcpHTTPHandler(newMCPServer(svc), true)
+
+	start := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":44,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_start","arguments":{
+			"id":"graph-mcp",
+			"nodes":[
+				{"id":"sender","type":"serial.sender","position":{"x":0,"y":0},"config":{"mode":"ascii"}},
+				{"id":"receiver","type":"serial.receiver","position":{"x":260,"y":0},"config":{}}
+			],
+			"edges":[{"id":"edge-1","source":"sender","sourceHandle":"out","target":"receiver","targetHandle":"in"}]
+		}}
+	}`)
+	startContent := start["structuredContent"].(map[string]any)
+	if startContent["graph"].(map[string]any)["ID"] != "graph-mcp" {
+		t.Fatalf("start content = %#v", startContent)
+	}
+	if svc.startGraph.ID != "graph-mcp" || len(svc.startGraph.Edges) != 1 || svc.startGraph.Edges[0].SourceHandle != "out" {
+		t.Fatalf("start graph args = %#v", svc.startGraph)
+	}
+
+	send := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":45,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_send","arguments":{"graph_id":"graph-mcp","node_id":"sender","content":"hello","mode":"ascii"}}
+	}`)
+	if send["structuredContent"].(map[string]any)["bytes_written"] != float64(5) {
+		t.Fatalf("send content = %#v", send["structuredContent"])
+	}
+	if svc.graphSend.GraphID != "graph-mcp" || svc.graphSend.NodeID != "sender" {
+		t.Fatalf("graph send args = %#v", svc.graphSend)
+	}
+
+	bufferPage := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":46,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_query_node_buffer","arguments":{"graph_id":"graph-mcp","node_id":"receiver","offset":0,"length":16}}
+	}`)
+	bufferContent := bufferPage["structuredContent"].(map[string]any)
+	if bufferContent["data"] != "hello" || bufferContent["hex"] != "68656c6c6f" {
+		t.Fatalf("buffer content = %#v", bufferContent)
+	}
+	if svc.graphBuffer.NodeID != "receiver" {
+		t.Fatalf("graph buffer args = %#v", svc.graphBuffer)
+	}
+
+	frames := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":47,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_query_node_frames","arguments":{"graph_id":"graph-mcp","node_id":"monitor","limit":20}}
+	}`)
+	if frames["structuredContent"].(map[string]any)["total"] != float64(1) {
+		t.Fatalf("frames content = %#v", frames["structuredContent"])
+	}
+
+	status := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":48,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_status","arguments":{"graph_id":"graph-mcp"}}
+	}`)
+	if status["structuredContent"].(map[string]any)["graph"].(map[string]any)["ID"] != "graph-mcp" {
+		t.Fatalf("status content = %#v", status["structuredContent"])
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":49,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_clear_node_buffer","arguments":{"graph_id":"graph-mcp","node_id":"receiver"}}
+	}`)
+	if svc.clearGraphID != "graph-mcp" || svc.clearGraphNode != "receiver" {
+		t.Fatalf("clear args = %s/%s", svc.clearGraphID, svc.clearGraphNode)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":50,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_reset_node_counters","arguments":{"graph_id":"graph-mcp","node_id":"receiver"}}
+	}`)
+	if svc.resetGraphID != "graph-mcp" || svc.resetGraphNode != "receiver" {
+		t.Fatalf("reset args = %s/%s", svc.resetGraphID, svc.resetGraphNode)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":51,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_stop","arguments":{"graph_id":"graph-mcp"}}
+	}`)
+	if svc.stopGraph != "graph-mcp" {
+		t.Fatalf("stop graph = %q", svc.stopGraph)
+	}
+}
+
+func TestSerialGraphValidateRejectsInvalidTopologyRules(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	for _, tc := range []struct {
+		name      string
+		arguments string
+		wantError string
+	}{
+		{
+			name: "unknown provider",
+			arguments: `{
+				"nodes":[{"id":"missing","type":"serial.missing","position":{"x":0,"y":0},"config":{}}],
+				"edges":[]
+			}`,
+			wantError: "provider not found",
+		},
+		{
+			name: "incompatible port kinds",
+			arguments: `{
+				"nodes":[
+					{"id":"monitor","type":"serial.monitor","position":{"x":0,"y":0},"config":{}},
+					{"id":"receiver","type":"serial.receiver","position":{"x":260,"y":0},"config":{}}
+				],
+				"edges":[{"id":"edge-1","source":"monitor","source_handle":"frames","target":"receiver","target_handle":"in"}]
+			}`,
+			wantError: "incompatible port kinds",
+		},
+		{
+			name: "non tap fan out",
+			arguments: `{
+				"nodes":[
+					{"id":"sender","type":"serial.sender","position":{"x":0,"y":0},"config":{}},
+					{"id":"rx-a","type":"serial.receiver","position":{"x":260,"y":0},"config":{}},
+					{"id":"rx-b","type":"serial.receiver","position":{"x":260,"y":120},"config":{}}
+				],
+				"edges":[
+					{"id":"edge-1","source":"sender","source_handle":"out","target":"rx-a","target_handle":"in"},
+					{"id":"edge-2","source":"sender","source_handle":"out","target":"rx-b","target_handle":"in"}
+				]
+			}`,
+			wantError: "fan-out requires a tap node",
+		},
+		{
+			name: "duplicate resource owner port",
+			arguments: `{
+				"nodes":[
+					{"id":"port-a","type":"serial.physical","position":{"x":0,"y":0},"config":{"portName":"/tmp/ttyA"}},
+					{"id":"port-b","type":"serial.virtual","position":{"x":260,"y":0},"config":{"portName":"/tmp/ttyA"}}
+				],
+				"edges":[]
+			}`,
+			wantError: "resource port duplicated",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := callMCP(t, handler, `{
+				"jsonrpc":"2.0",
+				"id":43,
+				"method":"tools/call",
+				"params":{"name":"serial_graph_validate","arguments":`+tc.arguments+`}
+			}`)
+			content := result["structuredContent"].(map[string]any)
+			if content["valid"] != false {
+				t.Fatalf("result=%#v, want invalid", content)
+			}
+			var joined string
+			for _, raw := range content["errors"].([]any) {
+				joined += raw.(string) + "\n"
+			}
+			if !strings.Contains(joined, tc.wantError) {
+				t.Fatalf("errors = %q, want %q", joined, tc.wantError)
+			}
+		})
 	}
 }
 

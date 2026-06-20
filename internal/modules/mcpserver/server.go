@@ -75,6 +75,15 @@ type SerialRuntime interface {
 	ListFecbusSlaveUnits(string) ([]fb.SlaveUnitInfo, error)
 	QueryFecbusFrames(fb.QueryRequest) (*fb.FramePage, error)
 	ClearFecbusFrames(string) error
+	StartSerialGraph(context.Context, serial.SerialGraphStartRequest) (*serial.SerialGraphRuntimeInfo, error)
+	StopSerialGraph(string) error
+	ListSerialGraphs() []serial.SerialGraphRuntimeInfo
+	GetSerialGraphStatus(string) (*serial.SerialGraphRuntimeInfo, error)
+	SendSerialGraphNode(serial.SerialGraphSendRequest) (int, error)
+	QuerySerialGraphNodeBuffer(serial.SerialGraphBufferQuery) (*buffer.Snapshot, error)
+	QuerySerialGraphNodeFrames(serial.SerialGraphFrameQuery) (*serial.SerialGraphFramePage, error)
+	ClearSerialGraphNodeBuffer(string, string) error
+	ResetSerialGraphNodeCounters(string, string) error
 }
 
 type noArgs struct{}
@@ -368,6 +377,92 @@ type fecbusCustomDataArg struct {
 	Meaning string            `json:"meaning,omitempty"`
 }
 
+type serialGraphPositionArg struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+type serialGraphNodeArg struct {
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Position serialGraphPositionArg `json:"position,omitempty"`
+	Config   map[string]any         `json:"config,omitempty"`
+}
+
+type serialGraphEdgeArg struct {
+	ID                string `json:"id"`
+	Source            string `json:"source"`
+	SourceHandle      string `json:"source_handle,omitempty"`
+	SourceHandleCamel string `json:"sourceHandle,omitempty"`
+	Target            string `json:"target"`
+	TargetHandle      string `json:"target_handle,omitempty"`
+	TargetHandleCamel string `json:"targetHandle,omitempty"`
+}
+
+type serialGraphValidateArgs struct {
+	Nodes []serialGraphNodeArg `json:"nodes"`
+	Edges []serialGraphEdgeArg `json:"edges"`
+}
+
+type serialGraphStartArgs struct {
+	ID    string               `json:"id,omitempty"`
+	Nodes []serialGraphNodeArg `json:"nodes"`
+	Edges []serialGraphEdgeArg `json:"edges"`
+}
+
+type serialGraphIDArgs struct {
+	GraphID string `json:"graph_id"`
+}
+
+type serialGraphSendArgs struct {
+	GraphID  string `json:"graph_id"`
+	NodeID   string `json:"node_id"`
+	Content  string `json:"content"`
+	Mode     string `json:"mode,omitempty"`
+	Encoding string `json:"encoding,omitempty"`
+}
+
+type serialGraphNodeBufferArgs struct {
+	GraphID string `json:"graph_id"`
+	NodeID  string `json:"node_id"`
+	Offset  int64  `json:"offset,omitempty"`
+	Length  int    `json:"length,omitempty"`
+}
+
+type serialGraphNodeFrameArgs struct {
+	GraphID   string `json:"graph_id"`
+	NodeID    string `json:"node_id"`
+	Offset    int64  `json:"offset,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Search    string `json:"search,omitempty"`
+}
+
+type serialGraphResetNodeArgs struct {
+	GraphID string `json:"graph_id"`
+	NodeID  string `json:"node_id"`
+}
+
+type serialGraphPortSpec struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Kind      string `json:"kind"`
+	Direction string `json:"direction"`
+	Multiple  bool   `json:"multiple,omitempty"`
+}
+
+type serialGraphProvider struct {
+	Type          string                `json:"type"`
+	Title         string                `json:"title"`
+	Category      string                `json:"category"`
+	Description   string                `json:"description"`
+	Inputs        []serialGraphPortSpec `json:"inputs"`
+	Outputs       []serialGraphPortSpec `json:"outputs"`
+	DefaultConfig map[string]any        `json:"default_config"`
+	ResourceOwner bool                  `json:"resource_owner,omitempty"`
+	ResourceKeys  []string              `json:"resource_keys,omitempty"`
+}
+
 func newMCPServer(serialService SerialRuntime) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "mocktrue", Version: "0.1.0"}, nil)
 	registerTools(server, serialService)
@@ -524,6 +619,111 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 	addWriteTool[noArgs, map[string]any](server, "serial_cleanup_virtual", "Clean up virtual serial ports, pairs, bridges, and open handles.", true, func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
 		serialService.CleanupVirtual()
 		return nil, map[string]any{"cleaned": true}, nil
+	})
+
+	addReadTool[noArgs, map[string]any](server, "serial_graph_provider_catalog", "List serial topology node providers and connection rules.", func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{
+			"providers": serialGraphProviders(),
+			"rules": map[string]any{
+				"compatible_kinds": []string{"bytes", "frame", "registers", "status", "control"},
+				"fan_out":          "Only output ports marked multiple, serial.tap, or serial.tee may feed multiple inputs.",
+				"cycles":           "Directed cycles are rejected.",
+				"resource_owners":  "Nodes that own a port resource must not reuse the same configured port_name.",
+			},
+		}, nil
+	})
+
+	addReadTool[serialGraphValidateArgs, map[string]any](server, "serial_graph_validate", "Validate a serial topology graph without starting serial resources.", func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphValidateArgs) (*mcp.CallToolResult, map[string]any, error) {
+		result := validateSerialGraph(args)
+		return nil, map[string]any{
+			"valid":  len(result) == 0,
+			"errors": result,
+		}, nil
+	})
+
+	addWriteTool[serialGraphStartArgs, map[string]any](server, "serial_graph_start", "Start a serial topology graph runtime.", false, func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphStartArgs) (*mcp.CallToolResult, map[string]any, error) {
+		info, err := serialService.StartSerialGraph(ctx, serialGraphStartRequest(args))
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"graph": info}, nil
+	})
+
+	addWriteTool[serialGraphIDArgs, map[string]any](server, "serial_graph_stop", "Stop a serial topology graph runtime and release owned resources.", true, func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.StopSerialGraph(args.GraphID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"stopped": true}, nil
+	})
+
+	addReadTool[serialGraphIDArgs, map[string]any](server, "serial_graph_status", "Get status for a running serial topology graph.", func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		info, err := serialService.GetSerialGraphStatus(args.GraphID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"graph": info}, nil
+	})
+
+	addWriteTool[serialGraphSendArgs, map[string]any](server, "serial_graph_send", "Send data through a graph sender or protocol node.", false, func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphSendArgs) (*mcp.CallToolResult, map[string]any, error) {
+		written, err := serialService.SendSerialGraphNode(serial.SerialGraphSendRequest{
+			GraphID:  args.GraphID,
+			NodeID:   args.NodeID,
+			Content:  args.Content,
+			Mode:     args.Mode,
+			Encoding: args.Encoding,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"bytes_written": written}, nil
+	})
+
+	addReadTool[serialGraphNodeBufferArgs, map[string]any](server, "serial_graph_query_node_buffer", "Read buffered bytes from a graph node.", func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphNodeBufferArgs) (*mcp.CallToolResult, map[string]any, error) {
+		page, err := serialService.QuerySerialGraphNodeBuffer(serial.SerialGraphBufferQuery{
+			GraphID: args.GraphID,
+			NodeID:  args.NodeID,
+			Offset:  args.Offset,
+			Length:  args.Length,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{
+			"offset": page.Offset,
+			"total":  page.Total,
+			"eof":    page.EOF,
+			"hex":    hex.EncodeToString(page.Data),
+			"data":   string(page.Data),
+		}, nil
+	})
+
+	addReadTool[serialGraphNodeFrameArgs, map[string]any](server, "serial_graph_query_node_frames", "Read monitor/protocol frames captured by a graph node.", func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphNodeFrameArgs) (*mcp.CallToolResult, map[string]any, error) {
+		page, err := serialService.QuerySerialGraphNodeFrames(serial.SerialGraphFrameQuery{
+			GraphID:   args.GraphID,
+			NodeID:    args.NodeID,
+			Offset:    args.Offset,
+			Limit:     args.Limit,
+			Direction: args.Direction,
+			Search:    args.Search,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"frames": page.Frames, "total": page.Total, "next_offset": page.NextOffset}, nil
+	})
+
+	addWriteTool[serialGraphResetNodeArgs, map[string]any](server, "serial_graph_clear_node_buffer", "Clear buffered data and captured frames for a graph node.", true, func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphResetNodeArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.ClearSerialGraphNodeBuffer(args.GraphID, args.NodeID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"cleared": true}, nil
+	})
+
+	addWriteTool[serialGraphResetNodeArgs, map[string]any](server, "serial_graph_reset_node_counters", "Reset RX/TX counters for a graph node.", true, func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphResetNodeArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.ResetSerialGraphNodeCounters(args.GraphID, args.NodeID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"reset": true}, nil
 	})
 
 	addWriteTool[startMonitorArgs, map[string]any](server, "serial_start_monitor", "Start monitoring one serial port and expose an auto-created virtual port for external tools.", false, func(ctx context.Context, req *mcp.CallToolRequest, args startMonitorArgs) (*mcp.CallToolResult, map[string]any, error) {
@@ -915,6 +1115,397 @@ func addWriteTool[In, Out any](server *mcp.Server, name, description string, des
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func serialGraphProviders() []serialGraphProvider {
+	serialDefaults := map[string]any{
+		"portName":  "",
+		"baudRate":  115200,
+		"dataBits":  8,
+		"stopBits":  "1",
+		"parity":    "none",
+		"flowMode":  "none",
+		"readBufKB": 32,
+	}
+	bytesIn := serialGraphPortSpec{ID: "in", Label: "接收", Kind: "bytes", Direction: "input"}
+	bytesOut := serialGraphPortSpec{ID: "out", Label: "发送", Kind: "bytes", Direction: "output"}
+
+	return []serialGraphProvider{
+		{
+			Type:          "serial.physical",
+			Title:         "物理串口",
+			Category:      "串口",
+			Description:   "系统中已有的真实串口资源。",
+			Inputs:        []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "input"}},
+			Outputs:       []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "output"}},
+			DefaultConfig: serialDefaults,
+			ResourceOwner: true,
+			ResourceKeys:  []string{"portName"},
+		},
+		{
+			Type:          "serial.virtual",
+			Title:         "虚拟串口",
+			Category:      "串口",
+			Description:   "由 MockTrue 创建和管理的单端虚拟串口。",
+			Inputs:        []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "input"}},
+			Outputs:       []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "output"}},
+			DefaultConfig: withConfig(serialDefaults, map[string]any{"portName": "mocktrue-vport"}),
+			ResourceOwner: true,
+			ResourceKeys:  []string{"portName"},
+		},
+		{
+			Type:        "serial.bridge",
+			Title:       "串口桥接",
+			Category:    "串口",
+			Description: "把两路字节流双向桥接。",
+			Inputs: []serialGraphPortSpec{
+				{ID: "a-in", Label: "接收 A", Kind: "bytes", Direction: "input"},
+				{ID: "b-in", Label: "接收 B", Kind: "bytes", Direction: "input"},
+			},
+			Outputs: []serialGraphPortSpec{
+				{ID: "a-out", Label: "发送 A", Kind: "bytes", Direction: "output"},
+				{ID: "b-out", Label: "发送 B", Kind: "bytes", Direction: "output"},
+			},
+			DefaultConfig: map[string]any{"baudRate": 115200},
+		},
+		{
+			Type:        "serial.monitor",
+			Title:       "串口监控",
+			Category:    "工具",
+			Description: "监听一路串口字节流并生成监控帧。",
+			Inputs:      []serialGraphPortSpec{bytesIn},
+			Outputs: []serialGraphPortSpec{
+				{ID: "frames", Label: "监控帧", Kind: "frame", Direction: "output", Multiple: true},
+				{ID: "status", Label: "状态", Kind: "status", Direction: "output", Multiple: true},
+			},
+			DefaultConfig: map[string]any{"mode": "auto-virtual", "displayMode": "hex"},
+		},
+		{
+			Type:          "serial.tap",
+			Title:         "分流器",
+			Category:      "工具",
+			Description:   "允许一路字节流分发到多个下游节点。",
+			Inputs:        []serialGraphPortSpec{bytesIn},
+			Outputs:       []serialGraphPortSpec{{ID: bytesOut.ID, Label: bytesOut.Label, Kind: bytesOut.Kind, Direction: bytesOut.Direction, Multiple: true}},
+			DefaultConfig: map[string]any{},
+		},
+		{
+			Type:          "serial.tee",
+			Title:         "T 型分支",
+			Category:      "工具",
+			Description:   "分流器的别名，用于表达串联链路中的并联分支。",
+			Inputs:        []serialGraphPortSpec{bytesIn},
+			Outputs:       []serialGraphPortSpec{{ID: bytesOut.ID, Label: bytesOut.Label, Kind: bytesOut.Kind, Direction: bytesOut.Direction, Multiple: true}},
+			DefaultConfig: map[string]any{},
+		},
+		{
+			Type:          "serial.sender",
+			Title:         "发送器",
+			Category:      "终端",
+			Description:   "从编辑框或发送历史输出字节流。",
+			Inputs:        []serialGraphPortSpec{},
+			Outputs:       []serialGraphPortSpec{bytesOut},
+			DefaultConfig: map[string]any{"mode": "ascii", "payload": ""},
+		},
+		{
+			Type:          "serial.receiver",
+			Title:         "接收器",
+			Category:      "终端",
+			Description:   "显示接收到的字节流。",
+			Inputs:        []serialGraphPortSpec{bytesIn},
+			Outputs:       []serialGraphPortSpec{},
+			DefaultConfig: map[string]any{"viewMode": "ascii", "autoScroll": true},
+		},
+		{
+			Type:          "serial.modbus.master",
+			Title:         "Modbus 主站",
+			Category:      "协议",
+			Description:   "Modbus RTU/ASCII 主站请求和寄存器视图。",
+			Inputs:        []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "input"}},
+			Outputs:       []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "output"}},
+			DefaultConfig: map[string]any{"mode": "rtu", "unitIds": "1", "addressMode": "zero-based", "functionCode": 3, "address": 0, "quantity": 1, "value": 0},
+		},
+		{
+			Type:          "serial.modbus.slave",
+			Title:         "Modbus 从站",
+			Category:      "协议",
+			Description:   "Modbus RTU/ASCII 多 Unit ID 从站数据区。",
+			Inputs:        []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "input"}},
+			Outputs:       []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "output"}},
+			DefaultConfig: map[string]any{"mode": "rtu", "unitIds": "1", "addressMode": "zero-based"},
+		},
+		{
+			Type:          "serial.fecbus.master",
+			Title:         "FECbus 主控",
+			Category:      "协议",
+			Description:   "FECbus 主控请求和帧解析。",
+			Inputs:        []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "input"}},
+			Outputs:       []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "output"}},
+			DefaultConfig: map[string]any{"sourceAddress": 1, "targetAddress": 2, "priority": 3, "messageNumber": 1, "groupNumber": 0, "functionCode": 44, "dataHex": ""},
+		},
+		{
+			Type:          "serial.fecbus.slave",
+			Title:         "FECbus 从机",
+			Category:      "协议",
+			Description:   "FECbus 从机应答和设备状态。",
+			Inputs:        []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "input"}},
+			Outputs:       []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "output"}},
+			DefaultConfig: map[string]any{"address": 2, "defaultStatus": 10, "autoStatusAnswer": true},
+		},
+	}
+}
+
+func validateSerialGraph(graph serialGraphValidateArgs) []string {
+	var errs []string
+	providers := serialGraphProviderMap()
+	nodes := make(map[string]serialGraphNodeArg, len(graph.Nodes))
+
+	for _, node := range graph.Nodes {
+		if node.ID == "" {
+			errs = append(errs, "node id must not be empty")
+			continue
+		}
+		if _, exists := nodes[node.ID]; exists {
+			errs = append(errs, "duplicate node id: "+node.ID)
+			continue
+		}
+		if _, ok := providers[node.Type]; !ok {
+			errs = append(errs, "provider not found: "+node.Type)
+		}
+		nodes[node.ID] = node
+	}
+
+	errs = append(errs, validateSerialGraphResourceOwners(graph.Nodes, providers)...)
+	seenEdges := make(map[string]bool, len(graph.Edges))
+	for _, edge := range graph.Edges {
+		edge = normalizeSerialGraphEdge(edge)
+		if edge.ID == "" {
+			errs = append(errs, "edge id must not be empty")
+			continue
+		}
+		if seenEdges[edge.ID] {
+			errs = append(errs, "duplicate edge id: "+edge.ID)
+			continue
+		}
+		seenEdges[edge.ID] = true
+		result := validateSerialGraphConnection(graph, edge, nodes, providers)
+		for _, err := range result {
+			errs = append(errs, edge.ID+": "+err)
+		}
+	}
+	return errs
+}
+
+func serialGraphStartRequest(args serialGraphStartArgs) serial.SerialGraphStartRequest {
+	nodes := make([]serial.SerialGraphNodeSpec, 0, len(args.Nodes))
+	for _, node := range args.Nodes {
+		nodes = append(nodes, serial.SerialGraphNodeSpec{
+			ID:     node.ID,
+			Type:   node.Type,
+			Config: node.Config,
+			Position: serial.SerialGraphPosition{
+				X: node.Position.X,
+				Y: node.Position.Y,
+			},
+		})
+	}
+	edges := make([]serial.SerialGraphEdgeSpec, 0, len(args.Edges))
+	for _, edge := range args.Edges {
+		edge = normalizeSerialGraphEdge(edge)
+		edges = append(edges, serial.SerialGraphEdgeSpec{
+			ID:           edge.ID,
+			Source:       edge.Source,
+			SourceHandle: edge.SourceHandle,
+			Target:       edge.Target,
+			TargetHandle: edge.TargetHandle,
+		})
+	}
+	return serial.SerialGraphStartRequest{
+		ID:    args.ID,
+		Nodes: nodes,
+		Edges: edges,
+	}
+}
+
+func validateSerialGraphConnection(
+	graph serialGraphValidateArgs,
+	draft serialGraphEdgeArg,
+	nodes map[string]serialGraphNodeArg,
+	providers map[string]serialGraphProvider,
+) []string {
+	var errs []string
+	sourceNode, sourceOK := nodes[draft.Source]
+	targetNode, targetOK := nodes[draft.Target]
+	if !sourceOK {
+		errs = append(errs, "source node not found: "+draft.Source)
+	}
+	if !targetOK {
+		errs = append(errs, "target node not found: "+draft.Target)
+	}
+	if !sourceOK || !targetOK {
+		return errs
+	}
+	if sourceNode.ID == targetNode.ID {
+		errs = append(errs, "node cannot connect to itself")
+	}
+
+	sourceProvider, sourceProviderOK := providers[sourceNode.Type]
+	targetProvider, targetProviderOK := providers[targetNode.Type]
+	if !sourceProviderOK {
+		errs = append(errs, "provider not found: "+sourceNode.Type)
+	}
+	if !targetProviderOK {
+		errs = append(errs, "provider not found: "+targetNode.Type)
+	}
+	if !sourceProviderOK || !targetProviderOK {
+		return errs
+	}
+
+	sourcePort, sourcePortOK := outputPort(sourceProvider, draft.SourceHandle)
+	targetPort, targetPortOK := inputPort(targetProvider, draft.TargetHandle)
+	if !sourcePortOK {
+		errs = append(errs, "output port not found: "+sourceNode.Type+"."+draft.SourceHandle)
+	}
+	if !targetPortOK {
+		errs = append(errs, "input port not found: "+targetNode.Type+"."+draft.TargetHandle)
+	}
+	if !sourcePortOK || !targetPortOK {
+		return errs
+	}
+
+	if sourcePort.Kind != targetPort.Kind {
+		errs = append(errs, "incompatible port kinds: "+sourcePort.Kind+" -> "+targetPort.Kind)
+	}
+
+	otherEdges := serialGraphOtherEdges(graph.Edges, draft.ID)
+	if !targetPort.Multiple {
+		for _, edge := range otherEdges {
+			if edge.Target == draft.Target && edge.TargetHandle == draft.TargetHandle {
+				errs = append(errs, "input already connected: "+targetNode.ID+"."+targetPort.ID)
+				break
+			}
+		}
+	}
+
+	fanOutAllowed := sourcePort.Multiple || sourceProvider.Type == "serial.tap" || sourceProvider.Type == "serial.tee"
+	if !fanOutAllowed {
+		for _, edge := range otherEdges {
+			if edge.Source == draft.Source && edge.SourceHandle == draft.SourceHandle {
+				errs = append(errs, "fan-out requires a tap node: "+sourceNode.ID+"."+sourcePort.ID)
+				break
+			}
+		}
+	}
+
+	if serialGraphCreatesCycle(draft, otherEdges) {
+		errs = append(errs, "directed cycle not allowed")
+	}
+	return errs
+}
+
+func validateSerialGraphResourceOwners(nodes []serialGraphNodeArg, providers map[string]serialGraphProvider) []string {
+	var errs []string
+	used := map[string]string{}
+	for _, node := range nodes {
+		provider, ok := providers[node.Type]
+		if !ok || !provider.ResourceOwner {
+			continue
+		}
+		for _, key := range provider.ResourceKeys {
+			value := strings.TrimSpace(fmt.Sprint(node.Config[key]))
+			if value == "" || value == "<nil>" {
+				continue
+			}
+			resourceKey := key + ":" + value
+			if previous, exists := used[resourceKey]; exists {
+				errs = append(errs, fmt.Sprintf("resource port duplicated: %s (%s, %s)", value, previous, node.ID))
+			} else {
+				used[resourceKey] = node.ID
+			}
+		}
+	}
+	return errs
+}
+
+func serialGraphProviderMap() map[string]serialGraphProvider {
+	providers := serialGraphProviders()
+	out := make(map[string]serialGraphProvider, len(providers))
+	for _, provider := range providers {
+		out[provider.Type] = provider
+	}
+	return out
+}
+
+func inputPort(provider serialGraphProvider, id string) (serialGraphPortSpec, bool) {
+	for _, port := range provider.Inputs {
+		if port.ID == id {
+			return port, true
+		}
+	}
+	return serialGraphPortSpec{}, false
+}
+
+func outputPort(provider serialGraphProvider, id string) (serialGraphPortSpec, bool) {
+	for _, port := range provider.Outputs {
+		if port.ID == id {
+			return port, true
+		}
+	}
+	return serialGraphPortSpec{}, false
+}
+
+func serialGraphOtherEdges(edges []serialGraphEdgeArg, id string) []serialGraphEdgeArg {
+	out := make([]serialGraphEdgeArg, 0, len(edges))
+	for _, edge := range edges {
+		edge = normalizeSerialGraphEdge(edge)
+		if edge.ID != id {
+			out = append(out, edge)
+		}
+	}
+	return out
+}
+
+func normalizeSerialGraphEdge(edge serialGraphEdgeArg) serialGraphEdgeArg {
+	if edge.SourceHandle == "" {
+		edge.SourceHandle = edge.SourceHandleCamel
+	}
+	if edge.TargetHandle == "" {
+		edge.TargetHandle = edge.TargetHandleCamel
+	}
+	return edge
+}
+
+func serialGraphCreatesCycle(draft serialGraphEdgeArg, edges []serialGraphEdgeArg) bool {
+	visited := map[string]bool{}
+	stack := []string{draft.Target}
+	for len(stack) > 0 {
+		nodeID := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[nodeID] {
+			continue
+		}
+		if nodeID == draft.Source {
+			return true
+		}
+		visited[nodeID] = true
+		for _, edge := range edges {
+			if edge.Source == nodeID {
+				stack = append(stack, edge.Target)
+			}
+		}
+	}
+	return false
+}
+
+func withConfig(base map[string]any, patch map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(patch))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range patch {
+		out[key] = value
+	}
+	return out
 }
 
 func dataModelSnapshot(args modbusDataModelArgs) mb.DataModelSnapshot {

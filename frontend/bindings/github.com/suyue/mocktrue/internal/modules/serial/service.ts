@@ -69,6 +69,13 @@ export function ClearMonitorFrames(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * ClearSerialGraphNodeBuffer clears buffered data for one node.
+ */
+export function ClearSerialGraphNodeBuffer(graphID: string, nodeID: string): $CancellablePromise<void> {
+    return $Call.ByID(2969054863, graphID, nodeID);
+}
+
+/**
  * CloseFecbusSession closes and removes a FECbus serial session.
  */
 export function CloseFecbusSession(id: string): $CancellablePromise<void> {
@@ -167,6 +174,13 @@ export function FecbusSendRequest(req: fecbus$0.SendRequest): $CancellablePromis
 }
 
 /**
+ * GetSerialGraphStatus returns one graph runtime snapshot.
+ */
+export function GetSerialGraphStatus(id: string): $CancellablePromise<$models.SerialGraphRuntimeInfo | null> {
+    return $Call.ByID(3195045016, id);
+}
+
+/**
  * ListBridges returns all active bridges.
  */
 export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> {
@@ -213,6 +227,13 @@ export function ListMonitors(): $CancellablePromise<monitor$0.SessionInfo[] | nu
  */
 export function ListPorts(): $CancellablePromise<manager$0.HandleStatus[] | null> {
     return $Call.ByID(2409741650);
+}
+
+/**
+ * ListSerialGraphs returns all active graph runtimes.
+ */
+export function ListSerialGraphs(): $CancellablePromise<$models.SerialGraphRuntimeInfo[] | null> {
+    return $Call.ByID(3236808863);
 }
 
 /**
@@ -314,6 +335,20 @@ export function QueryPage(portID: string, offset: number, length: number): $Canc
 }
 
 /**
+ * QuerySerialGraphNodeBuffer reads buffered bytes for a receiver-like node.
+ */
+export function QuerySerialGraphNodeBuffer(req: $models.SerialGraphBufferQuery): $CancellablePromise<buffer$0.Snapshot | null> {
+    return $Call.ByID(2736010660, req);
+}
+
+/**
+ * QuerySerialGraphNodeFrames reads captured frames for a graph monitor node.
+ */
+export function QuerySerialGraphNodeFrames(req: $models.SerialGraphFrameQuery): $CancellablePromise<$models.SerialGraphFramePage | null> {
+    return $Call.ByID(514153512, req);
+}
+
+/**
  * RemoveFecbusSlaveUnit removes one FECbus simulated slave address.
  */
 export function RemoveFecbusSlaveUnit(sessionID: string, address: number): $CancellablePromise<void> {
@@ -335,6 +370,13 @@ export function ResetCounters(portID: string): $CancellablePromise<void> {
 }
 
 /**
+ * ResetSerialGraphNodeCounters resets RX/TX counters for one graph node.
+ */
+export function ResetSerialGraphNodeCounters(graphID: string, nodeID: string): $CancellablePromise<void> {
+    return $Call.ByID(151526110, graphID, nodeID);
+}
+
+/**
  * RestoreCounters sets RX and TX byte counters for an open port handle.
  */
 export function RestoreCounters(portID: string, rxBytes: number, txBytes: number): $CancellablePromise<void> {
@@ -346,6 +388,13 @@ export function RestoreCounters(portID: string, rxBytes: number, txBytes: number
  */
 export function Send(req: $models.SendRequest): $CancellablePromise<number> {
     return $Call.ByID(304932660, req);
+}
+
+/**
+ * SendSerialGraphNode injects a payload into a sender/protocol-capable graph node.
+ */
+export function SendSerialGraphNode(req: $models.SerialGraphSendRequest): $CancellablePromise<number> {
+    return $Call.ByID(3331981752, req);
 }
 
 /**
@@ -378,6 +427,13 @@ export function StartMonitor(req: monitor$0.StartRequest): $CancellablePromise<m
 }
 
 /**
+ * StartSerialGraph validates and starts a graph runtime.
+ */
+export function StartSerialGraph(req: $models.SerialGraphStartRequest): $CancellablePromise<$models.SerialGraphRuntimeInfo | null> {
+    return $Call.ByID(1844679930, req);
+}
+
+/**
  * StopFecbusSlave stops FECbus device simulation for an open session.
  */
 export function StopFecbusSlave(id: string): $CancellablePromise<void> {
@@ -396,6 +452,13 @@ export function StopModbusSlave(id: string): $CancellablePromise<void> {
  */
 export function StopMonitor(id: string): $CancellablePromise<void> {
     return $Call.ByID(2368061992, id);
+}
+
+/**
+ * StopSerialGraph stops one graph and releases every graph-owned resource.
+ */
+export function StopSerialGraph(id: string): $CancellablePromise<void> {
+    return $Call.ByID(746778178, id);
 }
 
 /**

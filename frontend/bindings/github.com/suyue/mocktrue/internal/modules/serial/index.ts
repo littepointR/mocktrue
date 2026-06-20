@@ -12,6 +12,16 @@ export type {
     DecodeHexRequest,
     EncodeTextRequest,
     SendRequest,
+    SerialGraphBufferQuery,
+    SerialGraphEdgeSpec,
+    SerialGraphFramePage,
+    SerialGraphFrameQuery,
+    SerialGraphNodeSpec,
+    SerialGraphNodeStatus,
+    SerialGraphPosition,
+    SerialGraphRuntimeInfo,
+    SerialGraphSendRequest,
+    SerialGraphStartRequest,
     VirtualPairInfo,
     VirtualPortInfo
 } from "./models.js";

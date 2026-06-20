@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MockTrue 串口图形化编排设计</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #171717;
+      --surface: #232323;
+      --surface-2: #2b2b2b;
+      --border: #3a3a3a;
+      --text: #ededed;
+      --muted: #aaa4a0;
+      --blue: #3d8bfd;
+      --green: #4dbf74;
+      --yellow: #d7a642;
+      --red: #df6b6b;
+      --cyan: #36b6c5;
+      --violet: #9d7cd8;
+      --line: #767676;
+      --shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, rgba(61, 139, 253, 0.1), transparent 320px),
+        var(--bg);
+      color: var(--text);
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+      gap: 28px;
+      align-items: end;
+      min-height: 360px;
+      padding: 22px 0 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 780px;
+      font-size: 44px;
+      line-height: 1.08;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 22px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 15px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+
+    p {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.72;
+    }
+
+    .lede {
+      max-width: 780px;
+      margin-top: 18px;
+      font-size: 17px;
+    }
+
+    .tagline {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      height: 28px;
+      margin-bottom: 16px;
+      padding: 0 10px;
+      border: 1px solid rgba(61, 139, 253, 0.48);
+      border-radius: 4px;
+      background: rgba(61, 139, 253, 0.12);
+      color: #b9d6ff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .hero-board {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #1f1f1f;
+      box-shadow: var(--shadow);
+    }
+
+    .mini-flow {
+      display: grid;
+      grid-template-columns: 1fr 44px 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .mini-flow--split {
+      grid-template-columns: 1fr 44px 1fr;
+    }
+
+    .node {
+      position: relative;
+      min-height: 74px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+    }
+
+    .node strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .node span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .node::before,
+    .node::after {
+      position: absolute;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--bg);
+      border-radius: 50%;
+      background: var(--blue);
+      content: "";
+      transform: translateY(-50%);
+    }
+
+    .node::before {
+      left: -6px;
+    }
+
+    .node::after {
+      right: -6px;
+    }
+
+    .node--blue::after,
+    .node--blue::before {
+      background: var(--blue);
+    }
+
+    .node--green::after,
+    .node--green::before {
+      background: var(--green);
+    }
+
+    .node--yellow::after,
+    .node--yellow::before {
+      background: var(--yellow);
+    }
+
+    .node--cyan::after,
+    .node--cyan::before {
+      background: var(--cyan);
+    }
+
+    .edge {
+      height: 2px;
+      background: linear-gradient(90deg, var(--line), var(--blue));
+    }
+
+    .edge::after {
+      display: block;
+      width: 0;
+      height: 0;
+      margin-left: auto;
+      margin-top: -5px;
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-left: 8px solid var(--blue);
+      content: "";
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .metric {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-2);
+    }
+
+    .metric b {
+      display: block;
+      font-size: 18px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    section {
+      padding: 34px 0 0;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.45fr) minmax(0, 0.55fr);
+      gap: 24px;
+      align-items: start;
+      margin-bottom: 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .panel {
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .panel p {
+      margin-top: 8px;
+      font-size: 13px;
+      line-height: 1.62;
+    }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .stage {
+      min-height: 138px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .stage small {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .stage ul,
+    .rules ul {
+      margin: 10px 0 0;
+      padding: 0 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.62;
+    }
+
+    .port-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .port-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .port-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .port-row:nth-child(2) .port-dot {
+      background: var(--green);
+    }
+
+    .port-row:nth-child(3) .port-dot {
+      background: var(--yellow);
+    }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .flow-lane {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: 1fr 26px 1fr 26px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .pipe-node {
+      min-height: 58px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #1c1c1c;
+      font-size: 12px;
+    }
+
+    .pipe-node b {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    .pipe-node span {
+      color: var(--muted);
+    }
+
+    .arrow {
+      height: 2px;
+      background: var(--line);
+    }
+
+    .split-diagram {
+      display: grid;
+      grid-template-columns: 1fr 32px 1.2fr;
+      gap: 8px;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .branch {
+      display: grid;
+      gap: 8px;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 0;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #111;
+      color: #d8e8ff;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--text);
+      background: var(--surface-2);
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      margin: 0 5px 5px 0;
+      padding: 0 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #1b1b1b;
+      color: var(--text);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      counter-reset: step;
+    }
+
+    .timeline .panel {
+      counter-increment: step;
+    }
+
+    .timeline .panel h3::before {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: white;
+      content: counter(step);
+      font-size: 12px;
+    }
+
+    @media (max-width: 960px) {
+      main {
+        width: min(100vw - 24px, 760px);
+      }
+
+      header,
+      .section-head,
+      .workflow {
+        grid-template-columns: 1fr;
+      }
+
+      .architecture,
+      .timeline,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 34px;
+      }
+
+      .pipeline {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        width: 2px;
+        height: 22px;
+        justify-self: center;
+      }
+
+      .split-diagram {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <div class="tagline">MockTrue Serial Graph Design</div>
+        <h1>把串口功能变成模块节点，在连接工作台中拼接、运行和保存</h1>
+        <p class="lede">
+          连接界面不写死串口、Modbus 或 FECbus 逻辑。每个模块只暴露自己的节点、端口、配置面板和运行时工厂，图形化工作台负责拖拽、连线、校验、保存布局，统一运行时负责资源创建、数据路由和清理。
+        </p>
+      </div>
+      <div class="hero-board" aria-label="串口图形化工作台示意">
+        <div class="mini-flow">
+          <div class="node node--blue">
+            <strong>物理串口</strong>
+            <span>独占打开真实端口，产生 rx/tx 数据流</span>
+          </div>
+          <div class="edge"></div>
+          <div class="node node--green">
+            <strong>Tap / Tee</strong>
+            <span>把一份数据流分发给多个消费者</span>
+          </div>
+        </div>
+        <div class="mini-flow mini-flow--split">
+          <div class="node node--yellow">
+            <strong>协议节点</strong>
+            <span>Modbus RTU、FECbus 或自定义解析</span>
+          </div>
+          <div class="edge"></div>
+          <div class="node node--cyan">
+            <strong>显示与记录</strong>
+            <span>接收窗口、日志、文件记录、统计</span>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="metric">
+            <b>1</b>
+            <span>真实端口唯一 owner</span>
+          </div>
+          <div class="metric">
+            <b>N</b>
+            <span>并联消费者</span>
+          </div>
+          <div class="metric">
+            <b>0</b>
+            <span>停止后残留资源</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <div class="section-head">
+        <h2>总体结构</h2>
+        <p>
+          模块注册节点能力，连接工作台只处理通用图模型。运行时把图转换为已有 service 调用，因此用户通过图形界面拼出来的内容，和手动创建串口、桥接、监听、协议会话是同一套能力。
+        </p>
+      </div>
+      <div class="architecture">
+        <div class="stage">
+          <small>Step A</small>
+          <h3>模块提供者</h3>
+          <ul>
+            <li>声明节点类型</li>
+            <li>声明输入输出端口</li>
+            <li>提供配置面板</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <small>Step B</small>
+          <h3>节点库</h3>
+          <ul>
+            <li>按模块分类展示</li>
+            <li>拖拽添加节点</li>
+            <li>复用默认配置</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <small>Step C</small>
+          <h3>连接工作台</h3>
+          <ul>
+            <li>保存位置和连线</li>
+            <li>执行端口兼容校验</li>
+            <li>展示运行状态</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <small>Step D</small>
+          <h3>图运行时</h3>
+          <ul>
+            <li>生成启动计划</li>
+            <li>分配资源所有权</li>
+            <li>处理回滚和清理</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <small>Step E</small>
+          <h3>现有服务</h3>
+          <ul>
+            <li>串口和虚拟串口</li>
+            <li>桥接和监听</li>
+            <li>Modbus 与 FECbus</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>模块如何暴露能力</h2>
+        <p>
+          每个模块只注册自己能提供的节点。连接界面不理解协议细节，只读取 provider 的端口定义、校验函数和运行时工厂。
+        </p>
+      </div>
+      <pre><code>interface SerialGraphNodeProvider {
+  type: string
+  title: string
+  category: "port" | "virtual" | "bridge" | "monitor" | "protocol" | "tool"
+  inputs: PortSpec[]
+  outputs: PortSpec[]
+  defaultConfig: unknown
+  ConfigPanel: Component
+  validateConfig(config: unknown): ValidationResult
+  validateConnection?(from: PortSpec, to: PortSpec): ValidationResult
+  createRuntime(config: unknown, context: GraphRuntimeContext): Promise&lt;RuntimeNode&gt;
+}</code></pre>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>节点端口模型</h2>
+        <p>
+          端口类型决定能不能连接。真实串口节点提供字节流，协议节点消费字节流并输出帧、寄存器或解析结果，显示节点消费结果。
+        </p>
+      </div>
+      <div class="grid">
+        <div class="panel">
+          <h3>物理串口节点</h3>
+          <div class="port-list">
+            <div class="port-row"><span>config</span><span class="port-dot"></span><span>PortName / BaudRate</span></div>
+            <div class="port-row"><span>out.bytes</span><span class="port-dot"></span><span>rx byte stream</span></div>
+            <div class="port-row"><span>in.bytes</span><span class="port-dot"></span><span>tx byte stream</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Tap / Tee 节点</h3>
+          <div class="port-list">
+            <div class="port-row"><span>in.bytes</span><span class="port-dot"></span><span>source stream</span></div>
+            <div class="port-row"><span>out.a</span><span class="port-dot"></span><span>display branch</span></div>
+            <div class="port-row"><span>out.b</span><span class="port-dot"></span><span>protocol branch</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>协议节点</h3>
+          <div class="port-list">
+            <div class="port-row"><span>in.bytes</span><span class="port-dot"></span><span>RTU / FECbus bytes</span></div>
+            <div class="port-row"><span>out.frames</span><span class="port-dot"></span><span>annotated frames</span></div>
+            <div class="port-row"><span>out.state</span><span class="port-dot"></span><span>registers / units</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>串联与并联</h2>
+        <p>
+          串联是单一路径处理，并联必须通过 Tap/Tee 分发。这样真实端口只被一个 owner 打开，避免多个功能抢同一端口导致冲突。
+        </p>
+      </div>
+      <div class="workflow">
+        <div class="flow-lane">
+          <h3>串联处理</h3>
+          <p>用于单向处理链路，例如读取数据、解析协议、展示结果。</p>
+          <div class="pipeline">
+            <div class="pipe-node"><b>物理串口</b><span>/dev/ttyUSB0</span></div>
+            <div class="arrow"></div>
+            <div class="pipe-node"><b>Modbus RTU</b><span>帧解析和寄存器映射</span></div>
+            <div class="arrow"></div>
+            <div class="pipe-node"><b>接收显示</b><span>表格、HEX、ASCII</span></div>
+          </div>
+        </div>
+        <div class="flow-lane">
+          <h3>并联监听</h3>
+          <p>用于同一份数据同时进入显示、日志和协议解析。</p>
+          <div class="split-diagram">
+            <div class="pipe-node"><b>物理串口</b><span>唯一资源 owner</span></div>
+            <div class="arrow"></div>
+            <div class="branch">
+              <div class="pipe-node"><b>Tap / Tee</b><span>分发原始字节流</span></div>
+              <div class="pipe-node"><b>接收显示</b><span>用户观察</span></div>
+              <div class="pipe-node"><b>文件记录</b><span>长期留存</span></div>
+              <div class="pipe-node"><b>FECbus 解析</b><span>标注帧字段</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>节点目录</h2>
+        <p>
+          第一版只需要覆盖现有功能，后续新增协议时只注册新 provider，不改连接工作台主体。
+        </p>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>暴露节点</th>
+            <th>输入</th>
+            <th>输出</th>
+            <th>运行时动作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>串口</td>
+            <td><span class="chip">物理串口</span><span class="chip">发送器</span><span class="chip">接收器</span></td>
+            <td>bytes / config</td>
+            <td>bytes / status</td>
+            <td>调用 openPort、send、close、restore counters</td>
+          </tr>
+          <tr>
+            <td>虚拟串口</td>
+            <td><span class="chip">虚拟串口</span></td>
+            <td>config</td>
+            <td>port / bytes</td>
+            <td>创建一个虚拟串口并登记清理任务</td>
+          </tr>
+          <tr>
+            <td>桥接</td>
+            <td><span class="chip">桥接</span><span class="chip">Tap</span><span class="chip">Tee</span></td>
+            <td>port / bytes</td>
+            <td>bytes / mirror</td>
+            <td>建立双向转发，支持并联消费者</td>
+          </tr>
+          <tr>
+            <td>监听</td>
+            <td><span class="chip">串口监控</span><span class="chip">帧表</span></td>
+            <td>port / bytes</td>
+            <td>frames / counters</td>
+            <td>启动监听、查询帧、清空记录</td>
+          </tr>
+          <tr>
+            <td>Modbus</td>
+            <td><span class="chip">Master</span><span class="chip">Slave</span><span class="chip">寄存器表</span></td>
+            <td>bytes / request</td>
+            <td>frames / registers</td>
+            <td>打开会话、读写、扫描、多 Unit ID</td>
+          </tr>
+          <tr>
+            <td>FECbus</td>
+            <td><span class="chip">主控节点</span><span class="chip">电气控制装置</span><span class="chip">字段标注</span></td>
+            <td>bytes / request</td>
+            <td>annotated frames / units</td>
+            <td>打开会话、发送帧、多从站、查询标注</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>运行时规则</h2>
+        <p>
+          图能不能运行，不由界面猜测，而由运行时统一校验和规划。失败时必须可解释、可回滚、可清理。
+        </p>
+      </div>
+      <div class="grid rules">
+        <div class="panel">
+          <h3>资源所有权</h3>
+          <ul>
+            <li>真实串口只能有一个 owner</li>
+            <li>虚拟串口由运行计划创建</li>
+            <li>Tap/Tee 只消费 owner 输出的数据流</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>连接校验</h3>
+          <ul>
+            <li>bytes 只能接 bytes</li>
+            <li>frame 只能接协议显示或记录</li>
+            <li>协议 Master/Slave 角色在节点创建时确定</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>生命周期</h3>
+          <ul>
+            <li>启动按依赖顺序执行</li>
+            <li>任一步失败则反向清理</li>
+            <li>停止图释放所有串口、桥接和监听资源</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>保存格式</h2>
+        <p>
+          配置文件中保存图、节点配置、布局、运行快照和历史数据。导入后连接工作台应恢复到导出时的完整状态。
+        </p>
+      </div>
+      <pre><code>{
+  "serialGraph": {
+    "nodes": [
+      {
+        "id": "port-1",
+        "type": "serial.physical",
+        "position": { "x": 120, "y": 180 },
+        "config": { "port": "/dev/ttyUSB0", "baudRate": 115200 }
+      },
+      {
+        "id": "tap-1",
+        "type": "serial.tap",
+        "position": { "x": 420, "y": 180 },
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-port-tap",
+        "source": "port-1",
+        "sourceHandle": "out.bytes",
+        "target": "tap-1",
+        "targetHandle": "in.bytes"
+      }
+    ]
+  }
+}</code></pre>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>落地顺序</h2>
+        <p>
+          先做能保存和展示的连接工作台，再接运行时。这样可以让用户先验证图形化表达是否符合直觉，再逐步打开真实资源编排能力。
+        </p>
+      </div>
+      <div class="timeline">
+        <div class="panel">
+          <h3>Provider 接口</h3>
+          <p>定义节点、端口、配置面板和运行时工厂。</p>
+        </div>
+        <div class="panel">
+          <h3>连接工作台</h3>
+          <p>用 Vue Flow 实现拖拽节点、连线、选择和保存布局。</p>
+        </div>
+        <div class="panel">
+          <h3>静态校验</h3>
+          <p>检查端口类型、角色、真实串口 owner 和环路。</p>
+        </div>
+        <div class="panel">
+          <h3>运行计划</h3>
+          <p>把图转换成现有 service 调用，并支持失败回滚。</p>
+        </div>
+        <div class="panel">
+          <h3>协议节点</h3>
+          <p>接入 Modbus、FECbus、自定义解析和记录节点。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

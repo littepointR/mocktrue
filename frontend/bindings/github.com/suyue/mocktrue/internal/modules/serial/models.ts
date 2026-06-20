@@ -3,7 +3,13 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as monitor$0 from "./monitor/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as port$0 from "./port/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../../../../time/models.js";
 
 /**
  * AutoVirtualMonitorRequest starts monitoring one real serial port while
@@ -55,6 +61,112 @@ export interface SendRequest {
      */
     "Mode": string;
     "Encoding": string;
+}
+
+/**
+ * SerialGraphBufferQuery reads one node's byte buffer.
+ */
+export interface SerialGraphBufferQuery {
+    "GraphID": string;
+    "NodeID": string;
+    "Offset": number;
+    "Length": number;
+}
+
+/**
+ * SerialGraphEdgeSpec connects one output handle to one input handle.
+ */
+export interface SerialGraphEdgeSpec {
+    "ID": string;
+    "Source": string;
+    "SourceHandle": string;
+    "Target": string;
+    "TargetHandle": string;
+}
+
+/**
+ * SerialGraphFramePage is a filtered frame page for graph monitor nodes.
+ */
+export interface SerialGraphFramePage {
+    "Frames": monitor$0.Frame[] | null;
+    "Total": number;
+    "NextOffset": number;
+}
+
+/**
+ * SerialGraphFrameQuery reads one node's captured frame history.
+ */
+export interface SerialGraphFrameQuery {
+    "GraphID": string;
+    "NodeID": string;
+    "Offset": number;
+    "Limit": number;
+    "Direction": string;
+    "Search": string;
+}
+
+/**
+ * SerialGraphNodeSpec is the backend representation of one graph node.
+ */
+export interface SerialGraphNodeSpec {
+    "ID": string;
+    "Type": string;
+    "Config": { [_ in string]?: any } | null;
+    "Position": SerialGraphPosition;
+}
+
+/**
+ * SerialGraphNodeStatus is a frontend-safe snapshot of one runtime node.
+ */
+export interface SerialGraphNodeStatus {
+    "ID": string;
+    "Type": string;
+    "Status": string;
+    "RxBytes": number;
+    "TxBytes": number;
+    "FrameCount": number;
+    "ResourceID": string;
+    "Error": string;
+}
+
+/**
+ * SerialGraphPosition is kept for frontend snapshot round-tripping.
+ */
+export interface SerialGraphPosition {
+    "X": number;
+    "Y": number;
+}
+
+/**
+ * SerialGraphRuntimeInfo is a frontend-safe snapshot of one running graph.
+ */
+export interface SerialGraphRuntimeInfo {
+    "ID": string;
+    "Status": string;
+    "StartedAt": time$0.Time;
+    "StoppedAt": time$0.Time;
+    "Error": string;
+    "Nodes": SerialGraphNodeStatus[] | null;
+}
+
+/**
+ * SerialGraphSendRequest injects bytes into a graph node.
+ */
+export interface SerialGraphSendRequest {
+    "GraphID": string;
+    "NodeID": string;
+    "Content": string;
+    "Mode": string;
+    "Encoding": string;
+}
+
+/**
+ * SerialGraphStartRequest starts one executable serial topology graph.
+ */
+export interface SerialGraphStartRequest {
+    "ID": string;
+    "Nodes": SerialGraphNodeSpec[] | null;
+    "Edges": SerialGraphEdgeSpec[] | null;
 }
 
 /**

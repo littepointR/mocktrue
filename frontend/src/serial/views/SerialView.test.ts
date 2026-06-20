@@ -201,6 +201,67 @@ describe('SerialView workspace layout', () => {
     expect(wrapper.find('[data-testid="fecbus-stub"]').exists()).toBe(true)
   })
 
+  it('opens the serial graph workbench from the serial module view id', async () => {
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+    await wrapper.setProps({ activeViewId: 'serial.graph', activeViewVersion: 1 })
+
+    expect(wrapper.find('[data-testid="serial-graph-panel"]').exists()).toBe(true)
+    expect(wrapper.find('.serial-view__operation-panel').classes()).not.toContain('is-open')
+    expect(wrapper.find('.tabs-json').text()).toContain('"kind":"graph"')
+    expect(wrapper.find('.tabs-json').text()).toContain('节点编辑')
+  })
+
+  it('keeps the serial graph tab in the content area when another operation panel is opened', async () => {
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+    await wrapper.setProps({ activeViewId: 'serial.graph', activeViewVersion: 1 })
+    await wrapper.setProps({ activeViewId: 'serial.open', activeViewVersion: 2 })
+
+    expect(wrapper.find('[data-testid="open-port-stub"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-panel"]').exists()).toBe(true)
+    expect(wrapper.find('.tabs-json').text()).toContain('"id":"serial.graph"')
+  })
+
+  it('focuses an existing serial graph tab when selecting the serial graph view again', async () => {
+    const serial = useSerialStore()
+    serial.handles.set('port-1', {
+      ID: 'port-1',
+      Config: {
+        PortName: '/tmp/ttyA',
+        BaudRate: 115200,
+        DataBits: 8,
+        StopBits: '1',
+        Parity: 'none',
+        FlowMode: 'none',
+        ReadBufKB: 32,
+      },
+      IsOpen: true,
+      RxBytes: 0,
+      TxBytes: 0,
+    })
+    const workspace = useSerialWorkspaceStore()
+    workspace.setEditorLayout({
+      type: 'group',
+      id: 'group-main',
+      tabs: ['port-1', 'serial.graph'],
+    })
+    workspace.setActiveByGroup({ 'group-main': 'port-1' })
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+    await wrapper.setProps({ activeViewId: 'serial.graph', activeViewVersion: 1 })
+
+    expect(workspace.activeByGroup['group-main']).toBe('serial.graph')
+    expect(wrapper.find('.serial-view__operation-panel').classes()).not.toContain('is-open')
+  })
+
   it('shows the selected operation panel when the serial module opens on its default view', async () => {
     const wrapper = mount(SerialView, {
       props: { activeViewId: 'serial.open', activeViewVersion: 1 },
@@ -379,7 +440,7 @@ describe('SerialView workspace layout', () => {
 const stubs = {
   EditorLayoutNode: {
     props: ['node', 'activeByGroup', 'tabs'],
-    template: '<div><pre class="layout-json">{{ JSON.stringify(node) }} {{ JSON.stringify(activeByGroup) }}</pre><pre class="tabs-json">{{ JSON.stringify(tabs) }}</pre></div>',
+    template: '<div><pre class="layout-json">{{ JSON.stringify(node) }} {{ JSON.stringify(activeByGroup) }}</pre><pre class="tabs-json">{{ JSON.stringify(tabs) }}</pre><div v-if="tabs.some(tab => tab.kind === \'graph\')" data-testid="serial-graph-panel" /></div>',
   },
   PortConfigPanel: {
     template: '<div data-testid="open-port-stub" />',

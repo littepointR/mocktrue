@@ -11,6 +11,7 @@ export const serialModule: ModuleFrontend = {
     { id: 'serial.monitor', title: '串口监控', component: 'serial/Monitor' },
     { id: 'serial.modbus', title: 'Modbus 调试', component: 'serial/Modbus' },
     { id: 'serial.fecbus', title: 'FECbus 调试', component: 'serial/FECbus' },
+    { id: 'serial.graph', title: '串口拓扑', component: 'serial/Graph' },
   ],
   async onActivate() {
     // Initialize Store event listeners
@@ -45,4 +46,5 @@ export * from './stores/bufferStore'
 export * from './stores/monitorStore'
 export * from './stores/modbusStore'
 export * from './stores/fecbusStore'
+export * from './stores/graphStore'
 export * from './services'

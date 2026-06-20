@@ -5,6 +5,7 @@ import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 import type { EditorLayoutNode } from '../serial/views/editorLayout'
+import { defaultSerialGraphState, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
 import { FrameMode, SessionRole } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
 import { FrameType, FunctionCode, SessionRole as FecbusSessionRole, StatusCode } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
 import { workspaceKind, type WorkspaceSnapshot } from './workspaceSnapshot'
@@ -57,6 +58,12 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
     title: 'FECbus 调试演示',
     description: '展示 FECbus 主控节点发送、设备状态应答和帧历史配置。',
     snapshotFactory: createFecbusDemo,
+  },
+  {
+    id: 'serial-graph-demo',
+    title: '串口拓扑演示',
+    description: '展示串口、分流器、接收器和协议节点的图形化连接。',
+    snapshotFactory: createSerialGraphDemo,
   },
   {
     id: 'full-workspace-demo',
@@ -179,12 +186,27 @@ function createFecbusDemo(): WorkspaceSnapshot {
   })
 }
 
+function createSerialGraphDemo(): WorkspaceSnapshot {
+  const suffix = nextDemoSuffix()
+  const portName = `mocktrue-demo-graph-${suffix}`
+
+  return snapshot({
+    graph: serialGraphState(suffix, portName),
+    workspace: workspace({
+      selectedOperation: 'graph',
+      editorLayout: { type: 'group', id: 'group-1', tabs: ['serial.graph'] },
+      activeByGroup: { 'group-1': 'serial.graph' },
+    }),
+  })
+}
+
 function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const terminalPort = `mocktrue-demo-terminal-${suffix}`
   const bridgePortA = `mocktrue-demo-full-a-${suffix}`
   const bridgePortB = `mocktrue-demo-full-b-${suffix}`
   const fecbusPort = `mocktrue-demo-full-fecbus-${suffix}`
+  const graphPort = `mocktrue-demo-full-graph-${suffix}`
 
   return snapshot({
     settings: {
@@ -211,6 +233,7 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
     }],
     modbus: modbusState(`demo-full-modbus-${suffix}`, toPortPath(terminalPort)),
     fecbus: fecbusState(`demo-full-fecbus-${suffix}`, toPortPath(fecbusPort)),
+    graph: serialGraphState(suffix, graphPort),
     workspace: workspace({
       selectedOperation: 'fecbus',
       editorLayout: { type: 'group', id: 'group-1', tabs: [modbusTabId(`demo-full-modbus-${suffix}`), fecbusTabId(`demo-full-fecbus-${suffix}`)] },
@@ -229,6 +252,7 @@ function snapshot(input: {
   monitors?: MonitorWorkspaceState
   modbus?: ModbusWorkspaceState
   fecbus?: FecbusWorkspaceState
+  graph?: SerialGraphWorkspaceState
   workspace?: SerialWorkspaceState
 }): WorkspaceSnapshot {
   return {
@@ -243,6 +267,7 @@ function snapshot(input: {
       monitors: input.monitors ?? emptyMonitorState(),
       modbus: input.modbus ?? emptyModbusState(),
       fecbus: input.fecbus ?? emptyFecbusState(),
+      graph: input.graph ?? defaultSerialGraphState(),
       workspace: input.workspace ?? workspace({}),
     },
   }
@@ -694,6 +719,102 @@ function fecbusState(id: string, portName: string): FecbusWorkspaceState {
 
 function fecbusTabId(id: string): string {
   return `fecbus:${id}`
+}
+
+function serialGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+  return {
+    nodes: [
+      {
+        id: `graph-sender-${suffix}`,
+        type: 'serial.sender',
+        position: { x: 32, y: 32 },
+        config: {
+          mode: 'ascii',
+          encoding: 'utf-8',
+          payload: `MockTrue graph ${suffix}\r\n`,
+          autoSend: true,
+          intervalMs: 1000,
+        },
+      },
+      {
+        id: `graph-vport-${suffix}`,
+        type: 'serial.virtual',
+        position: { x: 264, y: 32 },
+        config: {
+          portName,
+          baudRate: 115200,
+          dataBits: 8,
+          stopBits: '1',
+          parity: 'none',
+          flowMode: 'none',
+          readBufKB: 32,
+        },
+      },
+      {
+        id: `graph-tap-${suffix}`,
+        type: 'serial.tap',
+        position: { x: 496, y: 32 },
+        config: {},
+      },
+      {
+        id: `graph-receiver-${suffix}`,
+        type: 'serial.receiver',
+        position: { x: 752, y: 32 },
+        config: { viewMode: 'hexClassic', autoScroll: true },
+      },
+      {
+        id: `graph-modbus-${suffix}`,
+        type: 'serial.modbus.master',
+        position: { x: 752, y: 168 },
+        config: { mode: 'rtu', unitIds: '1,2', functionCode: 3 },
+      },
+      {
+        id: `graph-monitor-${suffix}`,
+        type: 'serial.monitor',
+        position: { x: 752, y: 304 },
+        config: { mode: 'auto-virtual', displayMode: 'hex' },
+      },
+    ],
+    edges: [
+      {
+        id: `graph-edge-sender-vport-${suffix}`,
+        source: `graph-sender-${suffix}`,
+        sourceHandle: 'out',
+        target: `graph-vport-${suffix}`,
+        targetHandle: 'tx',
+      },
+      {
+        id: `graph-edge-vport-tap-${suffix}`,
+        source: `graph-vport-${suffix}`,
+        sourceHandle: 'rx',
+        target: `graph-tap-${suffix}`,
+        targetHandle: 'in',
+      },
+      {
+        id: `graph-edge-tap-receiver-${suffix}`,
+        source: `graph-tap-${suffix}`,
+        sourceHandle: 'out',
+        target: `graph-receiver-${suffix}`,
+        targetHandle: 'in',
+      },
+      {
+        id: `graph-edge-tap-modbus-${suffix}`,
+        source: `graph-tap-${suffix}`,
+        sourceHandle: 'out',
+        target: `graph-modbus-${suffix}`,
+        targetHandle: 'rx',
+      },
+      {
+        id: `graph-edge-tap-monitor-${suffix}`,
+        source: `graph-tap-${suffix}`,
+        sourceHandle: 'out',
+        target: `graph-monitor-${suffix}`,
+        targetHandle: 'in',
+      },
+    ],
+    selectedNodeId: `graph-receiver-${suffix}`,
+    selectedEdgeId: null,
+  }
 }
 
 function fecbusAnnotation() {

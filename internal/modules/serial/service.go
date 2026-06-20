@@ -31,6 +31,7 @@ type Service struct {
 	vmgr                *virtualserial.Manager
 	buffers             map[string]*buffer.RingBuffer // keyed by handle ID
 	autoMonitorVirtuals map[string]string
+	graphs              map[string]*serialGraphRuntime
 	subscribed          bool
 }
 
@@ -70,6 +71,9 @@ func (s *Service) init(bus *eventbus.EventBus) {
 	}
 	if s.autoMonitorVirtuals == nil {
 		s.autoMonitorVirtuals = make(map[string]string)
+	}
+	if s.graphs == nil {
+		s.graphs = make(map[string]*serialGraphRuntime)
 	}
 	if s.subscribed {
 		s.mu.Unlock()
@@ -175,6 +179,7 @@ func (s *Service) ClosePort(id string) error {
 // cleanup releases every resource owned by the serial service: open ports,
 // virtual serial pairs, bridges, and in-memory buffers. It is idempotent.
 func (s *Service) cleanup() {
+	s.stopAllSerialGraphs()
 	if s.manager != nil {
 		s.manager.CloseAll()
 	}
@@ -193,6 +198,7 @@ func (s *Service) cleanup() {
 	s.mu.Lock()
 	s.buffers = make(map[string]*buffer.RingBuffer)
 	s.autoMonitorVirtuals = make(map[string]string)
+	s.graphs = make(map[string]*serialGraphRuntime)
 	s.mu.Unlock()
 }
 

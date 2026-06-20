@@ -7,6 +7,7 @@ import SerialTabContent from './SerialTabContent.vue'
 import MonitorTabContent from './MonitorTabContent.vue'
 import ModbusTabContent from './ModbusTabContent.vue'
 import FecbusTabContent from './FecbusTabContent.vue'
+import SerialGraphPanel from './SerialGraphPanel.vue'
 
 const props = defineProps<{
   node: EditorLayoutNode
@@ -100,6 +101,9 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
       <FecbusTabContent
         v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'fecbus'"
         :session-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
+      />
+      <SerialGraphPanel
+        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'graph'"
       />
     </div>
   </div>

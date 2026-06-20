@@ -5,6 +5,7 @@ import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
 import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
+import type { SerialGraphWorkspaceState } from '../serial/stores/graphStore'
 
 export const workspaceKind = 'mocktrue.workspace.v1'
 
@@ -37,6 +38,7 @@ export interface WorkspaceSnapshot {
     monitors: MonitorWorkspaceState
     modbus: ModbusWorkspaceState
     fecbus: FecbusWorkspaceState
+    graph: SerialGraphWorkspaceState
     workspace: SerialWorkspaceState
   }
 }

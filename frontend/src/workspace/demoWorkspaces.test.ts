@@ -15,6 +15,7 @@ describe('demoWorkspaces', () => {
       'monitor-demo',
       'modbus-demo',
       'fecbus-demo',
+      'serial-graph-demo',
       'full-workspace-demo',
     ])
     expect(demos.every(demo => !('readonly' in demo))).toBe(true)
@@ -51,8 +52,60 @@ describe('demoWorkspaces', () => {
     expect(snapshot?.serial.modbus.history).toHaveLength(0)
     expect(snapshot?.serial.fecbus.sessions).toHaveLength(1)
     expect(snapshot?.serial.fecbus.framePages[snapshot.serial.fecbus.activeSessionId ?? '']?.Total).toBe(1)
+    expect(snapshot?.serial.graph.nodes.length).toBeGreaterThan(0)
+    expect(snapshot?.serial.graph.edges.length).toBeGreaterThan(0)
     expect(snapshot?.serial.workspace.editorLayout.type).toBe('group')
     expect(snapshot?.serial.workspace.selectedOperation).toBe('fecbus')
+  })
+
+  it('opens the serial graph example with normal graph workspace state', () => {
+    const snapshot = createDemoWorkspaceSnapshot('serial-graph-demo')
+
+    expect(snapshot?.serial.graph.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
+      'serial.sender',
+      'serial.virtual',
+      'serial.tap',
+      'serial.receiver',
+      'serial.modbus.master',
+    ]))
+    const sender = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.sender')
+    const virtualPort = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.virtual')
+    const receiver = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.receiver')
+    const tap = snapshot?.serial.graph.nodes.find(node => node.type === 'serial.tap')
+    expect(sender?.config).toEqual(expect.objectContaining({
+      autoSend: true,
+      intervalMs: 1000,
+      mode: 'ascii',
+    }))
+    expect(String(sender?.config.payload ?? '').length).toBeGreaterThan(0)
+    expect(snapshot?.serial.graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: sender?.id,
+        sourceHandle: 'out',
+        target: virtualPort?.id,
+        targetHandle: 'tx',
+      }),
+      expect.objectContaining({
+        source: virtualPort?.id,
+        sourceHandle: 'rx',
+        target: tap?.id,
+        targetHandle: 'in',
+      }),
+      expect.objectContaining({
+        source: tap?.id,
+        sourceHandle: 'out',
+        target: receiver?.id,
+        targetHandle: 'in',
+      }),
+    ]))
+    expect(snapshot?.serial.graph.selectedNodeId).toBe(receiver?.id)
+    expect(snapshot?.serial.graph.edges.length).toBeGreaterThanOrEqual(3)
+    expect(snapshot?.serial.workspace.selectedOperation).toBe('graph')
+    expect(snapshot?.serial.workspace.editorLayout.type).toBe('group')
+    if (snapshot?.serial.workspace.editorLayout.type === 'group') {
+      expect(snapshot.serial.workspace.editorLayout.tabs).toContain('serial.graph')
+      expect(snapshot.serial.workspace.activeByGroup[snapshot.serial.workspace.editorLayout.id]).toBe('serial.graph')
+    }
   })
 
   it('opens Modbus examples with a normal saved session tab', () => {

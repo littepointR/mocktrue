@@ -18,6 +18,7 @@ import (
 	"github.com/suyue/mocktrue/internal/modules/serial"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	mb "github.com/suyue/mocktrue/internal/modules/serial/modbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 )
@@ -47,6 +48,20 @@ type SerialRuntime interface {
 	ListMonitors() []monitor.SessionInfo
 	QueryMonitorFrames(monitor.QueryRequest) (*monitor.FramePage, error)
 	ClearMonitorFrames(string) error
+	OpenModbusSession(context.Context, mb.OpenSessionRequest) (*mb.SessionInfo, error)
+	CloseModbusSession(string) error
+	ListModbusSessions() []mb.SessionInfo
+	ModbusMasterRequest(mb.MasterRequest) (*mb.Transaction, error)
+	StartModbusSlave(mb.StartSlaveRequest) (*mb.SessionInfo, error)
+	StopModbusSlave(string) error
+	UpdateModbusSlaveData(string, mb.DataModelSnapshot) error
+	AddModbusSlaveUnit(string, mb.SlaveUnitSnapshot) error
+	RemoveModbusSlaveUnit(string, byte) error
+	ListModbusSlaveUnits(string) ([]mb.SlaveUnitInfo, error)
+	UpdateModbusSlaveUnitData(string, byte, mb.DataModelSnapshot) error
+	ModbusScanUnitIDs(mb.UnitScanRequest) (*mb.UnitScanResult, error)
+	ModbusReadRegisters(mb.RegisterReadRequest) (*mb.RegisterReadResult, error)
+	ModbusScanRegisters(mb.RegisterScanRequest) (*mb.RegisterScanResult, error)
 }
 
 type noArgs struct{}
@@ -123,6 +138,136 @@ type queryMonitorFramesArgs struct {
 	Limit     int    `json:"limit,omitempty"`
 	Direction string `json:"direction,omitempty"`
 	Search    string `json:"search,omitempty"`
+}
+
+type modbusOpenSessionArgs struct {
+	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
+	Port      string `json:"port"`
+	Mode      string `json:"mode,omitempty"`
+	Role      string `json:"role,omitempty"`
+	BaudRate  int    `json:"baud_rate,omitempty"`
+	DataBits  int    `json:"data_bits,omitempty"`
+	StopBits  string `json:"stop_bits,omitempty"`
+	Parity    string `json:"parity,omitempty"`
+	FlowMode  string `json:"flow_mode,omitempty"`
+	ReadBufKB int    `json:"read_buf_kb,omitempty"`
+	TimeoutMs int    `json:"timeout_ms,omitempty"`
+	Retries   int    `json:"retries,omitempty"`
+}
+
+type modbusSessionIDArgs struct {
+	SessionID string `json:"session_id"`
+}
+
+type modbusMasterRequestArgs struct {
+	SessionID      string   `json:"session_id"`
+	UnitID         int      `json:"unit_id"`
+	Function       int      `json:"function"`
+	AddressMode    string   `json:"address_mode,omitempty"`
+	Address        int      `json:"address"`
+	Quantity       int      `json:"quantity,omitempty"`
+	Value          int      `json:"value,omitempty"`
+	CoilValues     []bool   `json:"coil_values,omitempty"`
+	RegisterValues []uint16 `json:"register_values,omitempty"`
+	TimeoutMs      int      `json:"timeout_ms,omitempty"`
+	Retries        int      `json:"retries,omitempty"`
+}
+
+type modbusBoolPointArg struct {
+	Address int  `json:"address"`
+	Value   bool `json:"value"`
+}
+
+type modbusRegisterPointArg struct {
+	Address int `json:"address"`
+	Value   int `json:"value"`
+}
+
+type modbusDataModelArgs struct {
+	Coils            []modbusBoolPointArg     `json:"coils,omitempty"`
+	DiscreteInputs   []modbusBoolPointArg     `json:"discrete_inputs,omitempty"`
+	InputRegisters   []modbusRegisterPointArg `json:"input_registers,omitempty"`
+	HoldingRegisters []modbusRegisterPointArg `json:"holding_registers,omitempty"`
+}
+
+type modbusSlaveUnitArg struct {
+	UnitID    int                 `json:"unit_id"`
+	DataModel modbusDataModelArgs `json:"data_model"`
+}
+
+type modbusStartSlaveArgs struct {
+	SessionID string               `json:"session_id"`
+	UnitID    int                  `json:"unit_id"`
+	DataModel modbusDataModelArgs  `json:"data_model,omitempty"`
+	Units     []modbusSlaveUnitArg `json:"units,omitempty"`
+}
+
+type modbusUnitIDArgs struct {
+	SessionID string `json:"session_id"`
+	UnitID    int    `json:"unit_id"`
+}
+
+type modbusUpdateSlaveDataArgs struct {
+	SessionID string              `json:"session_id"`
+	DataModel modbusDataModelArgs `json:"data_model"`
+}
+
+type modbusAddSlaveUnitArgs struct {
+	SessionID string              `json:"session_id"`
+	UnitID    int                 `json:"unit_id"`
+	DataModel modbusDataModelArgs `json:"data_model"`
+}
+
+type modbusUpdateSlaveUnitDataArgs struct {
+	SessionID string              `json:"session_id"`
+	UnitID    int                 `json:"unit_id"`
+	DataModel modbusDataModelArgs `json:"data_model"`
+}
+
+type modbusRegisterMappingArg struct {
+	Address       int     `json:"address"`
+	DataType      string  `json:"data_type,omitempty"`
+	WordOrder     string  `json:"word_order,omitempty"`
+	Length        int     `json:"length,omitempty"`
+	ScalingFactor float64 `json:"scaling_factor,omitempty"`
+	Comment       string  `json:"comment,omitempty"`
+	GroupEnd      bool    `json:"group_end,omitempty"`
+}
+
+type modbusReadRegistersArgs struct {
+	SessionID   string                     `json:"session_id"`
+	UnitID      int                        `json:"unit_id"`
+	Function    int                        `json:"function"`
+	AddressMode string                     `json:"address_mode,omitempty"`
+	Address     int                        `json:"address"`
+	Quantity    int                        `json:"quantity"`
+	Mappings    []modbusRegisterMappingArg `json:"mappings,omitempty"`
+	TimeoutMs   int                        `json:"timeout_ms,omitempty"`
+	Retries     int                        `json:"retries,omitempty"`
+}
+
+type modbusScanUnitIDsArgs struct {
+	SessionID   string `json:"session_id"`
+	UnitIDs     []int  `json:"unit_ids"`
+	Function    int    `json:"function"`
+	AddressMode string `json:"address_mode,omitempty"`
+	Address     int    `json:"address"`
+	Quantity    int    `json:"quantity"`
+	TimeoutMs   int    `json:"timeout_ms,omitempty"`
+	Retries     int    `json:"retries,omitempty"`
+}
+
+type modbusScanRegistersArgs struct {
+	SessionID    string `json:"session_id"`
+	UnitID       int    `json:"unit_id"`
+	Function     int    `json:"function"`
+	AddressMode  string `json:"address_mode,omitempty"`
+	StartAddress int    `json:"start_address"`
+	EndAddress   int    `json:"end_address"`
+	ChunkSize    int    `json:"chunk_size,omitempty"`
+	TimeoutMs    int    `json:"timeout_ms,omitempty"`
+	Retries      int    `json:"retries,omitempty"`
 }
 
 func newMCPServer(serialService SerialRuntime) *mcp.Server {
@@ -342,6 +487,180 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 		}
 		return nil, map[string]any{"cleared": true}, nil
 	})
+
+	addWriteTool[modbusOpenSessionArgs, map[string]any](server, "modbus_open_session", "Open a dedicated Modbus RTU/ASCII serial session.", false, func(ctx context.Context, req *mcp.CallToolRequest, args modbusOpenSessionArgs) (*mcp.CallToolResult, map[string]any, error) {
+		session, err := serialService.OpenModbusSession(ctx, mb.OpenSessionRequest{
+			ID:   args.ID,
+			Name: args.Name,
+			Mode: mb.FrameMode(args.Mode),
+			Role: mb.SessionRole(args.Role),
+			Config: port.SerialConfig{
+				PortName:  args.Port,
+				BaudRate:  args.BaudRate,
+				DataBits:  args.DataBits,
+				StopBits:  args.StopBits,
+				Parity:    args.Parity,
+				FlowMode:  args.FlowMode,
+				ReadBufKB: args.ReadBufKB,
+			},
+			TimeoutMs: args.TimeoutMs,
+			Retries:   args.Retries,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"session": session}, nil
+	})
+
+	addWriteTool[modbusSessionIDArgs, map[string]any](server, "modbus_close_session", "Close a Modbus serial session.", true, func(ctx context.Context, req *mcp.CallToolRequest, args modbusSessionIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.CloseModbusSession(args.SessionID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"closed": true}, nil
+	})
+
+	addReadTool[noArgs, map[string]any](server, "modbus_list_sessions", "List open Modbus sessions.", func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"sessions": serialService.ListModbusSessions()}, nil
+	})
+
+	addWriteTool[modbusMasterRequestArgs, map[string]any](server, "modbus_master_request", "Send one Modbus master read or write request.", false, func(ctx context.Context, req *mcp.CallToolRequest, args modbusMasterRequestArgs) (*mcp.CallToolResult, map[string]any, error) {
+		tx, err := serialService.ModbusMasterRequest(mb.MasterRequest{
+			SessionID:      args.SessionID,
+			UnitID:         byte(clampInt(args.UnitID, 1, 247)),
+			Function:       mb.FunctionCode(args.Function),
+			AddressMode:    mb.AddressMode(args.AddressMode),
+			Address:        uint16(clampInt(args.Address, 0, 65535)),
+			Quantity:       uint16(clampInt(args.Quantity, 0, 65535)),
+			Value:          uint16(clampInt(args.Value, 0, 65535)),
+			CoilValues:     args.CoilValues,
+			RegisterValues: args.RegisterValues,
+			TimeoutMs:      args.TimeoutMs,
+			Retries:        args.Retries,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"transaction": tx}, nil
+	})
+
+	addWriteTool[modbusStartSlaveArgs, map[string]any](server, "modbus_start_slave", "Start Modbus slave simulation for the selected Unit ID or Unit list.", false, func(ctx context.Context, req *mcp.CallToolRequest, args modbusStartSlaveArgs) (*mcp.CallToolResult, map[string]any, error) {
+		units := make([]mb.SlaveUnitSnapshot, 0, len(args.Units))
+		for _, unit := range args.Units {
+			units = append(units, mb.SlaveUnitSnapshot{
+				UnitID:    byte(clampInt(unit.UnitID, 1, 247)),
+				DataModel: dataModelSnapshot(unit.DataModel),
+			})
+		}
+		session, err := serialService.StartModbusSlave(mb.StartSlaveRequest{
+			SessionID: args.SessionID,
+			UnitID:    byte(clampInt(args.UnitID, 1, 247)),
+			DataModel: dataModelSnapshot(args.DataModel),
+			Units:     units,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"session": session}, nil
+	})
+
+	addWriteTool[modbusSessionIDArgs, map[string]any](server, "modbus_stop_slave", "Stop Modbus slave simulation.", true, func(ctx context.Context, req *mcp.CallToolRequest, args modbusSessionIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.StopModbusSlave(args.SessionID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"stopped": true}, nil
+	})
+
+	addWriteTool[modbusUpdateSlaveDataArgs, map[string]any](server, "modbus_update_slave_data", "Replace the default Modbus slave data model.", false, func(ctx context.Context, req *mcp.CallToolRequest, args modbusUpdateSlaveDataArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.UpdateModbusSlaveData(args.SessionID, dataModelSnapshot(args.DataModel)); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"updated": true}, nil
+	})
+
+	addWriteTool[modbusAddSlaveUnitArgs, map[string]any](server, "modbus_add_slave_unit", "Add one Unit ID to a Modbus slave simulation.", false, func(ctx context.Context, req *mcp.CallToolRequest, args modbusAddSlaveUnitArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.AddModbusSlaveUnit(args.SessionID, mb.SlaveUnitSnapshot{
+			UnitID:    byte(clampInt(args.UnitID, 1, 247)),
+			DataModel: dataModelSnapshot(args.DataModel),
+		}); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"added": true}, nil
+	})
+
+	addWriteTool[modbusUnitIDArgs, map[string]any](server, "modbus_remove_slave_unit", "Remove one Unit ID from a Modbus slave simulation.", true, func(ctx context.Context, req *mcp.CallToolRequest, args modbusUnitIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.RemoveModbusSlaveUnit(args.SessionID, byte(clampInt(args.UnitID, 1, 247))); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"removed": true}, nil
+	})
+
+	addReadTool[modbusSessionIDArgs, map[string]any](server, "modbus_list_slave_units", "List configured Unit IDs for a Modbus slave session.", func(ctx context.Context, req *mcp.CallToolRequest, args modbusSessionIDArgs) (*mcp.CallToolResult, map[string]any, error) {
+		units, err := serialService.ListModbusSlaveUnits(args.SessionID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"units": units}, nil
+	})
+
+	addWriteTool[modbusUpdateSlaveUnitDataArgs, map[string]any](server, "modbus_update_slave_unit_data", "Replace one Unit ID data model in a Modbus slave simulation.", false, func(ctx context.Context, req *mcp.CallToolRequest, args modbusUpdateSlaveUnitDataArgs) (*mcp.CallToolResult, map[string]any, error) {
+		if err := serialService.UpdateModbusSlaveUnitData(args.SessionID, byte(clampInt(args.UnitID, 1, 247)), dataModelSnapshot(args.DataModel)); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"updated": true}, nil
+	})
+
+	addReadTool[modbusReadRegistersArgs, map[string]any](server, "modbus_read_registers", "Read Modbus coils/registers and decode optional mappings.", func(ctx context.Context, req *mcp.CallToolRequest, args modbusReadRegistersArgs) (*mcp.CallToolResult, map[string]any, error) {
+		result, err := serialService.ModbusReadRegisters(mb.RegisterReadRequest{
+			SessionID:   args.SessionID,
+			UnitID:      byte(clampInt(args.UnitID, 1, 247)),
+			Function:    mb.FunctionCode(args.Function),
+			AddressMode: mb.AddressMode(args.AddressMode),
+			Address:     uint16(clampInt(args.Address, 0, 65535)),
+			Quantity:    uint16(clampInt(args.Quantity, 1, 65535)),
+			Mappings:    registerMappings(args.Mappings),
+			TimeoutMs:   args.TimeoutMs,
+			Retries:     args.Retries,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"result": result}, nil
+	})
+
+	addReadTool[modbusScanUnitIDsArgs, map[string]any](server, "modbus_scan_unit_ids", "Scan Modbus Unit IDs with a small read request.", func(ctx context.Context, req *mcp.CallToolRequest, args modbusScanUnitIDsArgs) (*mcp.CallToolResult, map[string]any, error) {
+		result, err := serialService.ModbusScanUnitIDs(mb.UnitScanRequest{
+			SessionID:   args.SessionID,
+			UnitIDs:     args.UnitIDs,
+			Function:    mb.FunctionCode(args.Function),
+			AddressMode: mb.AddressMode(args.AddressMode),
+			Address:     uint16(clampInt(args.Address, 0, 65535)),
+			Quantity:    uint16(clampInt(args.Quantity, 1, 65535)),
+			TimeoutMs:   args.TimeoutMs,
+			Retries:     args.Retries,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"result": result}, nil
+	})
+
+	addReadTool[modbusScanRegistersArgs, map[string]any](server, "modbus_scan_registers", "Scan a Modbus register range and return non-zero values.", func(ctx context.Context, req *mcp.CallToolRequest, args modbusScanRegistersArgs) (*mcp.CallToolResult, map[string]any, error) {
+		result, err := serialService.ModbusScanRegisters(mb.RegisterScanRequest{
+			SessionID:    args.SessionID,
+			UnitID:       byte(clampInt(args.UnitID, 1, 247)),
+			Function:     mb.FunctionCode(args.Function),
+			AddressMode:  mb.AddressMode(args.AddressMode),
+			StartAddress: uint16(clampInt(args.StartAddress, 0, 65535)),
+			EndAddress:   uint16(clampInt(args.EndAddress, 0, 65535)),
+			ChunkSize:    uint16(clampInt(args.ChunkSize, 1, 65535)),
+			TimeoutMs:    args.TimeoutMs,
+			Retries:      args.Retries,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"result": result}, nil
+	})
 }
 
 func addReadTool[In, Out any](server *mcp.Server, name, description string, handler mcp.ToolHandlerFor[In, Out]) {
@@ -369,6 +688,63 @@ func addWriteTool[In, Out any](server *mcp.Server, name, description string, des
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func dataModelSnapshot(args modbusDataModelArgs) mb.DataModelSnapshot {
+	return mb.DataModelSnapshot{
+		Coils:            boolPoints(args.Coils),
+		DiscreteInputs:   boolPoints(args.DiscreteInputs),
+		InputRegisters:   registerPoints(args.InputRegisters),
+		HoldingRegisters: registerPoints(args.HoldingRegisters),
+	}
+}
+
+func boolPoints(args []modbusBoolPointArg) []mb.BoolPoint {
+	out := make([]mb.BoolPoint, 0, len(args))
+	for _, item := range args {
+		out = append(out, mb.BoolPoint{
+			Address: uint16(clampInt(item.Address, 0, 65535)),
+			Value:   item.Value,
+		})
+	}
+	return out
+}
+
+func registerPoints(args []modbusRegisterPointArg) []mb.RegisterPoint {
+	out := make([]mb.RegisterPoint, 0, len(args))
+	for _, item := range args {
+		out = append(out, mb.RegisterPoint{
+			Address: uint16(clampInt(item.Address, 0, 65535)),
+			Value:   uint16(clampInt(item.Value, 0, 65535)),
+		})
+	}
+	return out
+}
+
+func registerMappings(args []modbusRegisterMappingArg) []mb.RegisterMapping {
+	out := make([]mb.RegisterMapping, 0, len(args))
+	for _, item := range args {
+		out = append(out, mb.RegisterMapping{
+			Address:       uint16(clampInt(item.Address, 0, 65535)),
+			DataType:      mb.DataType(item.DataType),
+			WordOrder:     mb.WordOrder(item.WordOrder),
+			Length:        uint16(clampInt(item.Length, 0, 65535)),
+			ScalingFactor: item.ScalingFactor,
+			Comment:       item.Comment,
+			GroupEnd:      item.GroupEnd,
+		})
+	}
+	return out
+}
+
+func clampInt(value int, min int, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func originGuard(next http.Handler, cfg config.MCPConfig) http.Handler {

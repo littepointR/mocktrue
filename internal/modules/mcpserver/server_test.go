@@ -18,26 +18,45 @@ import (
 	"github.com/suyue/mocktrue/internal/modules/serial"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	mb "github.com/suyue/mocktrue/internal/modules/serial/modbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 )
 
 type fakeSerialService struct {
-	ports         []port.PortInfo
-	handles       []manager.HandleStatus
-	lastSend      serial.SendRequest
-	resetPortID   string
-	queryPortID   string
-	queryOffset   int64
-	queryLength   int
-	virtualPorts  []serial.VirtualPortInfo
-	bridges       []serial.BridgeInfo
-	monitors      []monitor.SessionInfo
-	startMonitor  serial.AutoVirtualMonitorRequest
-	stopMonitor   string
-	deleteMonitor string
-	clearMonitor  string
-	queryMonitor  monitor.QueryRequest
+	ports           []port.PortInfo
+	handles         []manager.HandleStatus
+	lastSend        serial.SendRequest
+	resetPortID     string
+	queryPortID     string
+	queryOffset     int64
+	queryLength     int
+	virtualPorts    []serial.VirtualPortInfo
+	bridges         []serial.BridgeInfo
+	monitors        []monitor.SessionInfo
+	startMonitor    serial.AutoVirtualMonitorRequest
+	stopMonitor     string
+	deleteMonitor   string
+	clearMonitor    string
+	queryMonitor    monitor.QueryRequest
+	modbusSessions  []mb.SessionInfo
+	openModbus      mb.OpenSessionRequest
+	closeModbus     string
+	masterRequest   mb.MasterRequest
+	startSlave      mb.StartSlaveRequest
+	stopSlave       string
+	updateSlaveID   string
+	updateSlaveData mb.DataModelSnapshot
+	addSlaveUnit    mb.SlaveUnitSnapshot
+	addSlaveID      string
+	removeSlaveID   string
+	removeUnitID    byte
+	listSlaveID     string
+	updateUnitID    byte
+	updateUnitData  mb.DataModelSnapshot
+	unitScan        mb.UnitScanRequest
+	registerRead    mb.RegisterReadRequest
+	registerScan    mb.RegisterScanRequest
 }
 
 func (f *fakeSerialService) EnumeratePorts(context.Context) ([]port.PortInfo, error) {
@@ -155,6 +174,82 @@ func (f *fakeSerialService) ClearMonitorFrames(id string) error {
 	return nil
 }
 
+func (f *fakeSerialService) OpenModbusSession(_ context.Context, req mb.OpenSessionRequest) (*mb.SessionInfo, error) {
+	f.openModbus = req
+	info := mb.SessionInfo{ID: req.ID, Name: req.Name, Mode: req.Mode, Role: req.Role, Config: req.Config, Status: mb.SessionStatusOpen, UnitID: 1}
+	f.modbusSessions = append(f.modbusSessions, info)
+	return &info, nil
+}
+
+func (f *fakeSerialService) CloseModbusSession(id string) error {
+	f.closeModbus = id
+	return nil
+}
+
+func (f *fakeSerialService) ListModbusSessions() []mb.SessionInfo {
+	return f.modbusSessions
+}
+
+func (f *fakeSerialService) ModbusMasterRequest(req mb.MasterRequest) (*mb.Transaction, error) {
+	f.masterRequest = req
+	return &mb.Transaction{ID: "tx-1", SessionID: req.SessionID, UnitID: req.UnitID}, nil
+}
+
+func (f *fakeSerialService) StartModbusSlave(req mb.StartSlaveRequest) (*mb.SessionInfo, error) {
+	f.startSlave = req
+	info := mb.SessionInfo{ID: req.SessionID, Role: mb.SessionRoleSlave, Status: mb.SessionStatusRunning, SlaveRunning: true, UnitID: req.UnitID}
+	return &info, nil
+}
+
+func (f *fakeSerialService) StopModbusSlave(id string) error {
+	f.stopSlave = id
+	return nil
+}
+
+func (f *fakeSerialService) UpdateModbusSlaveData(sessionID string, data mb.DataModelSnapshot) error {
+	f.updateSlaveID = sessionID
+	f.updateSlaveData = data
+	return nil
+}
+
+func (f *fakeSerialService) AddModbusSlaveUnit(sessionID string, unit mb.SlaveUnitSnapshot) error {
+	f.addSlaveID = sessionID
+	f.addSlaveUnit = unit
+	return nil
+}
+
+func (f *fakeSerialService) RemoveModbusSlaveUnit(sessionID string, unitID byte) error {
+	f.removeSlaveID = sessionID
+	f.removeUnitID = unitID
+	return nil
+}
+
+func (f *fakeSerialService) ListModbusSlaveUnits(sessionID string) ([]mb.SlaveUnitInfo, error) {
+	f.listSlaveID = sessionID
+	return []mb.SlaveUnitInfo{{UnitID: 2}}, nil
+}
+
+func (f *fakeSerialService) UpdateModbusSlaveUnitData(sessionID string, unitID byte, data mb.DataModelSnapshot) error {
+	f.updateUnitID = unitID
+	f.updateUnitData = data
+	return nil
+}
+
+func (f *fakeSerialService) ModbusScanUnitIDs(req mb.UnitScanRequest) (*mb.UnitScanResult, error) {
+	f.unitScan = req
+	return &mb.UnitScanResult{SessionID: req.SessionID, ActiveUnitIDs: []int{int(req.UnitIDs[0])}}, nil
+}
+
+func (f *fakeSerialService) ModbusReadRegisters(req mb.RegisterReadRequest) (*mb.RegisterReadResult, error) {
+	f.registerRead = req
+	return &mb.RegisterReadResult{RawRegisters: []uint16{42}}, nil
+}
+
+func (f *fakeSerialService) ModbusScanRegisters(req mb.RegisterScanRequest) (*mb.RegisterScanResult, error) {
+	f.registerScan = req
+	return &mb.RegisterScanResult{SessionID: req.SessionID, UnitID: req.UnitID, Values: []mb.RegisterScanValue{{Address: req.StartAddress, Value: 42}}}, nil
+}
+
 func TestOriginGuardAllowsMissingAndLocalOrigins(t *testing.T) {
 	t.Parallel()
 	handler := originGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -234,6 +329,20 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 		"serial_stop_monitor",
 		"serial_delete_monitor",
 		"serial_clear_monitor_frames",
+		"modbus_open_session",
+		"modbus_close_session",
+		"modbus_list_sessions",
+		"modbus_master_request",
+		"modbus_read_registers",
+		"modbus_scan_unit_ids",
+		"modbus_scan_registers",
+		"modbus_start_slave",
+		"modbus_stop_slave",
+		"modbus_update_slave_data",
+		"modbus_add_slave_unit",
+		"modbus_remove_slave_unit",
+		"modbus_update_slave_unit_data",
+		"modbus_list_slave_units",
 	} {
 		if !names[want] {
 			t.Fatalf("tools/list missing %s in %#v", want, names)
@@ -317,6 +426,129 @@ func TestSerialMonitorToolsCallSerialService(t *testing.T) {
 	}
 }
 
+func TestModbusToolsCallSerialService(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSerialService{}
+	handler := mcpHTTPHandler(newMCPServer(svc), true)
+
+	open := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":8,
+		"method":"tools/call",
+		"params":{"name":"modbus_open_session","arguments":{"id":"mb-1","name":"主站","port":"/tmp/ttyM0","mode":"rtu","role":"master","baud_rate":19200,"timeout_ms":500,"retries":1}}
+	}`)
+	session := open["structuredContent"].(map[string]any)["session"].(map[string]any)
+	if session["ID"] != "mb-1" || svc.openModbus.Config.PortName != "/tmp/ttyM0" || svc.openModbus.Config.BaudRate != 19200 {
+		t.Fatalf("open session result=%#v request=%+v", session, svc.openModbus)
+	}
+
+	read := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":9,
+		"method":"tools/call",
+		"params":{"name":"modbus_read_registers","arguments":{"session_id":"mb-1","unit_id":9,"function":3,"address_mode":"zero-based","address":20,"quantity":2,"mappings":[{"address":20,"data_type":"uint16","word_order":"big","comment":"value"}]}}
+	}`)
+	if read["structuredContent"].(map[string]any)["result"].(map[string]any)["RawRegisters"].([]any)[0].(float64) != 42 {
+		t.Fatalf("read result = %#v", read)
+	}
+	if svc.registerRead.SessionID != "mb-1" || svc.registerRead.UnitID != 9 || svc.registerRead.Function != mb.FunctionReadHoldingRegisters || svc.registerRead.Mappings[0].Comment != "value" {
+		t.Fatalf("register read request = %+v", svc.registerRead)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":10,
+		"method":"tools/call",
+		"params":{"name":"modbus_update_slave_unit_data","arguments":{"session_id":"mb-1","unit_id":2,"data_model":{"coils":[{"address":1,"value":true}],"holding_registers":[{"address":0,"value":77}]}}}
+	}`)
+	if svc.updateUnitID != 2 || len(svc.updateUnitData.Coils) != 1 || !svc.updateUnitData.Coils[0].Value || len(svc.updateUnitData.HoldingRegisters) != 1 || svc.updateUnitData.HoldingRegisters[0].Value != 77 {
+		t.Fatalf("update unit request = unit:%d data:%+v", svc.updateUnitID, svc.updateUnitData)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":11,
+		"method":"tools/call",
+		"params":{"name":"modbus_start_slave","arguments":{"session_id":"mb-1","unit_id":7,"units":[{"unit_id":7,"data_model":{"holding_registers":[{"address":3,"value":12}]}},{"unit_id":8,"data_model":{"coils":[{"address":5,"value":true}]}}]}}
+	}`)
+	if svc.startSlave.SessionID != "mb-1" || svc.startSlave.UnitID != 7 || len(svc.startSlave.Units) != 2 || svc.startSlave.Units[1].UnitID != 8 || !svc.startSlave.Units[1].DataModel.Coils[0].Value {
+		t.Fatalf("start slave request = %+v", svc.startSlave)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":12,
+		"method":"tools/call",
+		"params":{"name":"modbus_update_slave_data","arguments":{"session_id":"mb-1","data_model":{"input_registers":[{"address":10,"value":88}]}}}
+	}`)
+	if svc.updateSlaveID != "mb-1" || len(svc.updateSlaveData.InputRegisters) != 1 || svc.updateSlaveData.InputRegisters[0].Value != 88 {
+		t.Fatalf("update slave request = id:%q data:%+v", svc.updateSlaveID, svc.updateSlaveData)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":13,
+		"method":"tools/call",
+		"params":{"name":"modbus_add_slave_unit","arguments":{"session_id":"mb-1","unit_id":3,"data_model":{"discrete_inputs":[{"address":4,"value":true}]}}}
+	}`)
+	if svc.addSlaveID != "mb-1" || svc.addSlaveUnit.UnitID != 3 || len(svc.addSlaveUnit.DataModel.DiscreteInputs) != 1 || !svc.addSlaveUnit.DataModel.DiscreteInputs[0].Value {
+		t.Fatalf("add slave unit request = id:%q unit:%+v", svc.addSlaveID, svc.addSlaveUnit)
+	}
+
+	list := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":14,
+		"method":"tools/call",
+		"params":{"name":"modbus_list_slave_units","arguments":{"session_id":"mb-1"}}
+	}`)
+	units := list["structuredContent"].(map[string]any)["units"].([]any)
+	if svc.listSlaveID != "mb-1" || units[0].(map[string]any)["UnitID"].(float64) != 2 {
+		t.Fatalf("list slave units result=%#v request id=%q", units, svc.listSlaveID)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":15,
+		"method":"tools/call",
+		"params":{"name":"modbus_scan_unit_ids","arguments":{"session_id":"mb-1","unit_ids":[1,2,3],"function":3,"address":0,"quantity":1}}
+	}`)
+	if svc.unitScan.SessionID != "mb-1" || len(svc.unitScan.UnitIDs) != 3 || svc.unitScan.Function != mb.FunctionReadHoldingRegisters {
+		t.Fatalf("unit scan request = %+v", svc.unitScan)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":16,
+		"method":"tools/call",
+		"params":{"name":"modbus_scan_registers","arguments":{"session_id":"mb-1","unit_id":4,"function":4,"start_address":0,"end_address":32,"chunk_size":8}}
+	}`)
+	if svc.registerScan.SessionID != "mb-1" || svc.registerScan.UnitID != 4 || svc.registerScan.Function != mb.FunctionReadInputRegisters || svc.registerScan.ChunkSize != 8 {
+		t.Fatalf("register scan request = %+v", svc.registerScan)
+	}
+
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":17,
+		"method":"tools/call",
+		"params":{"name":"modbus_remove_slave_unit","arguments":{"session_id":"mb-1","unit_id":3}}
+	}`)
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":18,
+		"method":"tools/call",
+		"params":{"name":"modbus_stop_slave","arguments":{"session_id":"mb-1"}}
+	}`)
+	callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":19,
+		"method":"tools/call",
+		"params":{"name":"modbus_close_session","arguments":{"session_id":"mb-1"}}
+	}`)
+	if svc.removeSlaveID != "mb-1" || svc.removeUnitID != 3 || svc.stopSlave != "mb-1" || svc.closeModbus != "mb-1" {
+		t.Fatalf("modbus lifecycle operations = remove:%q/%d stop:%q close:%q", svc.removeSlaveID, svc.removeUnitID, svc.stopSlave, svc.closeModbus)
+	}
+}
+
 func TestModuleStartsAndStopsLocalHTTPServer(t *testing.T) {
 	t.Parallel()
 	cfg := config.Default()
@@ -364,6 +596,9 @@ func callMCP(t *testing.T, handler http.Handler, payload string) map[string]any 
 	result, ok := envelope["result"].(map[string]any)
 	if !ok {
 		t.Fatalf("MCP result = %#v, want object", envelope["result"])
+	}
+	if result["isError"] == true {
+		t.Fatalf("MCP tool error response: %#v", result["content"])
 	}
 	return result
 }

@@ -1,7 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkspaceFileStore } from './workspaceFileStore'
-import { useBufferStore } from '../../serial/stores/bufferStore'
 import { useSerialStore } from '../../serial/stores/serialStore'
 
 const workspaceServiceMock = vi.hoisted(() => ({
@@ -189,7 +188,7 @@ describe('workspaceFileStore', () => {
     expect(store.isDirty).toBe(false)
   })
 
-  it('loads a readonly demo workspace and exposes it as the displayed config source', async () => {
+  it('loads an example workspace as a normal editable workspace', async () => {
     const store = useWorkspaceFileStore()
 
     const result = await store.loadDemo('monitor-demo')
@@ -198,20 +197,23 @@ describe('workspaceFileStore', () => {
     expect(sessionMock.restoreWorkspaceSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'mocktrue.workspace.v1',
       serial: expect.objectContaining({
-        monitors: expect.objectContaining({
-          sessions: expect.arrayContaining([expect.objectContaining({ ID: expect.stringContaining('demo-monitor') })]),
+        virtualPorts: expect.arrayContaining([expect.objectContaining({ Port: expect.stringContaining('mocktrue-demo-monitor') })]),
+        handles: [],
+        buffers: {},
+        monitors: expect.objectContaining({ sessions: [], frames: {} }),
+        workspace: expect.objectContaining({
+          selectedOperation: 'monitor',
+          editorLayout: expect.objectContaining({ type: 'group', tabs: [] }),
         }),
       }),
     }))
-    expect(store.sourceKind).toBe('demo')
-    expect(store.readonly).toBe(true)
-    expect(store.currentDemoId).toBe('monitor-demo')
+    expect(store.sourceKind).toBe('empty')
     expect(store.currentPath).toBe('')
-    expect(store.displayPath).toContain('Demo:')
+    expect(store.displayPath).toBe('')
     expect(store.isDirty).toBe(false)
   })
 
-  it('adds local demo handles when real demo ports cannot be opened', async () => {
+  it('does not create display-only handles when example ports cannot be opened', async () => {
     sessionMock.restoreWorkspaceSnapshot.mockResolvedValueOnce({
       errors: [{ target: 'port:demo-open', message: 'open failed' }],
       handleMap: {},
@@ -221,39 +223,32 @@ describe('workspaceFileStore', () => {
     await store.loadDemo('serial-open-demo')
 
     const serial = useSerialStore()
-    const buffer = useBufferStore()
-    const [handle] = serial.openHandles
-    expect(handle.ID).toContain('demo-open-handle')
-    expect(handle.Config.PortName).toContain('/tmp/mocktrue-demo-open')
-    expect(handle.RxBytes).toBeGreaterThan(0)
-    expect(buffer.getChunks(handle.ID)).toHaveLength(2)
-    expect(serial.activePortId).toBe(handle.ID)
+    expect(serial.openHandles).toHaveLength(0)
+    expect(serial.activePortId).toBeNull()
   })
 
-  it('rejects direct save while a readonly demo is active', async () => {
+  it('saves a loaded example directly like a normal workspace', async () => {
     const store = useWorkspaceFileStore()
     await store.loadDemo('bridge-demo')
 
-    await expect(store.save()).rejects.toThrow('Demo 配置为只读，请使用另存为')
+    await store.save()
 
-    expect(workspaceServiceMock.SaveWorkspace).not.toHaveBeenCalled()
-    expect(store.lastError).toBe('Demo 配置为只读，请使用另存为')
+    expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalled()
   })
 
-  it('keeps a demo readonly when the path input changes before save-as', async () => {
+  it('treats the path input normally after an example is loaded', async () => {
     const store = useWorkspaceFileStore()
     await store.loadDemo('bridge-demo')
 
     store.setPath('/tmp/manual-target.mocktrue.json')
 
     expect(store.currentPath).toBe('/tmp/manual-target.mocktrue.json')
-    expect(store.displayPath).toContain('Demo:')
-    expect(store.readonly).toBe(true)
-    await expect(store.save()).rejects.toThrow('Demo 配置为只读，请使用另存为')
-    expect(workspaceServiceMock.SaveWorkspace).not.toHaveBeenCalled()
+    expect(store.displayPath).toBe('/tmp/manual-target.mocktrue.json')
+    await store.save()
+    expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalled()
   })
 
-  it('saves a readonly demo as a normal file and clears the readonly demo source', async () => {
+  it('saves a loaded example as a normal file', async () => {
     const store = useWorkspaceFileStore()
     await store.loadDemo('full-workspace-demo')
 
@@ -265,8 +260,6 @@ describe('workspaceFileStore', () => {
       '{"kind":"mocktrue.workspace.v1","value":2}'
     )
     expect(store.sourceKind).toBe('file')
-    expect(store.readonly).toBe(false)
-    expect(store.currentDemoId).toBe('')
     expect(store.currentPath).toBe('/tmp/selected-save.mocktrue.json')
     expect(store.displayPath).toBe('/tmp/selected-save.mocktrue.json')
   })
@@ -278,8 +271,6 @@ describe('workspaceFileStore', () => {
     await store.importFromPath('/tmp/import.mocktrue.json')
 
     expect(store.sourceKind).toBe('file')
-    expect(store.readonly).toBe(false)
-    expect(store.currentDemoId).toBe('')
     expect(store.currentPath).toBe('/tmp/import.mocktrue.json')
     expect(store.displayPath).toBe('/tmp/import.mocktrue.json')
   })

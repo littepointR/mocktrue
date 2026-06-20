@@ -18,6 +18,9 @@ import * as buffer$0 from "./buffer/models.js";
 import * as manager$0 from "./manager/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as modbus$0 from "./modbus/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as monitor$0 from "./monitor/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -26,6 +29,13 @@ import * as port$0 from "./port/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
+
+/**
+ * AddModbusSlaveUnit adds or replaces one Unit ID in a slave simulation.
+ */
+export function AddModbusSlaveUnit(sessionID: string, unit: modbus$0.SlaveUnitSnapshot): $CancellablePromise<void> {
+    return $Call.ByID(2829285044, sessionID, unit);
+}
 
 /**
  * CleanupVirtual stops all virtual pairs and bridges.
@@ -39,6 +49,13 @@ export function CleanupVirtual(): $CancellablePromise<void> {
  */
 export function ClearMonitorFrames(id: string): $CancellablePromise<void> {
     return $Call.ByID(2442853029, id);
+}
+
+/**
+ * CloseModbusSession closes and removes a Modbus serial session.
+ */
+export function CloseModbusSession(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2804935884, id);
 }
 
 /**
@@ -126,6 +143,20 @@ export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> 
 }
 
 /**
+ * ListModbusSessions returns all open Modbus serial sessions.
+ */
+export function ListModbusSessions(): $CancellablePromise<modbus$0.SessionInfo[] | null> {
+    return $Call.ByID(2367745677);
+}
+
+/**
+ * ListModbusSlaveUnits returns configured Unit IDs for a Modbus session.
+ */
+export function ListModbusSlaveUnits(sessionID: string): $CancellablePromise<modbus$0.SlaveUnitInfo[] | null> {
+    return $Call.ByID(1676937614, sessionID);
+}
+
+/**
  * ListMonitors returns all serial monitor sessions.
  */
 export function ListMonitors(): $CancellablePromise<monitor$0.SessionInfo[] | null> {
@@ -161,6 +192,41 @@ export function ListVirtualPorts(): $CancellablePromise<$models.VirtualPortInfo[
 }
 
 /**
+ * ModbusMasterRequest runs one Modbus master transaction.
+ */
+export function ModbusMasterRequest(req: modbus$0.MasterRequest): $CancellablePromise<modbus$0.Transaction | null> {
+    return $Call.ByID(3881180191, req);
+}
+
+/**
+ * ModbusReadRegisters reads and decodes one Modbus register block.
+ */
+export function ModbusReadRegisters(req: modbus$0.RegisterReadRequest): $CancellablePromise<modbus$0.RegisterReadResult | null> {
+    return $Call.ByID(2930160550, req);
+}
+
+/**
+ * ModbusScanRegisters scans a Modbus register range.
+ */
+export function ModbusScanRegisters(req: modbus$0.RegisterScanRequest): $CancellablePromise<modbus$0.RegisterScanResult | null> {
+    return $Call.ByID(1992987289, req);
+}
+
+/**
+ * ModbusScanUnitIDs probes a set of Modbus Unit IDs.
+ */
+export function ModbusScanUnitIDs(req: modbus$0.UnitScanRequest): $CancellablePromise<modbus$0.UnitScanResult | null> {
+    return $Call.ByID(2190012875, req);
+}
+
+/**
+ * OpenModbusSession opens a dedicated Modbus serial session.
+ */
+export function OpenModbusSession(req: modbus$0.OpenSessionRequest): $CancellablePromise<modbus$0.SessionInfo | null> {
+    return $Call.ByID(95138080, req);
+}
+
+/**
  * OpenPort opens a serial port and starts a read loop.
  */
 export function OpenPort(req: manager$0.OpenRequest): $CancellablePromise<manager$0.HandleStatus | null> {
@@ -186,6 +252,13 @@ export function QueryMonitorFrames(req: monitor$0.QueryRequest): $CancellablePro
  */
 export function QueryPage(portID: string, offset: number, length: number): $CancellablePromise<buffer$0.Snapshot | null> {
     return $Call.ByID(257355161, portID, offset, length);
+}
+
+/**
+ * RemoveModbusSlaveUnit removes one Unit ID from a slave simulation.
+ */
+export function RemoveModbusSlaveUnit(sessionID: string, unitID: number): $CancellablePromise<void> {
+    return $Call.ByID(648861305, sessionID, unitID);
 }
 
 /**
@@ -218,6 +291,13 @@ export function StartAutoVirtualMonitor(req: $models.AutoVirtualMonitorRequest):
 }
 
 /**
+ * StartModbusSlave starts slave simulation for an open Modbus session.
+ */
+export function StartModbusSlave(req: modbus$0.StartSlaveRequest): $CancellablePromise<modbus$0.SessionInfo | null> {
+    return $Call.ByID(551114279, req);
+}
+
+/**
  * StartMonitor starts a bridge-based serial monitor session.
  */
 export function StartMonitor(req: monitor$0.StartRequest): $CancellablePromise<monitor$0.SessionInfo | null> {
@@ -225,8 +305,29 @@ export function StartMonitor(req: monitor$0.StartRequest): $CancellablePromise<m
 }
 
 /**
+ * StopModbusSlave stops slave simulation for an open Modbus session.
+ */
+export function StopModbusSlave(id: string): $CancellablePromise<void> {
+    return $Call.ByID(755939087, id);
+}
+
+/**
  * StopMonitor stops a monitor session while keeping captured frames available.
  */
 export function StopMonitor(id: string): $CancellablePromise<void> {
     return $Call.ByID(2368061992, id);
+}
+
+/**
+ * UpdateModbusSlaveData replaces the slave simulation data model.
+ */
+export function UpdateModbusSlaveData(sessionID: string, data: modbus$0.DataModelSnapshot): $CancellablePromise<void> {
+    return $Call.ByID(184207884, sessionID, data);
+}
+
+/**
+ * UpdateModbusSlaveUnitData replaces one Unit ID data model.
+ */
+export function UpdateModbusSlaveUnitData(sessionID: string, unitID: number, data: modbus$0.DataModelSnapshot): $CancellablePromise<void> {
+    return $Call.ByID(1856574682, sessionID, unitID, data);
 }

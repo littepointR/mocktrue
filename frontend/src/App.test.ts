@@ -3,6 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
+import appSource from './App.vue?raw'
 import { __resetRegistryForTest, useRegistry } from './core/registry'
 import { serialModule } from './serial'
 import { settingsModule, useSettingsStore } from './settings'
@@ -36,13 +37,19 @@ describe('App settings effects', () => {
     expect(wrapper.find('.app-shell').classes()).toContain('app-shell--light')
   })
 
+  it('defines shared content theme variables used by Modbus panels', () => {
+    expect(appSource).toContain('--app-hover-bg')
+    expect(appSource).toContain('--app-accent')
+    expect(appSource).toContain('--app-table-header')
+  })
+
   it('marks the status bar dirty after workspace changes', async () => {
     const wrapper = mount(App, {
       global: { stubs },
     })
     await flushPromises()
 
-    useSettingsStore().updateGlobal({ Theme: 'light' })
+    useSettingsStore().updateSerial({ BaudRate: 9600 })
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('footer').text()).toBe('dirty')

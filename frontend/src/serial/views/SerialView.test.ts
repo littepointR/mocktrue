@@ -5,10 +5,15 @@ import SerialView from './SerialView.vue'
 import { useSerialStore } from '../stores/serialStore'
 import { useSerialWorkspaceStore } from '../stores/workspaceStore'
 import { useMonitorStore } from '../stores/monitorStore'
+import { useModbusStore } from '../stores/modbusStore'
+import { FrameMode, SessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { createDemoWorkspaceSnapshot } from '../../workspace/demoWorkspaces'
+import { restoreWorkspaceSnapshot } from '../../workspace/workspaceSession'
 
 vi.mock('../services/serialService', () => ({
   serialService: {
     listPorts: vi.fn(async () => []),
+    listModbusSessions: vi.fn(async () => []),
   },
 }))
 
@@ -25,6 +30,13 @@ vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/ser
   StopMonitor: vi.fn(async () => undefined),
   DeleteMonitor: vi.fn(async () => undefined),
   ClearMonitorFrames: vi.fn(async () => undefined),
+  ListModbusSessions: vi.fn(async () => []),
+  OpenModbusSession: vi.fn(async () => null),
+  CloseModbusSession: vi.fn(async () => undefined),
+  ModbusMasterRequest: vi.fn(async () => null),
+  StartModbusSlave: vi.fn(async () => null),
+  StopModbusSlave: vi.fn(async () => undefined),
+  UpdateModbusSlaveData: vi.fn(async () => undefined),
 }))
 
 describe('SerialView workspace layout', () => {
@@ -155,15 +167,159 @@ describe('SerialView workspace layout', () => {
 
     expect(workspace.activeByGroup['group-main']).toBe('monitor:mon-1')
   })
+
+  it('opens the Modbus operation panel from the serial module view id', async () => {
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+    await wrapper.setProps({ activeViewId: 'serial.modbus', activeViewVersion: 1 })
+
+    expect(wrapper.find('[data-testid="modbus-stub"]').exists()).toBe(true)
+  })
+
+  it('shows the selected operation panel when the serial module opens on its default view', async () => {
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: 'serial.open', activeViewVersion: 1 },
+      global: { stubs },
+    })
+
+    expect(wrapper.find('[data-testid="open-port-stub"]').exists()).toBe(true)
+    expect(wrapper.find('.serial-view__operation-panel').classes()).toContain('is-open')
+  })
+
+  it('adds Modbus sessions to the editor tab layout', () => {
+    const modbus = useModbusStore()
+    modbus.restoreState({
+      ...modbus.exportState(),
+      activeSessionId: 'modbus-1',
+      sessions: [{
+        ID: 'modbus-1',
+        Name: 'Modbus 主站',
+        Mode: FrameMode.FrameModeRTU,
+        Role: SessionRole.SessionRoleMaster,
+        Config: {
+          PortName: '/tmp/ttyM0',
+          BaudRate: 115200,
+          DataBits: 8,
+          StopBits: '1',
+          Parity: 'none',
+          FlowMode: 'none',
+          ReadBufKB: 32,
+        },
+        Status: 'open',
+        RxBytes: 0,
+        TxBytes: 0,
+        SlaveRunning: false,
+        UnitID: 1,
+        UnitIDs: [],
+        StartedAt: '',
+        StoppedAt: '',
+        LastError: '',
+      }],
+    })
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+
+    expect(wrapper.find('.tabs-json').text()).toContain('modbus:modbus-1')
+    const layout = useSerialWorkspaceStore().editorLayout
+    expect(layout.type).toBe('group')
+    if (layout.type === 'group') {
+      expect(layout.tabs).toEqual(['modbus:modbus-1'])
+      expect(useSerialWorkspaceStore().activeByGroup[layout.id]).toBe('modbus:modbus-1')
+    }
+  })
+
+  it('renders Modbus session content in the editor area', async () => {
+    const modbus = useModbusStore()
+    modbus.restoreState({
+      ...modbus.exportState(),
+      activeSessionId: 'modbus-1',
+      sessions: [{
+        ID: 'modbus-1',
+        Name: 'Modbus 主站',
+        Mode: FrameMode.FrameModeRTU,
+        Role: SessionRole.SessionRoleMaster,
+        Config: {
+          PortName: '/tmp/ttyM0',
+          BaudRate: 115200,
+          DataBits: 8,
+          StopBits: '1',
+          Parity: 'none',
+          FlowMode: 'none',
+          ReadBufKB: 32,
+        },
+        Status: 'open',
+        RxBytes: 0,
+        TxBytes: 0,
+        SlaveRunning: false,
+        UnitID: 1,
+        UnitIDs: [],
+        StartedAt: '',
+        StoppedAt: '',
+        LastError: '',
+      }],
+    })
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: {
+        stubs: {
+          PortConfigPanel: true,
+          VirtualPairPanel: true,
+          BridgePanel: true,
+          MonitorPanel: true,
+        },
+      },
+    })
+
+    expect(wrapper.find('.serial-view__main').text()).toContain('Modbus 主站')
+    expect(wrapper.find('.serial-view__main').text()).toContain('主站')
+    expect(wrapper.find('.serial-view__main').text()).toContain('读')
+    expect(wrapper.find('.serial-view__main').text()).toContain('配置')
+    expect(wrapper.find('.serial-view__main').text()).toContain('Coils')
+    expect(wrapper.find('.serial-view__main').text()).toContain('Holding Registers')
+  })
+
+  it('renders Modbus example content in the editor area after restoring its workspace snapshot', async () => {
+    const snapshot = createDemoWorkspaceSnapshot('modbus-demo')
+    expect(snapshot).not.toBeNull()
+    await restoreWorkspaceSnapshot(snapshot!)
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: {
+        stubs: {
+          PortConfigPanel: true,
+          VirtualPairPanel: true,
+          BridgePanel: true,
+          MonitorPanel: true,
+        },
+      },
+    })
+
+    expect(wrapper.find('.serial-view__main').text()).toContain('Modbus RTU 演示')
+    expect(wrapper.find('.serial-view__main').text()).toContain('读')
+    expect(wrapper.find('.serial-view__main').text()).toContain('Coils')
+    expect(wrapper.find('.serial-view__main').text()).toContain('Holding Registers')
+  })
 })
 
 const stubs = {
   EditorLayoutNode: {
-    props: ['node', 'activeByGroup'],
-    template: '<pre class="layout-json">{{ JSON.stringify(node) }} {{ JSON.stringify(activeByGroup) }}</pre>',
+    props: ['node', 'activeByGroup', 'tabs'],
+    template: '<div><pre class="layout-json">{{ JSON.stringify(node) }} {{ JSON.stringify(activeByGroup) }}</pre><pre class="tabs-json">{{ JSON.stringify(tabs) }}</pre></div>',
   },
-  PortConfigPanel: true,
+  PortConfigPanel: {
+    template: '<div data-testid="open-port-stub" />',
+  },
   VirtualPairPanel: true,
   BridgePanel: true,
   MonitorPanel: true,
+  ModbusPanel: {
+    template: '<div data-testid="modbus-stub" class="modbus-panel" />',
+  },
 }

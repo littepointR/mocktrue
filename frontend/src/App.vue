@@ -153,6 +153,9 @@ watch(
   --app-text: #d4d4d4;
   --app-text-muted: #858585;
   --app-active: #094771;
+  --app-hover-bg: #2a2d2e;
+  --app-table-header: #252526;
+  --app-accent: #dcdcaa;
 }
 .app-shell--light {
   --app-bg: #f5f5f5;
@@ -161,6 +164,9 @@ watch(
   --app-text: #1f2328;
   --app-text-muted: #666666;
   --app-active: #dbeafe;
+  --app-hover-bg: #f0f3f6;
+  --app-table-header: #f6f8fa;
+  --app-accent: #8250df;
 }
 .app-shell__body {
   flex: 1;

@@ -13,8 +13,11 @@ import PortConfigPanel from './PortConfigPanel.vue'
 import VirtualPairPanel from './VirtualPairPanel.vue'
 import BridgePanel from './BridgePanel.vue'
 import MonitorPanel from './MonitorPanel.vue'
+import ModbusPanel from './ModbusPanel.vue'
 import { useSerialWorkspaceStore, type SerialOperation } from '../stores/workspaceStore'
 import { useMonitorStore } from '../stores/monitorStore'
+import { useModbusStore } from '../stores/modbusStore'
+import { SessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
 
 const props = defineProps<{
   activeViewId: string | null
@@ -24,6 +27,7 @@ const props = defineProps<{
 const serialStore = useSerialStore()
 const bufferStore = useBufferStore()
 const monitorStore = useMonitorStore()
+const modbusStore = useModbusStore()
 const workspaceStore = useSerialWorkspaceStore()
 
 const editorLayout = computed({
@@ -55,12 +59,14 @@ onMounted(() => {
   bufferStore.initEventListeners()
   serialStore.refreshHandles()
   monitorStore.refreshSessions()
+  modbusStore.refreshSessions()
 })
 
 onUnmounted(() => {
   bufferStore.cleanup()
   serialStore.stopStatsPolling()
   monitorStore.cleanup()
+  modbusStore.cleanup()
   stopTabDrag()
 })
 
@@ -77,6 +83,12 @@ const tabs = computed(() => [
     kind: 'monitor' as const,
     sourceId: session.ID,
   })),
+  ...modbusStore.sessionList.map(session => ({
+    id: modbusTabId(session.ID),
+    name: session.Name || `${session.Role === SessionRole.SessionRoleSlave ? 'Modbus Slave' : 'Modbus Master'} ${session.Config.PortName}`,
+    kind: 'modbus' as const,
+    sourceId: session.ID,
+  })),
 ])
 
 function operationFromView(viewId: string | null): SerialOperation | null {
@@ -87,6 +99,8 @@ function operationFromView(viewId: string | null): SerialOperation | null {
       return 'bridge'
     case 'serial.monitor':
       return 'monitor'
+    case 'serial.modbus':
+      return 'modbus'
     case 'serial.open':
       return 'open'
     default:
@@ -96,10 +110,15 @@ function operationFromView(viewId: string | null): SerialOperation | null {
 
 watch(
   () => props.activeViewVersion,
-  () => {
+  (_version, previousVersion) => {
     const operation = operationFromView(props.activeViewId)
+    if (previousVersion === undefined) {
+      selectedOperation.value = operation
+      return
+    }
     selectedOperation.value = selectedOperation.value === operation ? null : operation
-  }
+  },
+  { immediate: true }
 )
 
 watch(
@@ -117,14 +136,17 @@ watch(
     const active: Record<string, string | null> = {}
     const serialActiveTab = serialStore.activePortId
     const monitorActiveTab = monitorStore.activeMonitorId ? monitorTabId(monitorStore.activeMonitorId) : null
+    const modbusActiveTab = modbusStore.activeSessionId ? modbusTabId(modbusStore.activeSessionId) : null
     for (const group of groups) {
       const current = activeByGroup.value[group.id]
       const activeSerialInGroup = serialActiveTab && group.tabs.includes(serialActiveTab) ? serialActiveTab : null
       const activeMonitorInGroup = monitorActiveTab && group.tabs.includes(monitorActiveTab) ? monitorActiveTab : null
-      const newlyAddedActive = [activeMonitorInGroup, activeSerialInGroup]
+      const activeModbusInGroup = modbusActiveTab && group.tabs.includes(modbusActiveTab) ? modbusActiveTab : null
+      const newlyAddedActive = [activeModbusInGroup, activeMonitorInGroup, activeSerialInGroup]
         .find((id): id is string => Boolean(id && missing.includes(id)))
       active[group.id] = newlyAddedActive
         ?? (current && group.tabs.includes(current) ? current : null)
+        ?? activeModbusInGroup
         ?? activeMonitorInGroup
         ?? activeSerialInGroup
         ?? group.tabs[0]
@@ -149,6 +171,10 @@ async function handleCloseTab(id: string) {
     await monitorStore.deleteMonitor(monitorIdFromTabId(id))
     return
   }
+  if (isModbusTabId(id)) {
+    await modbusStore.closeSession(modbusIdFromTabId(id))
+    return
+  }
   await serialStore.closePort(id)
   bufferStore.clearBuffer(id)
 }
@@ -160,6 +186,11 @@ function handlePortOpened() {
 function handleMonitorStarted(id: string) {
   selectedOperation.value = null
   monitorStore.setActiveMonitor(id)
+}
+
+function handleModbusOpened(id: string) {
+  modbusStore.setActiveSession(id)
+  selectedOperation.value = null
 }
 
 function nextGroupId(): string {
@@ -182,6 +213,8 @@ function setActiveTab(groupId: string, handleId: string) {
   activeByGroup.value = { ...activeByGroup.value, [groupId]: handleId }
   if (isMonitorTabId(handleId)) {
     monitorStore.setActiveMonitor(monitorIdFromTabId(handleId))
+  } else if (isModbusTabId(handleId)) {
+    modbusStore.setActiveSession(modbusIdFromTabId(handleId))
   } else {
     serialStore.setActivePort(handleId)
   }
@@ -487,6 +520,8 @@ function commitLayout(nextLayout: EditorLayoutTreeNode, activeGroupId: string, a
   activeByGroup.value = active
   if (isMonitorTabId(activeHandleId)) {
     monitorStore.setActiveMonitor(monitorIdFromTabId(activeHandleId))
+  } else if (isModbusTabId(activeHandleId)) {
+    modbusStore.setActiveSession(modbusIdFromTabId(activeHandleId))
   } else {
     serialStore.setActivePort(activeHandleId)
   }
@@ -502,6 +537,18 @@ function isMonitorTabId(id: string): boolean {
 
 function monitorIdFromTabId(id: string): string {
   return id.replace(/^monitor:/, '')
+}
+
+function modbusTabId(id: string): string {
+  return `modbus:${id}`
+}
+
+function isModbusTabId(id: string): boolean {
+  return id.startsWith('modbus:')
+}
+
+function modbusIdFromTabId(id: string): string {
+  return id.replace(/^modbus:/, '')
 }
 </script>
 
@@ -520,6 +567,10 @@ function monitorIdFromTabId(id: string): string {
       <MonitorPanel
         v-else-if="selectedOperation === 'monitor'"
         @started="handleMonitorStarted"
+      />
+      <ModbusPanel
+        v-else-if="selectedOperation === 'modbus'"
+        @opened="handleModbusOpened"
       />
     </div>
     <div class="serial-view__main">
@@ -562,13 +613,13 @@ function monitorIdFromTabId(id: string): string {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  background: #252526;
+  background: var(--app-surface, #252526);
   border-right: 0;
 }
 .serial-view__operation-panel.is-open {
   flex-basis: 320px;
   width: 320px;
-  border-right: 1px solid #2d2d2d;
+  border-right: 1px solid var(--app-border, #2d2d2d);
 }
 .serial-view__main {
   flex: 1;
@@ -584,7 +635,7 @@ function monitorIdFromTabId(id: string): string {
   width: 100%;
   min-width: 0;
   min-height: 0;
-  background: #1e1e1e;
+  background: var(--app-bg, #1e1e1e);
   overflow: hidden;
 }
 .editor-drop-preview {
@@ -617,7 +668,7 @@ function monitorIdFromTabId(id: string): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #858585;
+  color: var(--app-text-muted, #858585);
   font-size: 14px;
 }
 </style>

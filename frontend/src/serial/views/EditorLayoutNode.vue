@@ -5,6 +5,7 @@ import 'splitpanes/dist/splitpanes.css'
 import type { EditorLayoutNode, EditorTabInfo } from './editorLayout'
 import SerialTabContent from './SerialTabContent.vue'
 import MonitorTabContent from './MonitorTabContent.vue'
+import ModbusTabContent from './ModbusTabContent.vue'
 
 const props = defineProps<{
   node: EditorLayoutNode
@@ -91,6 +92,10 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
         v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'monitor'"
         :monitor-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
       />
+      <ModbusTabContent
+        v-else-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'modbus'"
+        :session-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
+      />
     </div>
   </div>
 </template>
@@ -102,10 +107,10 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
   height: 100%;
   min-width: 0;
   min-height: 0;
-  background: #1e1e1e;
+  background: var(--app-bg, #1e1e1e);
 }
 .editor-splitpanes :deep(.splitpanes__splitter) {
-  background: #2d2d2d;
+  background: var(--app-border, #2d2d2d);
   position: relative;
 }
 .editor-splitpanes.splitpanes--vertical :deep(.splitpanes__splitter) {
@@ -127,7 +132,7 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--app-bg, #1e1e1e);
 }
 .editor-tabs {
   display: flex;
@@ -135,8 +140,8 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
   min-height: 35px;
   overflow-x: auto;
   overflow-y: hidden;
-  background: #252526;
-  border-bottom: 1px solid #2d2d2d;
+  background: var(--app-surface, #252526);
+  border-bottom: 1px solid var(--app-border, #2d2d2d);
 }
 .editor-tab {
   display: inline-flex;
@@ -147,15 +152,15 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
   height: 35px;
   padding: 0 10px;
   border: 0;
-  border-right: 1px solid #2d2d2d;
-  background: #2d2d2d;
-  color: #cccccc;
+  border-right: 1px solid var(--app-border, #2d2d2d);
+  background: var(--app-hover-bg, #2d2d2d);
+  color: var(--app-text, #cccccc);
   cursor: default;
   font: inherit;
 }
 .editor-tab--active {
-  background: #1e1e1e;
-  color: #ffffff;
+  background: var(--app-bg, #1e1e1e);
+  color: var(--app-text, #ffffff);
 }
 .editor-tab__label {
   overflow: hidden;
@@ -169,11 +174,11 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
   width: 16px;
   height: 16px;
   border-radius: 3px;
-  color: #858585;
+  color: var(--app-text-muted, #858585);
 }
 .editor-tab__close:hover {
-  background: #3c3c3c;
-  color: #ffffff;
+  background: var(--app-hover-bg, #3c3c3c);
+  color: var(--app-text, #ffffff);
 }
 .editor-group__content {
   flex: 1;

@@ -8,6 +8,7 @@ import { useBufferStore } from '../serial/stores/bufferStore'
 import { useVirtualStore } from '../serial/stores/virtualStore'
 import { useSerialWorkspaceStore } from '../serial/stores/workspaceStore'
 import { useMonitorStore } from '../serial/stores/monitorStore'
+import { defaultModbusWorkspaceState, useModbusStore } from '../serial/stores/modbusStore'
 
 const serialServiceMock = vi.hoisted(() => ({
   openPort: vi.fn(async () => ({
@@ -58,8 +59,9 @@ describe('workspace session snapshot', () => {
     vi.clearAllMocks()
   })
 
-  it('builds a snapshot containing settings, handles, layout, virtual resources, and received bytes', () => {
+  it('builds a snapshot containing module settings, handles, layout, virtual resources, and received bytes without theme', () => {
     useSettingsStore().updateGlobal({ Theme: 'light' })
+    useSettingsStore().updateSerial({ TerminalFontSize: 17 })
     const serial = useSerialStore()
     serial.handles.set('port-1', {
       ID: 'port-1',
@@ -84,18 +86,24 @@ describe('workspace session snapshot', () => {
     const snapshot = buildWorkspaceSnapshot()
 
     expect(snapshot.kind).toBe('mocktrue.workspace.v1')
-    expect(snapshot.settings.global.Theme).toBe('light')
+    expect((snapshot.settings as any).global).toBeUndefined()
+    expect(snapshot.settings.serial.TerminalFontSize).toBe(17)
     expect(snapshot.serial.handles[0].id).toBe('port-1')
     expect(snapshot.serial.virtualPorts[0].ID).toBe('vp-1')
     expect(Array.from(base64ToBytes(snapshot.serial.buffers['port-1'][0].data))).toEqual([1, 2, 3])
     expect(snapshot.serial.monitors.activeMonitorId).toBe('mon-1')
+    expect(snapshot.serial.modbus.masterForm.functionCode).toBe(3)
     expect(snapshot.serial.workspace.tabStates['port-1'].sendHeight).toBe(240)
   })
 
   it('restores a snapshot and remaps old handle ids to newly opened handles', async () => {
+    useSettingsStore().updateGlobal({ Theme: 'dark' })
     const result = await restoreWorkspaceSnapshot({
       kind: 'mocktrue.workspace.v1',
-      settings: useSettingsStore().snapshot(),
+      settings: {
+        ...useSettingsStore().snapshot(),
+        global: { Theme: 'light' },
+      } as any,
       serial: {
         activePortId: 'old-port',
         handles: [{
@@ -116,6 +124,14 @@ describe('workspace session snapshot', () => {
           sessions: [],
           frames: {},
         },
+        modbus: {
+          ...defaultModbusWorkspaceState(),
+          activeSessionId: 'modbus-1',
+          portForm: {
+            ...defaultModbusWorkspaceState().portForm,
+            port: '/tmp/ttyM0',
+          },
+        },
         workspace: {
           selectedOperation: null,
           editorLayout: { type: 'group', id: 'group-1', tabs: ['old-port'] },
@@ -133,7 +149,10 @@ describe('workspace session snapshot', () => {
     expect(useSerialStore().activePortId).toBe('new-port')
     expect(Array.from(useBufferStore().getBuffer('new-port'))).toEqual([1, 2, 3])
     expect(useMonitorStore().activeMonitorId).toBe('mon-1')
+    expect(useModbusStore().activeSessionId).toBe('modbus-1')
+    expect(useModbusStore().portForm.port).toBe('/tmp/ttyM0')
     expect(useSerialWorkspaceStore().editorLayout).toEqual({ type: 'group', id: 'group-1', tabs: ['new-port'] })
+    expect(useSettingsStore().global.Theme).toBe('dark')
     expect(serialServiceMock.restoreCounters).toHaveBeenCalledWith('new-port', 3, 2)
     expect(serialBindingsMock.CreateVirtualPort).toHaveBeenCalledWith('vp-1', 'ttyV0')
     expect(serialBindingsMock.CreateBridge).toHaveBeenCalledWith('br-1', 'ttyV0', '/tmp/ttyA', 115200)

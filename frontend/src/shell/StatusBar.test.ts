@@ -11,6 +11,16 @@ const wailsRuntime = vi.hoisted(() => {
 })
 
 vi.mock('@wailsio/runtime', () => ({
+  Call: {
+    ByID: vi.fn(async () => undefined),
+  },
+  CancellablePromise: Promise,
+  Create: {
+    Any: (value: any) => value,
+    Array: (createItem: (value: any) => any) => (value: any[]) => Array.isArray(value) ? value.map(createItem) : [],
+    ByteSlice: (value: any) => value ?? '',
+    Nullable: (createValue: (value: any) => any) => (value: any) => value == null ? null : createValue(value),
+  },
   Events: {
     On: wailsRuntime.on,
   },
@@ -99,11 +109,11 @@ describe('StatusBar', () => {
     expect(wrapper.find('.status-bar__config').text()).toBe('配置 未指定')
   })
 
-  it('renders a readonly demo source as the current config location', () => {
+  it('renders the current config location when provided', () => {
     const wrapper = mount(StatusBar, {
       props: {
         activeId: 'settings',
-        configPath: 'Demo: 串口监控演示',
+        configPath: '/tmp/example.mocktrue.json',
         runtimeMetrics: {
           CPUPercent: 0,
           MemoryBytes: 0,
@@ -111,7 +121,7 @@ describe('StatusBar', () => {
       },
     })
 
-    expect(wrapper.find('.status-bar__config').text()).toBe('配置 Demo: 串口监控演示')
-    expect(wrapper.find('.status-bar__config').attributes('title')).toBe('Demo: 串口监控演示')
+    expect(wrapper.find('.status-bar__config').text()).toBe('配置 /tmp/example.mocktrue.json')
+    expect(wrapper.find('.status-bar__config').attributes('title')).toBe('/tmp/example.mocktrue.json')
   })
 })

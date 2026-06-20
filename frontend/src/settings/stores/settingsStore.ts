@@ -80,6 +80,11 @@ export const useSettingsStore = defineStore('settings', () => {
     persist()
   }
 
+  function replaceSerialSettings(next: Partial<SerialModuleSettings> | undefined) {
+    serial.value = { ...defaultSerialSettings, ...(next ?? {}) }
+    persist()
+  }
+
   function persist() {
     if (typeof localStorage === 'undefined') return
     const snapshot: SettingsSnapshot = {
@@ -98,6 +103,7 @@ export const useSettingsStore = defineStore('settings', () => {
     resetSerial,
     snapshot,
     replaceSettings,
+    replaceSerialSettings,
   }
 })
 

@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { base64ToBytes, stableStringify, type WorkspaceSnapshot } from '../workspaceSnapshot'
+import { stableStringify } from '../workspaceSnapshot'
 import {
   DefaultWorkspacePath,
   ExportWorkspace,
@@ -12,11 +12,9 @@ import {
   SelectWorkspaceSavePath,
 } from '../../../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js'
 import { buildWorkspaceSnapshot, restoreWorkspaceSnapshot } from '../workspaceSession'
-import { createDemoWorkspaceSnapshot, getDemoWorkspace, listDemoWorkspaces } from '../demoWorkspaces'
-import { useBufferStore } from '../../serial/stores/bufferStore'
-import { useSerialStore } from '../../serial/stores/serialStore'
+import { createDemoWorkspaceSnapshot, listDemoWorkspaces } from '../demoWorkspaces'
 
-type WorkspaceSourceKind = 'empty' | 'file' | 'demo'
+type WorkspaceSourceKind = 'empty' | 'file'
 
 export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   const currentPath = ref('')
@@ -24,18 +22,9 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   const currentSnapshot = ref('')
   const lastError = ref<string | null>(null)
   const sourceKind = ref<WorkspaceSourceKind>('empty')
-  const readonly = ref(false)
-  const currentDemoId = ref('')
-  const currentDemoTitle = ref('')
 
   const isDirty = computed(() => currentSnapshot.value !== savedSnapshot.value)
-  const displayPath = computed(() => {
-    if (sourceKind.value === 'demo') {
-      return `Demo: ${currentDemoTitle.value || currentDemoId.value}`
-    }
-    return currentPath.value
-  })
-  const canSaveDirectly = computed(() => !readonly.value)
+  const displayPath = computed(() => currentPath.value)
 
   function markClean(path: string, snapshot: unknown) {
     setEditableSource(path)
@@ -53,11 +42,7 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
 
   function setPath(path: string) {
     currentPath.value = path
-    if (sourceKind.value === 'demo') return
     sourceKind.value = path ? 'file' : 'empty'
-    readonly.value = false
-    currentDemoId.value = ''
-    currentDemoTitle.value = ''
   }
 
   function setError(message: string | null) {
@@ -65,11 +50,6 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   }
 
   async function save(path?: string): Promise<string> {
-    if (readonly.value && !path) {
-      const error = new Error('Demo 配置为只读，请使用另存为')
-      setError(error.message)
-      throw error
-    }
     try {
       const snapshot = buildWorkspaceSnapshot()
       const targetPath = (path ?? currentPath.value) || await DefaultWorkspacePath()
@@ -161,18 +141,12 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
 
   async function loadDemo(demoId: string) {
     try {
-      const demo = getDemoWorkspace(demoId)
       const snapshot = createDemoWorkspaceSnapshot(demoId)
-      if (!demo || !snapshot) {
+      if (!snapshot) {
         throw new Error(`Unknown demo workspace: ${demoId}`)
       }
       const result = await restoreWorkspaceSnapshot(snapshot)
-      restoreDemoDisplayFallback(snapshot, result.handleMap)
-      currentPath.value = ''
-      sourceKind.value = 'demo'
-      readonly.value = true
-      currentDemoId.value = demo.id
-      currentDemoTitle.value = demo.title
+      setEditableSource('')
       markSnapshotClean(buildWorkspaceSnapshot())
       lastError.value = null
       return result
@@ -185,9 +159,6 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   function setEditableSource(path: string) {
     currentPath.value = path
     sourceKind.value = path ? 'file' : 'empty'
-    readonly.value = false
-    currentDemoId.value = ''
-    currentDemoTitle.value = ''
   }
 
   function markSnapshotClean(snapshot: unknown) {
@@ -196,50 +167,12 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     currentSnapshot.value = serialized
   }
 
-  function restoreDemoDisplayFallback(snapshot: WorkspaceSnapshot, handleMap: Record<string, string>) {
-    const serialStore = useSerialStore()
-    const bufferStore = useBufferStore()
-
-    for (const handle of snapshot.serial.handles) {
-      if (!handle.isOpen) continue
-      const targetId = handleMap[handle.id] ?? handle.id
-      if (!serialStore.handles.has(targetId)) {
-        serialStore.restoreDemoHandle({
-          ID: targetId,
-          Config: handle.config,
-          IsOpen: true,
-          RxBytes: handle.rxBytes,
-          TxBytes: handle.txBytes,
-        })
-      }
-
-      const chunks = snapshot.serial.buffers[handle.id]
-      if (chunks) {
-        bufferStore.restorePortChunks(targetId, chunks.map(chunk => ({
-          timestamp: chunk.timestamp,
-          data: Array.from(base64ToBytes(chunk.data)),
-        })))
-      }
-    }
-
-    if (snapshot.serial.activePortId) {
-      const activeId = handleMap[snapshot.serial.activePortId] ?? snapshot.serial.activePortId
-      if (serialStore.handles.has(activeId)) {
-        serialStore.setActivePort(activeId)
-      }
-    }
-  }
-
   return {
     currentPath,
     lastError,
     sourceKind,
-    readonly,
-    currentDemoId,
-    currentDemoTitle,
     isDirty,
     displayPath,
-    canSaveDirectly,
     markClean,
     updateCurrentSnapshot,
     markDirty,

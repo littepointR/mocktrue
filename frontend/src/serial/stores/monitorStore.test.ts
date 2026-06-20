@@ -171,7 +171,7 @@ function sampleFrame(seq: number, direction: string, hex: string): Frame {
     Direction: direction,
     Port: direction === 'a_to_b' ? '/tmp/a' : '/tmp/b',
     Length: hex.split(' ').length,
-    Data: null,
+    Data: '',
     DisplayText: direction,
     DisplayHex: hex,
     DisplayDec: '',

@@ -1,17 +1,16 @@
-import type { SerialConfig } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
-import type { Frame, SessionInfo } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/monitor/models.js'
-import { defaultGlobalSettings, defaultSerialSettings, type SettingsSnapshot } from '../settings/stores/settingsStore'
+import { defaultSerialSettings } from '../settings/stores/settingsStore'
 import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
-import type { SerialTabWorkspaceState, SerialWorkspaceState } from '../serial/stores/workspaceStore'
-import type { MonitorFilterState, MonitorWorkspaceState } from '../serial/stores/monitorStore'
+import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
+import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
+import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { EditorLayoutNode } from '../serial/views/editorLayout'
-import { bytesToBase64, workspaceKind, type WorkspaceSnapshot } from './workspaceSnapshot'
+import { FrameMode, SessionRole } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { workspaceKind, type WorkspaceSnapshot } from './workspaceSnapshot'
 
 export interface DemoWorkspace {
   id: string
   title: string
   description: string
-  readonly: true
 }
 
 interface DemoWorkspaceDefinition extends DemoWorkspace {
@@ -24,36 +23,37 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'serial-open-demo',
     title: '串口收发演示',
-    description: '展示打开虚拟串口、接收缓冲、发送历史、自动发送和收发计数。',
-    readonly: true,
+    description: '展示虚拟串口和打开串口操作的基础配置。',
     snapshotFactory: createSerialOpenDemo,
   },
   {
     id: 'virtual-port-demo',
     title: '虚拟串口演示',
     description: '展示多个自动创建的单端虚拟串口，适合验证虚拟串口资源管理。',
-    readonly: true,
     snapshotFactory: createVirtualPortDemo,
   },
   {
     id: 'bridge-demo',
     title: '串口桥接演示',
     description: '展示两个自动虚拟串口之间的桥接配置。',
-    readonly: true,
     snapshotFactory: createBridgeDemo,
   },
   {
     id: 'monitor-demo',
     title: '串口监控演示',
-    description: '展示串口监听会话、收发方向过滤和原始帧列表。',
-    readonly: true,
+    description: '展示串口监听操作和可监听的虚拟串口配置。',
     snapshotFactory: createMonitorDemo,
+  },
+  {
+    id: 'modbus-demo',
+    title: 'Modbus 调试演示',
+    description: '展示 Modbus RTU/ASCII 主站配置和从站数据表。',
+    snapshotFactory: createModbusDemo,
   },
   {
     id: 'full-workspace-demo',
     title: '完整工作区演示',
-    description: '展示设置、虚拟串口、桥接、监控、收发数据、发送历史和拆分布局。',
-    readonly: true,
+    description: '展示设置、虚拟串口、桥接和 Modbus 配置。',
     snapshotFactory: createFullWorkspaceDemo,
   },
 ]
@@ -76,40 +76,13 @@ export function createDemoWorkspaceSnapshot(id: string): WorkspaceSnapshot | nul
 function createSerialOpenDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `mocktrue-demo-open-${suffix}`
-  const portPath = toPortPath(portName)
-  const handleId = `demo-open-handle-${suffix}`
 
   return snapshot({
-    activePortId: handleId,
     virtualPorts: [virtualPort(`demo-open-port-${suffix}`, portName)],
-    handles: [{
-      id: handleId,
-      config: serialConfig(portPath, 115200),
-      isOpen: true,
-      rxBytes: 28,
-      txBytes: 18,
-    }],
-    buffers: {
-      [handleId]: [
-        bufferChunk('MockTrue RX hello\n', 1718845201000),
-        bufferChunk('status=ok voltage=3.30\n', 1718845202500),
-      ],
-    },
     workspace: workspace({
       selectedOperation: 'open',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [handleId] },
-      activeByGroup: { 'group-1': handleId },
-      tabStates: {
-        [handleId]: tabState({
-          sendData: 'AT+STATUS?',
-          autoSend: true,
-          sendIntervalMs: 500,
-          history: [
-            { id: 1, content: 'AT', mode: 'ascii' },
-            { id: 2, content: 'AT+STATUS?', mode: 'ascii' },
-          ],
-        }),
-      },
+      editorLayout: { type: 'group', id: 'group-1', tabs: [] },
+      activeByGroup: { 'group-1': null },
     }),
   })
 }
@@ -154,20 +127,30 @@ function createBridgeDemo(): WorkspaceSnapshot {
 
 function createMonitorDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portA = `mocktrue-demo-monitor-a-${suffix}`
-  const portB = `mocktrue-demo-monitor-b-${suffix}`
-  const monitorId = `demo-monitor-${suffix}`
+  const sourcePort = `mocktrue-demo-monitor-${suffix}`
 
   return snapshot({
-    virtualPorts: [
-      virtualPort(`demo-monitor-a-${suffix}`, portA),
-      virtualPort(`demo-monitor-b-${suffix}`, portB),
-    ],
-    monitors: monitorState(monitorId, toPortPath(portA), toPortPath(portB)),
+    virtualPorts: [virtualPort(`demo-monitor-port-${suffix}`, sourcePort)],
     workspace: workspace({
       selectedOperation: 'monitor',
-      editorLayout: { type: 'group', id: 'group-1', tabs: [monitorTabId(monitorId)] },
-      activeByGroup: { 'group-1': monitorTabId(monitorId) },
+      editorLayout: { type: 'group', id: 'group-1', tabs: [] },
+      activeByGroup: { 'group-1': null },
+    }),
+  })
+}
+
+function createModbusDemo(): WorkspaceSnapshot {
+  const suffix = nextDemoSuffix()
+  const portName = `mocktrue-demo-modbus-${suffix}`
+  const sessionId = `demo-modbus-${suffix}`
+
+  return snapshot({
+    virtualPorts: [virtualPort(`demo-modbus-port-${suffix}`, portName)],
+    modbus: modbusState(sessionId, toPortPath(portName)),
+    workspace: workspace({
+      selectedOperation: 'modbus',
+      editorLayout: { type: 'group', id: 'group-1', tabs: [modbusTabId(sessionId)] },
+      activeByGroup: { 'group-1': modbusTabId(sessionId) },
     }),
   })
 }
@@ -175,14 +158,11 @@ function createMonitorDemo(): WorkspaceSnapshot {
 function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const terminalPort = `mocktrue-demo-terminal-${suffix}`
-  const monitorPortA = `mocktrue-demo-full-a-${suffix}`
-  const monitorPortB = `mocktrue-demo-full-b-${suffix}`
-  const handleId = `demo-full-handle-${suffix}`
-  const monitorId = `demo-full-monitor-${suffix}`
+  const bridgePortA = `mocktrue-demo-full-a-${suffix}`
+  const bridgePortB = `mocktrue-demo-full-b-${suffix}`
 
   return snapshot({
     settings: {
-      global: { Theme: 'dark' },
       serial: {
         ...defaultSerialSettings,
         BaudRate: 115200,
@@ -192,72 +172,35 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
         EnterString: '\r\n',
       },
     },
-    activePortId: handleId,
     virtualPorts: [
       virtualPort(`demo-full-terminal-${suffix}`, terminalPort),
-      virtualPort(`demo-full-a-${suffix}`, monitorPortA),
-      virtualPort(`demo-full-b-${suffix}`, monitorPortB),
+      virtualPort(`demo-full-a-${suffix}`, bridgePortA),
+      virtualPort(`demo-full-b-${suffix}`, bridgePortB),
     ],
     bridges: [{
       ID: `demo-full-bridge-${suffix}`,
-      Port1: toPortPath(monitorPortA),
-      Port2: toPortPath(monitorPortB),
+      Port1: toPortPath(bridgePortA),
+      Port2: toPortPath(bridgePortB),
       BaudRate: 115200,
     }],
-    handles: [{
-      id: handleId,
-      config: serialConfig(toPortPath(terminalPort), 115200),
-      isOpen: true,
-      rxBytes: 42,
-      txBytes: 24,
-    }],
-    buffers: {
-      [handleId]: [
-        bufferChunk('boot: MockTrue demo board\n', 1718845301000),
-        bufferChunk('temperature=24.6 humidity=42\n', 1718845303000),
-      ],
-    },
-    monitors: monitorState(monitorId, toPortPath(monitorPortA), toPortPath(monitorPortB)),
+    modbus: modbusState(`demo-full-modbus-${suffix}`, toPortPath(terminalPort)),
     workspace: workspace({
-      selectedOperation: 'monitor',
-      editorLayout: {
-        type: 'split',
-        id: 'split-full-demo',
-        direction: 'horizontal',
-        children: [
-          { type: 'group', id: 'group-serial-demo', tabs: [handleId] },
-          { type: 'group', id: 'group-monitor-demo', tabs: [monitorTabId(monitorId)] },
-        ],
-      },
-      activeByGroup: {
-        'group-serial-demo': handleId,
-        'group-monitor-demo': monitorTabId(monitorId),
-      },
-      tabStates: {
-        [handleId]: tabState({
-          sendData: '01 03 00 00 00 02 c4 0b',
-          sendMode: 'hex',
-          sendHeight: 240,
-          showTimestamp: true,
-          autoScroll: true,
-          history: [
-            { id: 1, content: 'AT+STATUS?', mode: 'ascii' },
-            { id: 2, content: '01 03 00 00 00 02 c4 0b', mode: 'hex' },
-          ],
-        }),
-      },
+      selectedOperation: 'modbus',
+      editorLayout: { type: 'group', id: 'group-1', tabs: [modbusTabId(`demo-full-modbus-${suffix}`)] },
+      activeByGroup: { 'group-1': modbusTabId(`demo-full-modbus-${suffix}`) },
     }),
   })
 }
 
 function snapshot(input: {
-  settings?: SettingsSnapshot
+  settings?: WorkspaceSnapshot['settings']
   activePortId?: string | null
   handles?: WorkspaceSnapshot['serial']['handles']
   virtualPorts?: VirtualPort[]
   bridges?: Bridge[]
   buffers?: WorkspaceSnapshot['serial']['buffers']
   monitors?: MonitorWorkspaceState
+  modbus?: ModbusWorkspaceState
   workspace?: SerialWorkspaceState
 }): WorkspaceSnapshot {
   return {
@@ -270,6 +213,7 @@ function snapshot(input: {
       bridges: input.bridges ?? [],
       buffers: input.buffers ?? {},
       monitors: input.monitors ?? emptyMonitorState(),
+      modbus: input.modbus ?? emptyModbusState(),
       workspace: input.workspace ?? workspace({}),
     },
   }
@@ -288,51 +232,9 @@ function emptyLayout(): EditorLayoutNode {
   return { type: 'group', id: 'group-1', tabs: [] }
 }
 
-function tabState(input: {
-  sendData?: string
-  sendMode?: 'ascii' | 'hex'
-  sendHeight?: number
-  showTimestamp?: boolean
-  autoScroll?: boolean
-  autoSend?: boolean
-  sendIntervalMs?: number
-  history?: SerialTabWorkspaceState['sendPanel']['sendHistory']
-}): SerialTabWorkspaceState {
+function defaultSettings(): WorkspaceSnapshot['settings'] {
   return {
-    showConfig: true,
-    sendHeight: input.sendHeight ?? 220,
-    dataDisplay: {
-      viewMode: 'ascii',
-      layoutMode: 'combined',
-      showTimestamp: input.showTimestamp ?? true,
-      autoScroll: input.autoScroll ?? true,
-    },
-    sendPanel: {
-      sendData: input.sendData ?? '',
-      sendMode: input.sendMode ?? 'ascii',
-      autoSend: input.autoSend ?? false,
-      sendIntervalMs: input.sendIntervalMs ?? 1000,
-      sendHistory: input.history ?? [],
-    },
-  }
-}
-
-function defaultSettings(): SettingsSnapshot {
-  return {
-    global: { ...defaultGlobalSettings },
     serial: { ...defaultSerialSettings },
-  }
-}
-
-function serialConfig(portName: string, baudRate: number): SerialConfig {
-  return {
-    PortName: portName,
-    BaudRate: baudRate,
-    DataBits: 8,
-    StopBits: '1',
-    Parity: 'none',
-    FlowMode: 'none',
-    ReadBufKB: 32,
   }
 }
 
@@ -349,86 +251,270 @@ function emptyMonitorState(): MonitorWorkspaceState {
   }
 }
 
-function monitorState(id: string, portA: string, portB: string): MonitorWorkspaceState {
-  const frames = [
-    monitorFrame(1, 'a_to_b', portA, '01 03 00 00 00 02 c4 0b', '请求 01 03 00 00 00 02 c4 0b'),
-    monitorFrame(2, 'b_to_a', portB, '01 03 04 00 18 00 2a fa 33', '响应 01 03 04 00 18 00 2a fa 33'),
-    monitorFrame(3, 'a_to_b', portA, 'ping', 'ASCII 心跳'),
+function emptyModbusState(): ModbusWorkspaceState {
+  const slaveForm = {
+    unitId: 1,
+    coils: '0=1\n1=0\n2=1',
+    discreteInputs: '0=1\n1=1',
+    inputRegisters: '0=24\n1=42',
+    holdingRegisters: '0=24\n1=42',
+  }
+  return {
+    activeSessionId: null,
+    sessions: [],
+    portForm: {
+      sessionId: 'modbus-demo',
+      name: '',
+      port: '',
+      mode: 'rtu',
+      role: 'master',
+      baudRate: 115200,
+      dataBits: 8,
+      stopBits: '1',
+      parity: 'none',
+      flowMode: 'none',
+      timeoutMs: 800,
+      retries: 0,
+    },
+    masterForm: {
+      unitId: 1,
+      functionCode: 3,
+      addressMode: 'zero-based',
+      address: 0,
+      quantity: 2,
+      value: 0,
+      coilValues: '1 0 1 1',
+      registerValues: '24 42',
+      timeoutMs: 800,
+      retries: 0,
+    },
+    slaveForm,
+    activeSlaveUnitId: 1,
+    slaveUnitForms: [{ ...slaveForm }],
+    masterGrid: {
+      unitId: 1,
+      registerType: 'holding_registers',
+      address: 0,
+      length: 4,
+      addressBase: 0,
+      readConfigured: false,
+      littleEndian: false,
+      rawVisible: true,
+      logVisible: true,
+      pollRateMs: 1000,
+      timeoutMs: 800,
+      retries: 0,
+    },
+    masterMappings: [
+      {
+        id: 'demo-map-0',
+        address: 0,
+        dataType: 'int32',
+        wordOrder: 'big',
+        length: 0,
+        scalingFactor: 0,
+        comment: '累计计数',
+        groupEnd: false,
+      },
+      {
+        id: 'demo-map-2',
+        address: 2,
+        dataType: 'float',
+        wordOrder: 'big',
+        length: 0,
+        scalingFactor: 1,
+        comment: '温度',
+        groupEnd: true,
+      },
+    ],
+    slaveUnitGrids: [{
+      unitId: 1,
+      coils: [
+        { id: 'demo-u1-coil-0', address: 0, value: true },
+        { id: 'demo-u1-coil-1', address: 1, value: false },
+        { id: 'demo-u1-coil-2', address: 2, value: true },
+      ],
+      discreteInputs: [
+        { id: 'demo-u1-di-0', address: 0, value: true },
+        { id: 'demo-u1-di-1', address: 1, value: true },
+      ],
+      inputRegisters: [
+        { id: 'demo-u1-ir-0', address: 0, value: 24, dataType: 'uint16', comment: '输入温度' },
+        { id: 'demo-u1-ir-1', address: 1, value: 42, dataType: 'uint16', comment: '输入湿度' },
+      ],
+      holdingRegisters: [
+        { id: 'demo-u1-hr-0', address: 0, value: 24, dataType: 'uint16', comment: '设定值' },
+        { id: 'demo-u1-hr-1', address: 1, value: 42, dataType: 'uint16', comment: '报警阈值' },
+      ],
+    }],
+    registerReadForm: {
+      unitId: 1,
+      functionCode: 3,
+      addressMode: 'zero-based',
+      address: 0,
+      quantity: 4,
+      mappingText: '0:int32:big\n2:float:big',
+      timeoutMs: 800,
+      retries: 0,
+      pollIntervalMs: 1000,
+      polling: false,
+    },
+    unitScanForm: {
+      unitIds: '1-10',
+      functionCode: 3,
+      addressMode: 'zero-based',
+      address: 0,
+      quantity: 1,
+      timeoutMs: 120,
+    },
+    registerScanForm: {
+      unitId: 1,
+      functionCode: 3,
+      addressMode: 'zero-based',
+      startAddress: 0,
+      endAddress: 16,
+      chunkSize: 8,
+      timeoutMs: 200,
+    },
+    registerReadResult: null,
+    unitScanResult: null,
+    registerScanResult: null,
+    history: [],
+  }
+}
+
+function modbusState(id: string, portName: string): ModbusWorkspaceState {
+  const state = emptyModbusState()
+  const config = {
+    PortName: portName,
+    BaudRate: 115200,
+    DataBits: 8,
+    StopBits: '1',
+    Parity: 'none',
+    FlowMode: 'none',
+    ReadBufKB: 32,
+  }
+  state.activeSessionId = id
+  state.sessions = [{
+    ID: id,
+    Name: 'Modbus RTU 演示',
+    Mode: FrameMode.FrameModeRTU,
+    Role: SessionRole.SessionRoleMaster,
+    Config: config,
+    Status: 'stopped',
+    RxBytes: 0,
+    TxBytes: 0,
+    SlaveRunning: false,
+    UnitID: 1,
+    UnitIDs: [1, 2],
+    StartedAt: '',
+    StoppedAt: '',
+    LastError: '',
+  }]
+  state.portForm = {
+    ...state.portForm,
+    sessionId: `next-${id}`,
+    port: portName,
+    name: 'Modbus RTU 演示',
+    mode: 'rtu',
+  }
+  state.slaveUnitForms = [
+    {
+      unitId: 1,
+      coils: '0=1\n1=0\n2=1',
+      discreteInputs: '0=1\n1=1',
+      inputRegisters: '0=24\n1=42',
+      holdingRegisters: '0=24\n1=42',
+    },
+    {
+      unitId: 2,
+      coils: '0=0\n1=1\n2=1',
+      discreteInputs: '0=0\n1=1',
+      inputRegisters: '0=120\n1=230',
+      holdingRegisters: '0=100\n1=200',
+    },
   ]
-
-  return {
-    activeMonitorId: id,
-    filters: {
-      [id]: monitorFilter(),
+  state.slaveUnitGrids = [
+    {
+      unitId: 1,
+      coils: [
+        { id: `${id}-u1-coil-0`, address: 0, value: true },
+        { id: `${id}-u1-coil-1`, address: 1, value: false },
+        { id: `${id}-u1-coil-2`, address: 2, value: true },
+      ],
+      discreteInputs: [
+        { id: `${id}-u1-di-0`, address: 0, value: true },
+        { id: `${id}-u1-di-1`, address: 1, value: true },
+      ],
+      inputRegisters: [
+        { id: `${id}-u1-ir-0`, address: 0, value: 24, dataType: 'uint16', comment: '输入温度' },
+        { id: `${id}-u1-ir-1`, address: 1, value: 42, dataType: 'uint16', comment: '输入湿度' },
+      ],
+      holdingRegisters: [
+        { id: `${id}-u1-hr-0`, address: 0, value: 24, dataType: 'uint16', comment: '保持寄存器 0' },
+        { id: `${id}-u1-hr-1`, address: 1, value: 42, dataType: 'uint16', comment: '保持寄存器 1' },
+      ],
     },
-    sessions: [{
-      ID: id,
-      Name: '串口监控演示',
-      Provider: 'bridge',
-      PortA: portA,
-      PortB: portB,
-      ExternalPort: '',
-      AutoVirtualPortID: '',
-      Config: serialConfig('', 115200),
-      Encoding: 'utf-8',
-      Status: 'stopped',
-      RxBytes: 9,
-      TxBytes: 13,
-      FrameCount: frames.length,
-      StartedAt: '2026-06-20T01:00:00Z',
-      StoppedAt: '2026-06-20T01:02:30Z',
-      Error: '',
-    } satisfies SessionInfo],
-    frames: {
-      [id]: frames,
+    {
+      unitId: 2,
+      coils: [
+        { id: `${id}-u2-coil-0`, address: 0, value: false },
+        { id: `${id}-u2-coil-1`, address: 1, value: true },
+        { id: `${id}-u2-coil-2`, address: 2, value: true },
+      ],
+      discreteInputs: [
+        { id: `${id}-u2-di-0`, address: 0, value: false },
+        { id: `${id}-u2-di-1`, address: 1, value: true },
+      ],
+      inputRegisters: [
+        { id: `${id}-u2-ir-0`, address: 0, value: 120, dataType: 'uint16', comment: '输入电压' },
+        { id: `${id}-u2-ir-1`, address: 1, value: 230, dataType: 'uint16', comment: '输入电流' },
+      ],
+      holdingRegisters: [
+        { id: `${id}-u2-hr-0`, address: 0, value: 100, dataType: 'uint16', comment: '目标值' },
+        { id: `${id}-u2-hr-1`, address: 1, value: 200, dataType: 'uint16', comment: '限制值' },
+      ],
     },
+  ]
+  state.activeSlaveUnitId = 1
+  state.slaveForm = { ...state.slaveUnitForms[0] }
+  state.masterGrid = {
+    ...state.masterGrid,
+    unitId: 1,
+    registerType: 'holding_registers',
+    address: 0,
+    length: 4,
+    addressBase: 0,
+    rawVisible: true,
+    logVisible: true,
   }
+  state.masterMappings = [
+    {
+      id: `${id}-map-counter`,
+      address: 0,
+      dataType: 'int32',
+      wordOrder: 'big',
+      length: 0,
+      scalingFactor: 0,
+      comment: '累计计数',
+      groupEnd: false,
+    },
+    {
+      id: `${id}-map-temperature`,
+      address: 2,
+      dataType: 'float',
+      wordOrder: 'big',
+      length: 0,
+      scalingFactor: 1,
+      comment: '温度',
+      groupEnd: true,
+    },
+  ]
+  return state
 }
 
-function monitorFilter(): MonitorFilterState {
-  return {
-    direction: 'all',
-    search: '03',
-    displayMode: 'hex',
-  }
-}
-
-function monitorFrame(
-  seq: number,
-  direction: string,
-  portName: string,
-  hexOrText: string,
-  text: string
-): Frame {
-  const hex = hexOrText.includes(' ') ? hexOrText : Array.from(new TextEncoder().encode(hexOrText))
-    .map(byte => byte.toString(16).padStart(2, '0'))
-    .join(' ')
-
-  return {
-    Seq: seq,
-    Timestamp: `2026-06-20T01:00:0${seq}Z`,
-    Direction: direction,
-    Port: portName,
-    Length: hex.split(' ').filter(Boolean).length,
-    Data: null,
-    DisplayText: text,
-    DisplayHex: hex,
-    DisplayDec: hexToBase(hex, 10),
-    DisplayOct: hexToBase(hex, 8),
-    DisplayBin: hexToBase(hex, 2),
-    Encoding: 'utf-8',
-  }
-}
-
-function bufferChunk(text: string, timestamp: number) {
-  return {
-    timestamp,
-    data: bytesToBase64(new TextEncoder().encode(text)),
-  }
-}
-
-function monitorTabId(id: string): string {
-  return `monitor:${id}`
+function modbusTabId(id: string): string {
+  return `modbus:${id}`
 }
 
 function toPortPath(portName: string): string {
@@ -438,11 +524,4 @@ function toPortPath(portName: string): string {
 function nextDemoSuffix(): string {
   demoSequence += 1
   return `${Date.now().toString(36)}-${demoSequence}`
-}
-
-function hexToBase(hex: string, base: number): string {
-  return hex.split(' ')
-    .filter(Boolean)
-    .map(part => parseInt(part, 16).toString(base))
-    .join(' ')
 }

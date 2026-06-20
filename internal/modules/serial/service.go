@@ -13,6 +13,7 @@ import (
 	"github.com/suyue/mocktrue/internal/core/eventbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
 	"github.com/suyue/mocktrue/internal/modules/serial/manager"
+	mb "github.com/suyue/mocktrue/internal/modules/serial/modbus"
 	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
 	"github.com/suyue/mocktrue/internal/modules/serial/port"
 	"github.com/suyue/mocktrue/internal/modules/serial/virtualserial"
@@ -24,6 +25,7 @@ type Service struct {
 	bus                 *eventbus.EventBus
 	manager             *manager.PortManager
 	monitors            *monitor.Manager
+	modbus              *mb.Manager
 	vmgr                *virtualserial.Manager
 	buffers             map[string]*buffer.RingBuffer // keyed by handle ID
 	autoMonitorVirtuals map[string]string
@@ -51,6 +53,9 @@ func (s *Service) init(bus *eventbus.EventBus) {
 	}
 	if s.monitors == nil {
 		s.monitors = monitor.NewManager()
+	}
+	if s.modbus == nil {
+		s.modbus = mb.NewManager(nil)
 	}
 	if s.vmgr == nil {
 		s.vmgr = virtualserial.NewManager()
@@ -115,6 +120,9 @@ func (s *Service) OpenPort(ctx context.Context, req manager.OpenRequest) (*manag
 	if existing := s.findOpenHandle(req.Config.PortName); existing != nil {
 		return existing, nil
 	}
+	if s.modbus != nil && s.modbus.PortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, fmt.Sprintf("port already open in modbus session: %s", req.Config.PortName))
+	}
 	status, err := s.manager.Open(ctx, req)
 	if err != nil {
 		if errors.AsCode(err) == errors.CodeConflict {
@@ -164,6 +172,9 @@ func (s *Service) cleanup() {
 	}
 	if s.monitors != nil {
 		s.monitors.Cleanup()
+	}
+	if s.modbus != nil {
+		s.modbus.CloseAll()
 	}
 	if s.vmgr != nil {
 		s.vmgr.Cleanup()
@@ -295,6 +306,9 @@ func (s *Service) StartMonitor(ctx context.Context, req monitor.StartRequest) (*
 	if s.findOpenHandle(req.PortA) != nil || s.findOpenHandle(req.PortB) != nil {
 		return nil, errors.New(errors.CodeConflict, "monitor port already open in serial terminal")
 	}
+	if s.modbus != nil && (s.modbus.PortInUse(req.PortA) || s.modbus.PortInUse(req.PortB)) {
+		return nil, errors.New(errors.CodeConflict, "monitor port already open in modbus session")
+	}
 	req.EndpointA = s.monitorEndpoint(req.PortA)
 	req.EndpointB = s.monitorEndpoint(req.PortB)
 	return s.monitors.Start(ctx, req)
@@ -311,6 +325,9 @@ func (s *Service) StartAutoVirtualMonitor(ctx context.Context, req AutoVirtualMo
 	}
 	if s.findOpenHandle(req.Port) != nil {
 		return nil, errors.New(errors.CodeConflict, "monitor port already open in serial terminal")
+	}
+	if s.modbus != nil && s.modbus.PortInUse(req.Port) {
+		return nil, errors.New(errors.CodeConflict, "monitor port already open in modbus session")
 	}
 
 	virtualID := autoVirtualPortID(req.ID)
@@ -377,11 +394,118 @@ func (s *Service) ClearMonitorFrames(id string) error {
 	return s.monitors.ClearFrames(id)
 }
 
+// OpenModbusSession opens a dedicated Modbus serial session.
+func (s *Service) OpenModbusSession(ctx context.Context, req mb.OpenSessionRequest) (*mb.SessionInfo, error) {
+	if req.Config.PortName == "" {
+		return nil, errors.New(errors.CodeInvalid, "modbus port must not be empty")
+	}
+	if s.findOpenHandle(req.Config.PortName) != nil {
+		return nil, errors.New(errors.CodeConflict, "modbus port already open in serial terminal")
+	}
+	if s.monitorPortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, "modbus port already used by serial monitor")
+	}
+	if s.bridgePortInUse(req.Config.PortName) {
+		return nil, errors.New(errors.CodeConflict, "modbus port already used by serial bridge")
+	}
+	req.Endpoint = s.monitorEndpoint(req.Config.PortName)
+	return s.modbus.OpenSession(ctx, req)
+}
+
+// CloseModbusSession closes and removes a Modbus serial session.
+func (s *Service) CloseModbusSession(id string) error {
+	return s.modbus.CloseSession(id)
+}
+
+// ListModbusSessions returns all open Modbus serial sessions.
+func (s *Service) ListModbusSessions() []mb.SessionInfo {
+	return s.modbus.List()
+}
+
+// ModbusMasterRequest runs one Modbus master transaction.
+func (s *Service) ModbusMasterRequest(req mb.MasterRequest) (*mb.Transaction, error) {
+	return s.modbus.MasterRequest(req)
+}
+
+// StartModbusSlave starts slave simulation for an open Modbus session.
+func (s *Service) StartModbusSlave(req mb.StartSlaveRequest) (*mb.SessionInfo, error) {
+	return s.modbus.StartSlave(req)
+}
+
+// StopModbusSlave stops slave simulation for an open Modbus session.
+func (s *Service) StopModbusSlave(id string) error {
+	return s.modbus.StopSlave(id)
+}
+
+// UpdateModbusSlaveData replaces the slave simulation data model.
+func (s *Service) UpdateModbusSlaveData(sessionID string, data mb.DataModelSnapshot) error {
+	return s.modbus.UpdateSlaveData(sessionID, data)
+}
+
+// AddModbusSlaveUnit adds or replaces one Unit ID in a slave simulation.
+func (s *Service) AddModbusSlaveUnit(sessionID string, unit mb.SlaveUnitSnapshot) error {
+	return s.modbus.AddSlaveUnit(sessionID, unit)
+}
+
+// RemoveModbusSlaveUnit removes one Unit ID from a slave simulation.
+func (s *Service) RemoveModbusSlaveUnit(sessionID string, unitID byte) error {
+	return s.modbus.RemoveSlaveUnit(sessionID, unitID)
+}
+
+// ListModbusSlaveUnits returns configured Unit IDs for a Modbus session.
+func (s *Service) ListModbusSlaveUnits(sessionID string) ([]mb.SlaveUnitInfo, error) {
+	return s.modbus.ListSlaveUnits(sessionID)
+}
+
+// UpdateModbusSlaveUnitData replaces one Unit ID data model.
+func (s *Service) UpdateModbusSlaveUnitData(sessionID string, unitID byte, data mb.DataModelSnapshot) error {
+	return s.modbus.UpdateSlaveUnitData(sessionID, unitID, data)
+}
+
+// ModbusScanUnitIDs probes a set of Modbus Unit IDs.
+func (s *Service) ModbusScanUnitIDs(req mb.UnitScanRequest) (*mb.UnitScanResult, error) {
+	return s.modbus.ScanUnitIDs(req)
+}
+
+// ModbusReadRegisters reads and decodes one Modbus register block.
+func (s *Service) ModbusReadRegisters(req mb.RegisterReadRequest) (*mb.RegisterReadResult, error) {
+	return s.modbus.ReadRegisters(req)
+}
+
+// ModbusScanRegisters scans a Modbus register range.
+func (s *Service) ModbusScanRegisters(req mb.RegisterScanRequest) (*mb.RegisterScanResult, error) {
+	return s.modbus.ScanRegisters(req)
+}
+
 func (s *Service) monitorEndpoint(portName string) string {
 	if s.vmgr == nil {
 		return portName
 	}
 	return s.vmgr.EndpointFor(portName)
+}
+
+func (s *Service) monitorPortInUse(portName string) bool {
+	if portName == "" || s.monitors == nil {
+		return false
+	}
+	for _, session := range s.monitors.List() {
+		if session.Status == monitor.StatusRunning && (session.PortA == portName || session.PortB == portName || session.ExternalPort == portName) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) bridgePortInUse(portName string) bool {
+	if portName == "" || s.vmgr == nil {
+		return false
+	}
+	for _, bridge := range s.vmgr.ListBridges() {
+		if bridge.Port1 == portName || bridge.Port2 == portName {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) cleanupAutoMonitorVirtual(monitorID string) error {
@@ -568,6 +692,9 @@ func (s *Service) CreateBridge(id, port1, port2 string, baudRate int) (*BridgeIn
 	}
 	if baudRate <= 0 {
 		baudRate = 115200
+	}
+	if s.modbus != nil && (s.modbus.PortInUse(port1) || s.modbus.PortInUse(port2)) {
+		return nil, errors.New(errors.CodeConflict, "bridge port already open in modbus session")
 	}
 
 	bridge, err := s.vmgr.CreateBridge(id, port1, port2, baudRate)

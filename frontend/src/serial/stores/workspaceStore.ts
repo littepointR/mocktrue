@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { EditorLayoutNode } from '../views/editorLayout'
 
-export type SerialOperation = 'open' | 'virtual' | 'bridge' | 'monitor'
+export type SerialOperation = 'open' | 'virtual' | 'bridge' | 'monitor' | 'modbus'
 export type ReceiveViewMode = 'ascii' | 'hexClassic' | 'hexTable'
 export type ReceiveLayoutMode = 'combined' | 'split'
 export type SendMode = 'ascii' | 'hex'

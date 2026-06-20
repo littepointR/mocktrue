@@ -5,6 +5,7 @@ import type { SerializableBufferChunk } from '../serial/stores/bufferStore'
 import { useVirtualStore } from '../serial/stores/virtualStore'
 import { useSerialWorkspaceStore } from '../serial/stores/workspaceStore'
 import { useMonitorStore } from '../serial/stores/monitorStore'
+import { useModbusStore } from '../serial/stores/modbusStore'
 import {
   base64ToBytes,
   bytesToBase64,
@@ -29,10 +30,13 @@ export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
   const virtualStore = useVirtualStore()
   const workspaceStore = useSerialWorkspaceStore()
   const monitorStore = useMonitorStore()
+  const modbusStore = useModbusStore()
 
   return {
     kind: workspaceKind,
-    settings: settingsStore.snapshot(),
+    settings: {
+      serial: settingsStore.snapshot().serial,
+    },
     serial: {
       activePortId: serialStore.activePortId,
       handles: Array.from(serialStore.handles.values()).filter(handle => handle.IsOpen).map(handle => ({
@@ -46,6 +50,7 @@ export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
       bridges: virtualStore.bridges.map(bridge => ({ ...bridge })),
       buffers: exportBuffers(bufferStore.exportChunks()),
       monitors: monitorStore.exportState(),
+      modbus: modbusStore.exportState(),
       workspace: workspaceStore.exportState(),
     },
   }
@@ -60,6 +65,7 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   const virtualStore = useVirtualStore()
   const workspaceStore = useSerialWorkspaceStore()
   const monitorStore = useMonitorStore()
+  const modbusStore = useModbusStore()
 
   await captureError(errors, 'serial.closeAll', () => serialStore.closeAllPorts())
   await captureError(errors, 'virtual.cleanup', () => virtualStore.cleanupAllResources())
@@ -67,7 +73,8 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   serialStore.clearLocalHandles()
   bufferStore.clearAll()
   workspaceStore.resetWorkspace()
-  settingsStore.replaceSettings(snapshot.settings)
+  modbusStore.resetWorkspace()
+  settingsStore.replaceSerialSettings(snapshot.settings?.serial)
 
   for (const vport of snapshot.serial.virtualPorts) {
     await captureError(errors, `virtual:${vport.ID}`, () => virtualStore.createVirtualPort(vport.ID, vport.Port))
@@ -96,6 +103,7 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
 
   bufferStore.restoreChunks(importBuffers(snapshot.serial.buffers, handleMap))
   monitorStore.restoreState(snapshot.serial.monitors)
+  modbusStore.restoreState(snapshot.serial.modbus)
   workspaceStore.restoreState(snapshot.serial.workspace, handleMap)
   serialStore.setActivePort(remapID(snapshot.serial.activePortId, handleMap))
 

@@ -78,13 +78,13 @@ describe('GlobalSettingsPanel workspace file actions', () => {
     expect(exportCopy).toHaveBeenCalled()
   })
 
-  it('loads the selected readonly demo workspace from settings', async () => {
+  it('loads the selected example workspace from settings', async () => {
     const workspace = useWorkspaceFileStore()
     const loadDemo = vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ errors: [], handleMap: {} })
 
     const wrapper = mount(GlobalSettingsPanel)
     await wrapper.findAll('select')[1].setValue('monitor-demo')
-    await wrapper.findAll('button').find(button => button.text() === '加载 Demo')?.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '加载示例')?.trigger('click')
 
     expect(loadDemo).toHaveBeenCalledWith('monitor-demo')
   })
@@ -102,21 +102,19 @@ describe('GlobalSettingsPanel workspace file actions', () => {
     vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ errors: [], handleMap: {} })
 
     const wrapper = mount(GlobalSettingsPanel)
-    await wrapper.findAll('button').find(button => button.text() === '加载 Demo')?.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '加载示例')?.trigger('click')
 
     expect(registry.active.value).toBe('serial')
   })
 
-  it('disables direct save for readonly demo workspaces but keeps save-as available', () => {
-    const workspace = useWorkspaceFileStore()
-    workspace.readonly = true
-
+  it('keeps direct save enabled for loaded example workspaces', () => {
     const wrapper = mount(GlobalSettingsPanel)
     const save = wrapper.findAll('button').find(button => button.text() === '保存')
     const saveAs = wrapper.findAll('button').find(button => button.text() === '另存为')
 
-    expect(save?.attributes('disabled')).toBeDefined()
+    expect(save?.attributes('disabled')).toBeUndefined()
     expect(saveAs?.attributes('disabled')).toBeUndefined()
-    expect(wrapper.text()).toContain('只读 Demo')
+    expect(wrapper.text()).not.toContain('只读 Demo')
+    expect(wrapper.text()).toContain('示例配置')
   })
 })

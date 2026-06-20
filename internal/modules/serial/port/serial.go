@@ -26,6 +26,7 @@ type SerialConfig struct {
 type Port interface {
 	Read(p []byte) (int, error)
 	Write(p []byte) (int, error)
+	SetReadTimeout(time.Duration) error
 	Close() error
 }
 

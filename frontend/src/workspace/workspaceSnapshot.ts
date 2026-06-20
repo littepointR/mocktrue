@@ -1,8 +1,9 @@
-import type { SettingsSnapshot } from '../settings/stores/settingsStore'
+import type { SerialModuleSettings } from '../settings/stores/settingsStore'
 import type { SerialConfig } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
 import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
 import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
 import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
+import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 
 export const workspaceKind = 'mocktrue.workspace.v1'
 
@@ -23,7 +24,9 @@ export interface WorkspaceHandleSnapshot {
 
 export interface WorkspaceSnapshot {
   kind: typeof workspaceKind
-  settings: SettingsSnapshot
+  settings: {
+    serial: SerialModuleSettings
+  }
   serial: {
     activePortId: string | null
     handles: WorkspaceHandleSnapshot[]
@@ -31,6 +34,7 @@ export interface WorkspaceSnapshot {
     bridges: Bridge[]
     buffers: Record<string, WorkspaceBufferChunk[]>
     monitors: MonitorWorkspaceState
+    modbus: ModbusWorkspaceState
     workspace: SerialWorkspaceState
   }
 }

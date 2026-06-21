@@ -809,6 +809,7 @@ onUnmounted(() => {
               class="serial-graph__edge-selection"
               :data-testid="`serial-graph-edge-selection-${edge.id}`"
               :d="edgePath(edge.id)"
+              :style="{ '--edge-color': edgeColor(edge.id) }"
             />
             <path
               class="serial-graph__edge"
@@ -1457,7 +1458,7 @@ onUnmounted(() => {
 }
 .serial-graph__edge-selection {
   fill: none;
-  stroke: var(--app-warning, #d7ba7d);
+  stroke: var(--edge-color, var(--app-accent, #007acc));
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 7;

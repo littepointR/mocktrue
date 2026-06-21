@@ -387,6 +387,7 @@ describe('SerialGraphPanel', () => {
 
     expect(store.selectedEdgeId).toBe(edge?.id)
     expect(wrapper.find(`[data-testid="serial-graph-edge-line-${edge?.id}"]`).attributes('style')).toContain('--edge-color: #4fc3f7')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-selection-${edge?.id}"]`).attributes('style')).toContain('--edge-color: #4fc3f7')
     expect(wrapper.find(`[data-testid="serial-graph-edge-selection-${edge?.id}"]`).exists()).toBe(true)
     expect(wrapper.find('.serial-graph__inspector').exists()).toBe(false)
     expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(true)

@@ -342,6 +342,40 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find('[data-testid="serial-graph-edge-edge-1"]').exists()).toBe(true)
   })
 
+  it('uses matching colors for connected edges and their port buttons', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    const wrapper = mount(SerialGraphPanel)
+
+    const edge = wrapper.find('[data-testid="serial-graph-edge-line-edge-1"]')
+    const output = wrapper.find(`[data-testid="serial-graph-output-${sender.id}-out"]`)
+    const input = wrapper.find(`[data-testid="serial-graph-input-${receiver.id}-in"]`)
+
+    expect(edge.attributes('style')).toContain('--edge-color: #4fc3f7')
+    expect(output.attributes('style')).toContain('--port-edge-color: #4fc3f7')
+    expect(input.attributes('style')).toContain('--port-edge-color: #4fc3f7')
+    expect(output.classes()).toContain('serial-graph__port--connected')
+    expect(input.classes()).toContain('serial-graph__port--connected')
+  })
+
+  it('shows all connected edge colors on ports with multiple connections', () => {
+    const store = useSerialGraphStore()
+    const tap = store.addNode('serial.tap')
+    const receiverA = store.addNode('serial.receiver')
+    const receiverB = store.addNode('serial.receiver')
+    store.connect(tap.id, 'out', receiverA.id, 'in')
+    store.connect(tap.id, 'out', receiverB.id, 'in')
+    const wrapper = mount(SerialGraphPanel)
+
+    const output = wrapper.find(`[data-testid="serial-graph-output-${tap.id}-out"]`)
+
+    expect(output.classes()).toContain('serial-graph__port--multi-connected')
+    expect(output.attributes('style')).toContain('--port-edge-color: #4fc3f7')
+    expect(output.attributes('style')).toContain('--port-edge-marker: linear-gradient(90deg, #4fc3f7 0% 50%, #ffb74d 50% 100%)')
+  })
+
   it('selects and deletes a connection line from the bottom details area', async () => {
     const store = useSerialGraphStore()
     const sender = store.addNode('serial.sender')
@@ -352,6 +386,8 @@ describe('SerialGraphPanel', () => {
     await wrapper.find(`[data-testid="serial-graph-edge-${edge?.id}"]`).trigger('click')
 
     expect(store.selectedEdgeId).toBe(edge?.id)
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${edge?.id}"]`).attributes('style')).toContain('--edge-color: #4fc3f7')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-selection-${edge?.id}"]`).exists()).toBe(true)
     expect(wrapper.find('.serial-graph__inspector').exists()).toBe(false)
     expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="serial-graph-selected-edge"]').text()).toContain(`${sender.id}.out`)

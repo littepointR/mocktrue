@@ -18,6 +18,16 @@ const minCanvasHeight = 120
 const minWorkbenchHeight = 160
 const defaultWorkbenchHeight = 320
 type GraphViewMode = 'content' | 'split' | 'topology'
+const edgePalette = [
+  '#4fc3f7',
+  '#ffb74d',
+  '#81c784',
+  '#ba68c8',
+  '#e57373',
+  '#64b5f6',
+  '#dce775',
+  '#4db6ac',
+]
 const store = useSerialGraphStore()
 const workspaceRef = ref<HTMLElement | null>(null)
 const canvasRef = ref<HTMLElement | null>(null)
@@ -543,6 +553,51 @@ function edgeTitle(edge: { source: string; sourceHandle: string; target: string;
   return `${edge.source}.${edge.sourceHandle} -> ${edge.target}.${edge.targetHandle}`
 }
 
+function edgeColor(edgeId: string): string {
+  const index = panelEdges.value.findIndex(edge => edge.id === edgeId)
+  return edgePalette[Math.max(0, index) % edgePalette.length]
+}
+
+function portEdgeColors(nodeId: string, handleId: string, direction: 'input' | 'output'): string[] {
+  return panelEdges.value
+    .filter(edge => (
+      direction === 'input'
+        ? edge.target === nodeId && edge.targetHandle === handleId
+        : edge.source === nodeId && edge.sourceHandle === handleId
+    ))
+    .map(edge => edgeColor(edge.id))
+}
+
+function portEdgeMarker(colors: string[]): string {
+  if (colors.length === 0) return ''
+  if (colors.length === 1) return colors[0]
+  const step = 100 / colors.length
+  const stops = colors.map((color, index) => {
+    const start = Math.round(index * step * 100) / 100
+    const end = Math.round((index + 1) * step * 100) / 100
+    return `${color} ${start}% ${end}%`
+  })
+  return `linear-gradient(90deg, ${stops.join(', ')})`
+}
+
+function portStyle(nodeId: string, handleId: string, direction: 'input' | 'output'): Record<string, string> | undefined {
+  const colors = portEdgeColors(nodeId, handleId, direction)
+  if (colors.length === 0) return undefined
+  return {
+    '--port-edge-color': colors[0],
+    '--port-edge-marker': portEdgeMarker(colors),
+  }
+}
+
+function portClasses(nodeId: string, handleId: string, direction: 'input' | 'output'): Record<string, boolean> {
+  const count = portEdgeColors(nodeId, handleId, direction).length
+  return {
+    'serial-graph__port--connected': count > 0,
+    'serial-graph__port--multi-connected': count > 1,
+    'serial-graph__port--pending': direction === 'output' && isPendingOutput(nodeId, handleId),
+  }
+}
+
 function isPendingOutput(nodeId: string, handleId: string): boolean {
   return pendingOutput.value?.nodeId === nodeId && pendingOutput.value.handleId === handleId
 }
@@ -746,12 +801,20 @@ onUnmounted(() => {
               class="serial-graph__edge-hit"
               :data-testid="`serial-graph-edge-${edge.id}`"
               :d="edgePath(edge.id)"
+              :style="{ '--edge-color': edgeColor(edge.id) }"
               @click.stop="selectEdge(edge.id)"
             />
             <path
-              class="serial-graph__edge"
-              :class="{ 'serial-graph__edge--selected': panelGraph?.selectedEdgeId === edge.id }"
+              v-if="panelGraph?.selectedEdgeId === edge.id"
+              class="serial-graph__edge-selection"
+              :data-testid="`serial-graph-edge-selection-${edge.id}`"
               :d="edgePath(edge.id)"
+            />
+            <path
+              class="serial-graph__edge"
+              :data-testid="`serial-graph-edge-line-${edge.id}`"
+              :d="edgePath(edge.id)"
+              :style="{ '--edge-color': edgeColor(edge.id) }"
             />
           </template>
         </svg>
@@ -784,7 +847,9 @@ onUnmounted(() => {
                 v-for="port in inputsFor(node)"
                 :key="port.id"
                 class="serial-graph__port serial-graph__port--input"
+                :class="portClasses(node.id, port.id, 'input')"
                 :data-testid="`serial-graph-input-${node.id}-${port.id}`"
+                :style="portStyle(node.id, port.id, 'input')"
                 type="button"
                 @click.stop="connectInput(node.id, port.id)"
               >
@@ -796,8 +861,9 @@ onUnmounted(() => {
                 v-for="port in outputsFor(node)"
                 :key="port.id"
                 class="serial-graph__port serial-graph__port--output"
-                :class="{ 'serial-graph__port--pending': isPendingOutput(node.id, port.id) }"
+                :class="portClasses(node.id, port.id, 'output')"
                 :data-testid="`serial-graph-output-${node.id}-${port.id}`"
+                :style="portStyle(node.id, port.id, 'output')"
                 type="button"
                 @click.stop="selectOutput(node.id, port.id)"
               >
@@ -1385,13 +1451,18 @@ onUnmounted(() => {
 }
 .serial-graph__edge {
   fill: none;
-  stroke: var(--app-accent, #007acc);
+  stroke: var(--edge-color, var(--app-accent, #007acc));
   stroke-width: 2;
   pointer-events: none;
 }
-.serial-graph__edge--selected {
+.serial-graph__edge-selection {
+  fill: none;
   stroke: var(--app-warning, #d7ba7d);
-  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 7;
+  opacity: 0.9;
+  pointer-events: none;
 }
 .serial-graph__node {
   position: absolute;
@@ -1448,6 +1519,7 @@ onUnmounted(() => {
   align-items: flex-end;
 }
 .serial-graph__port {
+  position: relative;
   max-width: 76px;
   padding: 4px 6px;
   border: 1px solid var(--app-border, #2d2d2d);
@@ -1458,10 +1530,27 @@ onUnmounted(() => {
   line-height: 1.2;
   cursor: pointer;
 }
+.serial-graph__port--connected {
+  border-color: var(--port-edge-color);
+  box-shadow: inset 0 -3px 0 var(--port-edge-marker);
+}
+.serial-graph__port--multi-connected {
+  box-shadow: inset 0 -4px 0 var(--port-edge-marker);
+}
 .serial-graph__port--pending,
 .serial-graph__port:hover {
-  border-color: var(--app-accent, #007acc);
   color: var(--app-text, #ffffff);
+}
+.serial-graph__port--pending {
+  outline: 1px solid var(--app-accent, #007acc);
+  outline-offset: 2px;
+}
+.serial-graph__port:not(.serial-graph__port--connected):hover {
+  border-color: var(--app-accent, #007acc);
+}
+.serial-graph__port--connected:hover {
+  border-color: var(--port-edge-color);
+  filter: brightness(1.12);
 }
 .serial-graph__field {
   display: block;

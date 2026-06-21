@@ -634,6 +634,7 @@ function modbusGraphState(suffix: string, requestPortName: string): SerialGraphW
     graphEdge(suffix, 'modbus-master-vport', selectedNodeId, 'tx', requestPortId, 'tx'),
     graphEdge(suffix, 'modbus-vport-slave', requestPortId, 'rx', slaveId, 'rx'),
     graphEdge(suffix, 'modbus-slave-tap', slaveId, 'tx', tapId, 'in'),
+    graphEdge(suffix, 'modbus-tap-master', tapId, 'out', selectedNodeId, 'rx'),
     graphEdge(suffix, 'modbus-tap-receiver', tapId, 'out', `graph-modbus-receiver-${suffix}`, 'in'),
     graphEdge(suffix, 'modbus-tap-monitor', tapId, 'out', `graph-modbus-monitor-${suffix}`, 'in'),
   ], selectedNodeId)
@@ -738,6 +739,7 @@ function fullWorkspaceGraphState(
     graphEdge(suffix, 'full-modbus-master-vport', modbusMasterId, 'tx', modbusPortId, 'tx'),
     graphEdge(suffix, 'full-modbus-vport-slave', modbusPortId, 'rx', modbusSlaveId, 'rx'),
     graphEdge(suffix, 'full-modbus-slave-tap', modbusSlaveId, 'tx', `graph-full-modbus-tap-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-modbus-tap-master', `graph-full-modbus-tap-${suffix}`, 'out', modbusMasterId, 'rx'),
     graphEdge(suffix, 'full-modbus-tap-receiver', `graph-full-modbus-tap-${suffix}`, 'out', `graph-full-modbus-receiver-${suffix}`, 'in'),
     graphEdge(suffix, 'full-modbus-tap-monitor', `graph-full-modbus-tap-${suffix}`, 'out', `graph-full-modbus-monitor-${suffix}`, 'in'),
     graphEdge(suffix, 'full-fecbus-master-vport', fecbusMasterId, 'tx', fecbusPortId, 'tx'),

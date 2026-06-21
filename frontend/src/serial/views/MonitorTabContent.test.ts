@@ -54,6 +54,7 @@ describe('MonitorTabContent', () => {
           DisplayOct: '117 113',
           DisplayBin: '01001111 01001011',
           Encoding: 'utf-8',
+          Error: '',
         }, {
           Seq: 2,
           Timestamp: '',
@@ -67,6 +68,7 @@ describe('MonitorTabContent', () => {
           DisplayOct: '107 117',
           DisplayBin: '01000111 01001111',
           Encoding: 'utf-8',
+          Error: '',
         }],
       },
     })

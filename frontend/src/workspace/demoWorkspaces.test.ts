@@ -175,6 +175,7 @@ describe('demoWorkspaces', () => {
       expect(master?.config).toEqual(expect.objectContaining({ mode: 'rtu', unitIds: '1,2', functionCode: 3, autoSend: true }))
       expect(slave?.config).toEqual(expect.objectContaining({ mode: 'rtu', unitIds: '1,2' }))
       expect(protocolRequestVirtualPort(graph, master?.id, slave?.id)).toBeTruthy()
+      expect(protocolResponseReturnsToMaster(graph, master?.id, slave?.id)).toBe(true)
       expect(graph.edges.some(edge => edge.source === master?.id && edge.target === slave?.id)).toBe(false)
     }
 
@@ -372,6 +373,36 @@ function protocolRequestVirtualPort(
     && edge.targetHandle === 'rx'
   ))
   return virtualToSlave ? masterToVirtual.target : null
+}
+
+function protocolResponseReturnsToMaster(
+  graph: SerialGraphWorkspaceState['graphs'][number],
+  masterId: string | undefined,
+  slaveId: string | undefined
+): boolean {
+  if (!masterId || !slaveId) return false
+  const visited = new Set<string>()
+  const queue = [{ nodeId: slaveId, outputHandle: 'tx' }]
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const visitKey = `${current.nodeId}:${current.outputHandle}`
+    if (visited.has(visitKey)) continue
+    visited.add(visitKey)
+
+    for (const edge of graph.edges.filter(item => item.source === current.nodeId && item.sourceHandle === current.outputHandle)) {
+      if (edge.target === masterId && edge.targetHandle === 'rx') {
+        return true
+      }
+      const target = graph.nodes.find(node => node.id === edge.target)
+      if (!target) continue
+      for (const nextOutput of outputsAfterInput(target.type, edge.targetHandle)) {
+        queue.push({ nodeId: target.id, outputHandle: nextOutput })
+      }
+    }
+  }
+
+  return false
 }
 
 function reachesReceiverFromOutput(

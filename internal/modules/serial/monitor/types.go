@@ -68,6 +68,7 @@ type Frame struct {
 	DisplayOct  string
 	DisplayBin  string
 	Encoding    string
+	Error       string
 }
 
 // QueryRequest asks for a filtered page of frames.

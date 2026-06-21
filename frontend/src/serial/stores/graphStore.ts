@@ -42,6 +42,8 @@ interface GraphRuntimeState {
   nodeFrames: Map<string, Frame[]>
 }
 
+const defaultNodeFramePageSize = 1000
+
 export interface SerialGraphRuntimeSnapshot {
   nodeBuffers: Record<string, Uint8Array>
   nodeFrames: Record<string, Frame[]>
@@ -553,23 +555,24 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     })
     if (!page) throw new Error('serial graph did not return buffer page')
     const bytes = snapshotBytes(page)
+    const latestRuntime = runtimeFor(graph.id)
     runtimeStates.value = {
       ...runtimeStates.value,
       [graph.id]: {
-        ...runtime,
-        nodeBuffers: new Map(runtime.nodeBuffers).set(nodeId, bytes),
-        nodeBufferText: new Map(runtime.nodeBufferText).set(nodeId, new TextDecoder().decode(bytes)),
+        ...latestRuntime,
+        nodeBuffers: new Map(latestRuntime.nodeBuffers).set(nodeId, bytes),
+        nodeBufferText: new Map(latestRuntime.nodeBufferText).set(nodeId, new TextDecoder().decode(bytes)),
       },
     }
     return page
   }
 
-  async function queryNodeFrames(nodeId: string, offset = 0, limit = 100) {
+  async function queryNodeFrames(nodeId: string, offset = -defaultNodeFramePageSize, limit = defaultNodeFramePageSize) {
     const graph = ensureActiveGraph()
     return queryNodeFramesForGraph(graph.id, nodeId, offset, limit)
   }
 
-  async function queryNodeFramesForGraph(graphId: string, nodeId: string, offset = 0, limit = 100) {
+  async function queryNodeFramesForGraph(graphId: string, nodeId: string, offset = -defaultNodeFramePageSize, limit = defaultNodeFramePageSize) {
     const graph = graphByIdOrThrow(graphId)
     const runtime = runtimeFor(graph.id)
     if (!runtime.runtimeGraphId) {
@@ -584,11 +587,12 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
       Search: '',
     })
     if (!page) throw new Error('serial graph did not return frame page')
+    const latestRuntime = runtimeFor(graph.id)
     runtimeStates.value = {
       ...runtimeStates.value,
       [graph.id]: {
-        ...runtime,
-        nodeFrames: new Map(runtime.nodeFrames).set(nodeId, page.Frames ?? []),
+        ...latestRuntime,
+        nodeFrames: new Map(latestRuntime.nodeFrames).set(nodeId, page.Frames ?? []),
       },
     }
     return page
@@ -604,15 +608,16 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     const runtime = runtimeFor(graph.id)
     if (!runtime.runtimeGraphId) return
     await ClearSerialGraphNodeBuffer(runtime.runtimeGraphId, nodeId)
-    const nodeBuffers = new Map(runtime.nodeBuffers)
-    const nodeBufferText = new Map(runtime.nodeBufferText)
-    const nodeFrames = new Map(runtime.nodeFrames)
+    const latestRuntime = runtimeFor(graph.id)
+    const nodeBuffers = new Map(latestRuntime.nodeBuffers)
+    const nodeBufferText = new Map(latestRuntime.nodeBufferText)
+    const nodeFrames = new Map(latestRuntime.nodeFrames)
     nodeBuffers.delete(nodeId)
     nodeBufferText.delete(nodeId)
     nodeFrames.delete(nodeId)
     runtimeStates.value = {
       ...runtimeStates.value,
-      [graph.id]: { ...runtime, nodeBuffers, nodeBufferText, nodeFrames },
+      [graph.id]: { ...latestRuntime, nodeBuffers, nodeBufferText, nodeFrames },
     }
   }
 
@@ -626,13 +631,14 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     const runtime = runtimeFor(graph.id)
     if (!runtime.runtimeGraphId) return
     await ResetSerialGraphNodeCounters(runtime.runtimeGraphId, nodeId)
-    const nodeStatuses = new Map(runtime.nodeStatuses)
+    const latestRuntime = runtimeFor(graph.id)
+    const nodeStatuses = new Map(latestRuntime.nodeStatuses)
     const current = nodeStatuses.get(nodeId)
     if (current) {
       nodeStatuses.set(nodeId, { ...current, RxBytes: 0, TxBytes: 0, FrameCount: 0 })
       runtimeStates.value = {
         ...runtimeStates.value,
-        [graph.id]: { ...runtime, nodeStatuses },
+        [graph.id]: { ...latestRuntime, nodeStatuses },
       }
     }
   }

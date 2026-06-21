@@ -24,6 +24,7 @@ export interface Frame {
     "DisplayOct": string;
     "DisplayBin": string;
     "Encoding": string;
+    "Error": string;
 }
 
 /**

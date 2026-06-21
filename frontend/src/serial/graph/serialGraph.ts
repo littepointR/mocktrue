@@ -400,7 +400,7 @@ export function canConnect(
     errors.push(`fan-out requires a tap node: ${sourceNode.id}.${sourcePort.id}`)
   }
 
-  if (wouldCreateDirectedCycle(draft, otherEdges)) {
+  if (wouldCreateDirectedCycle(state, draft, otherEdges)) {
     errors.push('directed cycle not allowed')
   }
 
@@ -474,9 +474,14 @@ function sanitizeNodeConfig(type: string, config: Record<string, unknown> = {}):
 }
 
 function wouldCreateDirectedCycle(
+  state: SerialGraphTopologyState,
   draft: SerialGraphConnectionDraft,
   edges: SerialGraphEdge[]
 ): boolean {
+  if (isTerminalProtocolInput(state, draft.target, draft.targetHandle)) {
+    return false
+  }
+
   const visited = new Set<string>()
   const stack = [draft.target]
 
@@ -487,6 +492,9 @@ function wouldCreateDirectedCycle(
     visited.add(nodeId)
 
     for (const edge of edges) {
+      if (isTerminalProtocolInput(state, edge.target, edge.targetHandle)) {
+        continue
+      }
       if (edge.source === nodeId) {
         stack.push(edge.target)
       }
@@ -494,4 +502,14 @@ function wouldCreateDirectedCycle(
   }
 
   return false
+}
+
+function isTerminalProtocolInput(
+  state: SerialGraphTopologyState,
+  nodeId: string,
+  handleId: string
+): boolean {
+  if (handleId !== 'rx') return false
+  const node = state.nodes.find(item => item.id === nodeId)
+  return node?.type === 'serial.modbus.master' || node?.type === 'serial.fecbus.master'
 }

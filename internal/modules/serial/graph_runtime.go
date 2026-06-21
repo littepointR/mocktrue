@@ -27,6 +27,7 @@ const (
 
 	serialGraphFrameLimit      = 100000
 	serialGraphFrameBytesLimit = 16 * 1024 * 1024
+	serialGraphFrameQueryLimit = 1000
 )
 
 // SerialGraphStartRequest starts one executable serial topology graph.
@@ -304,7 +305,7 @@ func (s *Service) ResetSerialGraphNodeCounters(graphID string, nodeID string) er
 // QuerySerialGraphNodeFrames reads captured frames for a graph monitor node.
 func (s *Service) QuerySerialGraphNodeFrames(req SerialGraphFrameQuery) (*SerialGraphFramePage, error) {
 	if req.Limit <= 0 {
-		req.Limit = 100
+		req.Limit = serialGraphFrameQueryLimit
 	}
 	runtime, err := s.serialGraphRuntime(req.GraphID)
 	if err != nil {
@@ -724,7 +725,12 @@ func (r *serialGraphRuntime) send(nodeID string, data []byte) error {
 		return errors.New(errors.CodeNotFound, "graph node not found: "+nodeID)
 	}
 	switch node.spec.Type {
-	case "serial.sender", "serial.modbus.master", "serial.modbus.slave", "serial.fecbus.master", "serial.fecbus.slave":
+	case "serial.modbus.master", "serial.modbus.slave":
+		node.addTx(len(data))
+		node.appendModbusFrame(data, "发送")
+		r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
+		return nil
+	case "serial.sender", "serial.fecbus.master", "serial.fecbus.slave":
 		node.addTx(len(data))
 		r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
 		return nil
@@ -789,11 +795,15 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 		r.writeVirtualExternal(node, loopback)
 	case "serial.modbus.slave":
 		node.appendBuffer(data)
+		node.appendModbusFrame(data, "接收")
 		r.handleModbusSlave(node, data)
 	case "serial.fecbus.slave":
 		node.appendBuffer(data)
 		r.handleFecbusSlave(node, data)
-	case "serial.modbus.master", "serial.fecbus.master":
+	case "serial.modbus.master":
+		node.appendBuffer(data)
+		node.appendModbusFrame(data, "接收")
+	case "serial.fecbus.master":
 		node.appendBuffer(data)
 	}
 }
@@ -883,6 +893,7 @@ func (r *serialGraphRuntime) handleModbusSlave(node *serialGraphRuntimeNode, dat
 		return
 	}
 	node.addTx(len(encoded))
+	node.appendModbusFrame(encoded, "发送")
 	r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "tx"}, encoded)
 }
 
@@ -1158,6 +1169,39 @@ func (n *serialGraphRuntimeNode) appendFrame(data []byte) {
 	}
 }
 
+func (n *serialGraphRuntimeNode) appendModbusFrame(data []byte, direction string) {
+	mode := mb.FrameMode(graphStringConfigWithDefault(n.spec.Config, "mode", string(mb.FrameModeRTU)))
+	displayText, frameError := graphModbusFrameDisplay(mode, data)
+	n.appendProtocolFrame(data, direction, displayText, frameError)
+}
+
+func (n *serialGraphRuntimeNode) appendProtocolFrame(data []byte, direction string, displayText string, frameError string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.frameSeq += 1
+	frame := monitor.Frame{
+		Seq:         n.frameSeq,
+		Timestamp:   time.Now(),
+		Direction:   direction,
+		Port:        n.spec.ID,
+		Length:      len(data),
+		Data:        append([]byte(nil), data...),
+		DisplayText: displayText,
+		DisplayHex:  formatGraphFrameBytes(data, "%02x"),
+		DisplayDec:  formatGraphFrameBytes(data, "%d"),
+		DisplayOct:  formatGraphFrameBytes(data, "%03o"),
+		DisplayBin:  formatGraphFrameBytes(data, "%08b"),
+		Encoding:    graphStringConfig(n.spec.Config, "encoding"),
+		Error:       frameError,
+	}
+	n.frames = append(n.frames, frame)
+	n.frameBytes += int64(len(data))
+	for len(n.frames) > 0 && (len(n.frames) > serialGraphFrameLimit || (n.frameBytes > serialGraphFrameBytesLimit && len(n.frames) > 1)) {
+		n.frameBytes -= int64(len(n.frames[0].Data))
+		n.frames = n.frames[1:]
+	}
+}
+
 func (n *serialGraphRuntimeNode) appendScriptFrame(data []byte, result serialScriptRunResult) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -1223,6 +1267,157 @@ func formatGraphFrameBytes(data []byte, format string) string {
 	return strings.Join(parts, " ")
 }
 
+func graphModbusFrameDisplay(mode mb.FrameMode, data []byte) (string, string) {
+	normalizedMode := graphNormalizeModbusFrameMode(mode)
+	raw := "Raw " + formatGraphFrameBytes(data, "%02x")
+	frame, err := mb.DecodeFrame(normalizedMode, data)
+	if err != nil {
+		return strings.Join([]string{
+			"Modbus " + strings.ToUpper(string(normalizedMode)),
+			"Invalid frame: " + err.Error(),
+			raw,
+		}, " | "), err.Error()
+	}
+
+	parts := []string{
+		fmt.Sprintf("Unit %d", frame.UnitID),
+		fmt.Sprintf("FC %02X %s", byte(frame.PDU.Function), graphModbusFunctionLabel(frame.PDU.Function)),
+	}
+	if detail := graphModbusPDUDisplay(frame.PDU); detail != "" {
+		parts = append(parts, detail)
+	}
+	if checksum := graphModbusChecksumDisplay(normalizedMode, data); checksum != "" {
+		parts = append(parts, checksum)
+	}
+	parts = append(parts, raw)
+	return strings.Join(parts, " | "), ""
+}
+
+func graphNormalizeModbusFrameMode(mode mb.FrameMode) mb.FrameMode {
+	if strings.EqualFold(string(mode), string(mb.FrameModeASCII)) {
+		return mb.FrameModeASCII
+	}
+	return mb.FrameModeRTU
+}
+
+func graphModbusFunctionLabel(function mb.FunctionCode) string {
+	base := mb.FunctionCode(byte(function) &^ 0x80)
+	switch base {
+	case mb.FunctionReadCoils:
+		return "Read Coils"
+	case mb.FunctionReadDiscreteInputs:
+		return "Read Discrete Inputs"
+	case mb.FunctionReadHoldingRegisters:
+		return "Read Holding Registers"
+	case mb.FunctionReadInputRegisters:
+		return "Read Input Registers"
+	case mb.FunctionWriteSingleCoil:
+		return "Write Single Coil"
+	case mb.FunctionWriteSingleRegister:
+		return "Write Single Register"
+	case mb.FunctionWriteMultipleCoils:
+		return "Write Multiple Coils"
+	case mb.FunctionWriteMultipleRegisters:
+		return "Write Multiple Registers"
+	default:
+		return "Unknown"
+	}
+}
+
+func graphModbusPDUDisplay(pdu mb.PDU) string {
+	data := pdu.Data
+	if byte(pdu.Function)&0x80 != 0 {
+		if len(data) == 0 {
+			return "Exception"
+		}
+		return fmt.Sprintf("Exception %02X %s", data[0], graphModbusExceptionLabel(data[0]))
+	}
+
+	switch pdu.Function {
+	case mb.FunctionReadCoils, mb.FunctionReadDiscreteInputs:
+		if len(data) == 4 {
+			return fmt.Sprintf("Address %d Quantity %d", graphModbusU16(data[0:2]), graphModbusU16(data[2:4]))
+		}
+		if len(data) >= 1 {
+			return fmt.Sprintf("Byte Count %d Data %s", data[0], formatGraphFrameBytes(data[1:], "%02x"))
+		}
+	case mb.FunctionReadHoldingRegisters, mb.FunctionReadInputRegisters:
+		if len(data) == 4 {
+			return fmt.Sprintf("Address %d Quantity %d", graphModbusU16(data[0:2]), graphModbusU16(data[2:4]))
+		}
+		if len(data) >= 1 {
+			parts := []string{fmt.Sprintf("Byte Count %d", data[0])}
+			values := graphModbusRegisterValues(data[1:])
+			if len(values) > 0 {
+				parts = append(parts, "Values "+strings.Join(values, ", "))
+			} else if len(data) > 1 {
+				parts = append(parts, "Data "+formatGraphFrameBytes(data[1:], "%02x"))
+			}
+			return strings.Join(parts, " ")
+		}
+	case mb.FunctionWriteSingleCoil, mb.FunctionWriteSingleRegister:
+		if len(data) >= 4 {
+			return fmt.Sprintf("Address %d Value %d", graphModbusU16(data[0:2]), graphModbusU16(data[2:4]))
+		}
+	case mb.FunctionWriteMultipleCoils, mb.FunctionWriteMultipleRegisters:
+		if len(data) == 4 {
+			return fmt.Sprintf("Address %d Quantity %d", graphModbusU16(data[0:2]), graphModbusU16(data[2:4]))
+		}
+		if len(data) >= 5 {
+			return fmt.Sprintf("Address %d Quantity %d Byte Count %d Data %s", graphModbusU16(data[0:2]), graphModbusU16(data[2:4]), data[4], formatGraphFrameBytes(data[5:], "%02x"))
+		}
+	}
+	if len(data) == 0 {
+		return ""
+	}
+	return "Data " + formatGraphFrameBytes(data, "%02x")
+}
+
+func graphModbusChecksumDisplay(mode mb.FrameMode, data []byte) string {
+	switch mode {
+	case mb.FrameModeASCII:
+		text := strings.TrimSuffix(strings.TrimPrefix(string(data), ":"), "\r\n")
+		if len(text) >= 2 {
+			return "LRC " + strings.ToUpper(text[len(text)-2:])
+		}
+	case mb.FrameModeRTU:
+		if len(data) >= 2 {
+			return fmt.Sprintf("CRC %02x %02x", data[len(data)-2], data[len(data)-1])
+		}
+	}
+	return ""
+}
+
+func graphModbusExceptionLabel(code byte) string {
+	switch code {
+	case mb.ExceptionIllegalFunction:
+		return "Illegal Function"
+	case mb.ExceptionIllegalDataAddress:
+		return "Illegal Data Address"
+	case mb.ExceptionIllegalDataValue:
+		return "Illegal Data Value"
+	case mb.ExceptionServerFailure:
+		return "Server Failure"
+	default:
+		return "Unknown"
+	}
+}
+
+func graphModbusRegisterValues(data []byte) []string {
+	values := make([]string, 0, len(data)/2)
+	for i := 0; i+1 < len(data); i += 2 {
+		values = append(values, strconv.Itoa(int(graphModbusU16(data[i:i+2]))))
+	}
+	return values
+}
+
+func graphModbusU16(data []byte) uint16 {
+	if len(data) < 2 {
+		return 0
+	}
+	return uint16(data[0])<<8 | uint16(data[1])
+}
+
 func (n *serialGraphRuntimeNode) queryFrames(req SerialGraphFrameQuery) *SerialGraphFramePage {
 	n.mu.RLock()
 	frames := append([]monitor.Frame(nil), n.frames...)
@@ -1235,7 +1430,7 @@ func (n *serialGraphRuntimeNode) queryFrames(req SerialGraphFrameQuery) *SerialG
 			continue
 		}
 		if search != "" {
-			haystack := strings.ToLower(frame.DisplayText + " " + frame.DisplayHex + " " + frame.DisplayDec + " " + frame.DisplayOct + " " + frame.DisplayBin)
+			haystack := strings.ToLower(frame.DisplayText + " " + frame.DisplayHex + " " + frame.DisplayDec + " " + frame.DisplayOct + " " + frame.DisplayBin + " " + frame.Error)
 			if !strings.Contains(haystack, search) {
 				continue
 			}
@@ -1245,14 +1440,17 @@ func (n *serialGraphRuntimeNode) queryFrames(req SerialGraphFrameQuery) *SerialG
 
 	offset := req.Offset
 	if offset < 0 {
-		offset = 0
+		offset = int64(len(filtered)) + offset
+		if offset < 0 {
+			offset = 0
+		}
 	}
 	if offset > int64(len(filtered)) {
 		offset = int64(len(filtered))
 	}
 	limit := req.Limit
 	if limit <= 0 {
-		limit = 100
+		limit = serialGraphFrameQueryLimit
 	}
 	end := int(offset) + limit
 	if end > len(filtered) {
@@ -1596,7 +1794,7 @@ func validateGraphRuntimeEdge(
 			}
 		}
 	}
-	if graphRuntimeCreatesCycle(edge, otherEdges) {
+	if !graphRuntimeEdgeTargetsTerminalProtocolInput(nodes, edge) && graphRuntimeCreatesCycle(edge, otherEdges, nodes) {
 		errs = append(errs, edge.ID+": directed cycle not allowed")
 	}
 	return errs
@@ -1667,7 +1865,11 @@ func graphRuntimeOtherEdges(edges []SerialGraphEdgeSpec, id string) []SerialGrap
 	return out
 }
 
-func graphRuntimeCreatesCycle(draft SerialGraphEdgeSpec, edges []SerialGraphEdgeSpec) bool {
+func graphRuntimeCreatesCycle(
+	draft SerialGraphEdgeSpec,
+	edges []SerialGraphEdgeSpec,
+	nodes map[string]SerialGraphNodeSpec,
+) bool {
 	visited := map[string]bool{}
 	stack := []string{draft.Target}
 	for len(stack) > 0 {
@@ -1681,12 +1883,29 @@ func graphRuntimeCreatesCycle(draft SerialGraphEdgeSpec, edges []SerialGraphEdge
 		}
 		visited[nodeID] = true
 		for _, edge := range edges {
+			if graphRuntimeEdgeTargetsTerminalProtocolInput(nodes, edge) {
+				continue
+			}
 			if edge.Source == nodeID {
 				stack = append(stack, edge.Target)
 			}
 		}
 	}
 	return false
+}
+
+func graphRuntimeEdgeTargetsTerminalProtocolInput(
+	nodes map[string]SerialGraphNodeSpec,
+	edge SerialGraphEdgeSpec,
+) bool {
+	if edge.TargetHandle != "rx" {
+		return false
+	}
+	target, ok := nodes[edge.Target]
+	if !ok {
+		return false
+	}
+	return target.Type == "serial.modbus.master" || target.Type == "serial.fecbus.master"
 }
 
 func graphStringConfig(config map[string]any, key string) string {

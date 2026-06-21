@@ -178,5 +178,6 @@ function sampleFrame(seq: number, direction: string, hex: string): Frame {
     DisplayOct: '',
     DisplayBin: '',
     Encoding: 'utf-8',
+    Error: '',
   }
 }

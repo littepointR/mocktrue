@@ -382,6 +382,187 @@ func TestSerialGraphRuntimeModbusSlaveAutoResponds(t *testing.T) {
 	}
 }
 
+func TestSerialGraphRuntimeModbusNodesCaptureProtocolFrames(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-modbus-protocol-frames",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "master", Type: "serial.modbus.master", Config: map[string]any{"mode": "rtu", "unitIds": "3", "functionCode": 3, "address": 0, "quantity": 2}},
+			{ID: "slave", Type: "serial.modbus.slave", Config: map[string]any{"mode": "rtu", "unitIds": "3"}},
+			{ID: "response-source", Type: "serial.sender"},
+			{ID: "receiver", Type: "serial.receiver"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-master-slave", Source: "master", SourceHandle: "tx", Target: "slave", TargetHandle: "rx"},
+			{ID: "edge-slave-receiver", Source: "slave", SourceHandle: "tx", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-response-master", Source: "response-source", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
+		},
+	})
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "master"}); err != nil {
+		t.Fatalf("SendSerialGraphNode returned error: %v", err)
+	}
+	response, err := mb.EncodeFrame(mb.FrameModeRTU, 3, mb.PDU{Function: mb.FunctionReadHoldingRegisters, Data: []byte{4, 0, 0, 0, 0}})
+	if err != nil {
+		t.Fatalf("EncodeFrame(response): %v", err)
+	}
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{
+		GraphID: graph.ID,
+		NodeID:  "response-source",
+		Content: formatGraphFrameBytes(response, "%02x"),
+		Mode:    "hex",
+	}); err != nil {
+		t.Fatalf("SendSerialGraphNode(response-source) returned error: %v", err)
+	}
+
+	masterFrames, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{GraphID: graph.ID, NodeID: "master", Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeFrames(master) returned error: %v", err)
+	}
+	if masterFrames.Total != 2 || len(masterFrames.Frames) != 2 {
+		t.Fatalf("master frame page total=%d len=%d, want request and response frames", masterFrames.Total, len(masterFrames.Frames))
+	}
+	if masterFrames.Frames[0].Direction != "发送" || masterFrames.Frames[1].Direction != "接收" {
+		t.Fatalf("master directions = %q/%q, want send/receive", masterFrames.Frames[0].Direction, masterFrames.Frames[1].Direction)
+	}
+	for _, want := range []string{"Unit 3", "FC 03", "Read Holding Registers", "Address 0", "Quantity 2", "CRC"} {
+		if !strings.Contains(masterFrames.Frames[0].DisplayText, want) {
+			t.Fatalf("master request display = %q, want %q", masterFrames.Frames[0].DisplayText, want)
+		}
+	}
+	if strings.Contains(masterFrames.Frames[0].DisplayText, "Offset") {
+		t.Fatalf("master request display = %q, want protocol frame text without offset table", masterFrames.Frames[0].DisplayText)
+	}
+	if !strings.Contains(masterFrames.Frames[1].DisplayText, "Byte Count 4") || !strings.Contains(masterFrames.Frames[1].DisplayText, "Values 0, 0") {
+		t.Fatalf("master response display = %q, want decoded response fields", masterFrames.Frames[1].DisplayText)
+	}
+
+	slaveFrames, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{GraphID: graph.ID, NodeID: "slave", Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeFrames(slave) returned error: %v", err)
+	}
+	if slaveFrames.Total != 2 || len(slaveFrames.Frames) != 2 {
+		t.Fatalf("slave frame page total=%d len=%d, want request and response frames", slaveFrames.Total, len(slaveFrames.Frames))
+	}
+	if slaveFrames.Frames[0].Direction != "接收" || slaveFrames.Frames[1].Direction != "发送" {
+		t.Fatalf("slave directions = %q/%q, want receive/send", slaveFrames.Frames[0].Direction, slaveFrames.Frames[1].Direction)
+	}
+}
+
+func TestSerialGraphRuntimeModbusResponseCanReturnToMaster(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-modbus-response-master",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "master", Type: "serial.modbus.master", Config: map[string]any{"mode": "rtu", "unitIds": "3", "functionCode": 3, "address": 0, "quantity": 2}},
+			{ID: "slave", Type: "serial.modbus.slave", Config: map[string]any{"mode": "rtu", "unitIds": "3"}},
+			{ID: "tap", Type: "serial.tap"},
+			{ID: "receiver", Type: "serial.receiver"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-master-slave", Source: "master", SourceHandle: "tx", Target: "slave", TargetHandle: "rx"},
+			{ID: "edge-slave-tap", Source: "slave", SourceHandle: "tx", Target: "tap", TargetHandle: "in"},
+			{ID: "edge-tap-master", Source: "tap", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
+			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "master"}); err != nil {
+		t.Fatalf("SendSerialGraphNode returned error: %v", err)
+	}
+	masterFrames, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{GraphID: graph.ID, NodeID: "master", Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeFrames(master) returned error: %v", err)
+	}
+	if masterFrames.Total != 2 || len(masterFrames.Frames) != 2 {
+		t.Fatalf("master frame page total=%d len=%d, want request and response frames", masterFrames.Total, len(masterFrames.Frames))
+	}
+	if masterFrames.Frames[0].Direction != "发送" || masterFrames.Frames[1].Direction != "接收" {
+		t.Fatalf("master directions = %q/%q, want send/receive", masterFrames.Frames[0].Direction, masterFrames.Frames[1].Direction)
+	}
+	if !strings.Contains(masterFrames.Frames[1].DisplayText, "Raw ") {
+		t.Fatalf("master response display = %q, want raw data", masterFrames.Frames[1].DisplayText)
+	}
+	assertGraphBufferHasTraffic(t, svc, graph.ID, "receiver")
+}
+
+func TestSerialGraphRuntimeModbusInvalidFrameIsMarked(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-modbus-invalid-frame",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender"},
+			{ID: "master", Type: "serial.modbus.master", Config: map[string]any{"mode": "rtu", "unitIds": "3"}},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-invalid-master", Source: "sender", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
+		},
+	})
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{
+		GraphID: graph.ID,
+		NodeID:  "sender",
+		Content: "01 03 00",
+		Mode:    "hex",
+	}); err != nil {
+		t.Fatalf("SendSerialGraphNode returned error: %v", err)
+	}
+	page, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{GraphID: graph.ID, NodeID: "master", Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeFrames(master) returned error: %v", err)
+	}
+	if page.Total != 1 || len(page.Frames) != 1 {
+		t.Fatalf("invalid frame page total=%d len=%d, want one frame", page.Total, len(page.Frames))
+	}
+	frame := page.Frames[0]
+	if frame.Error == "" || !strings.Contains(frame.DisplayText, "Invalid frame") || !strings.Contains(frame.DisplayText, "Raw 01 03 00") {
+		t.Fatalf("invalid frame = %#v, want error marker and raw data", frame)
+	}
+}
+
+func TestSerialGraphRuntimeQueryFramesCanReadRecentPage(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-recent-frames",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: map[string]any{"mode": "ascii"}},
+			{ID: "monitor", Type: "serial.monitor"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-monitor", Source: "sender", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+		},
+	})
+
+	for i := 0; i < 150; i += 1 {
+		if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{
+			GraphID: graph.ID,
+			NodeID:  "sender",
+			Content: "x",
+			Mode:    "ascii",
+		}); err != nil {
+			t.Fatalf("SendSerialGraphNode(%d) returned error: %v", i, err)
+		}
+	}
+	page, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{GraphID: graph.ID, NodeID: "monitor", Offset: -120, Limit: 120})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeFrames(monitor) returned error: %v", err)
+	}
+	if page.Total != 150 || len(page.Frames) != 120 {
+		t.Fatalf("frame page total=%d len=%d, want 150 total and 120 recent frames", page.Total, len(page.Frames))
+	}
+	if page.Frames[0].Seq != 31 || page.Frames[len(page.Frames)-1].Seq != 150 {
+		t.Fatalf("recent frame seq range = %d..%d, want 31..150", page.Frames[0].Seq, page.Frames[len(page.Frames)-1].Seq)
+	}
+}
+
 func TestSerialGraphRuntimeFecbusSlaveAutoResponds(t *testing.T) {
 	svc := NewService(nil)
 	defer svc.cleanup()
@@ -1058,6 +1239,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "edge-master-vport", Source: "master", SourceHandle: "tx", Target: "vport", TargetHandle: "tx"},
 			{ID: "edge-vport-slave", Source: "vport", SourceHandle: "rx", Target: "slave", TargetHandle: "rx"},
 			{ID: "edge-slave-tap", Source: "slave", SourceHandle: "tx", Target: "tap", TargetHandle: "in"},
+			{ID: "edge-tap-master", Source: "tap", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
 			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
 			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
 		}
@@ -1151,6 +1333,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "edge-modbus-master-vport", Source: "modbus-master", SourceHandle: "tx", Target: "modbus-vport", TargetHandle: "tx"},
 			{ID: "edge-modbus-vport-slave", Source: "modbus-vport", SourceHandle: "rx", Target: "modbus-slave", TargetHandle: "rx"},
 			{ID: "edge-modbus-slave-tap", Source: "modbus-slave", SourceHandle: "tx", Target: "modbus-tap", TargetHandle: "in"},
+			{ID: "edge-modbus-tap-master", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-master", TargetHandle: "rx"},
 			{ID: "edge-modbus-tap-receiver", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-receiver", TargetHandle: "in"},
 			{ID: "edge-modbus-tap-monitor", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-monitor", TargetHandle: "in"},
 			{ID: "edge-fecbus-master-vport", Source: "fecbus-master", SourceHandle: "tx", Target: "fecbus-vport", TargetHandle: "tx"},

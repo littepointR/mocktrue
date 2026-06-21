@@ -557,40 +557,86 @@ describe('SerialGraphPanel', () => {
     wrapper.unmount()
   })
 
-  it('renders modbus slave buffer according to the configured mode', async () => {
+  it('renders modbus node data as grouped protocol frames instead of offset buffers', async () => {
     const store = useSerialGraphStore()
-    const slave = store.addNode('serial.modbus.slave')
-    store.selectNode(slave.id)
-    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
-      Offset: 0,
-      Data: btoa(String.fromCharCode(0x03, 0x03, 0x00, 0x00, 0x00, 0x02, 0xc5, 0xe9)),
-      Total: 8,
-      EOF: true,
+    const master = store.addNode('serial.modbus.master')
+    store.selectNode(master.id)
+    bindings.QuerySerialGraphNodeFrames.mockResolvedValue({
+      Frames: [
+        {
+          Seq: 1,
+          Direction: '发送',
+          Length: 8,
+          DisplayText: 'Unit 3 | FC 03 Read Holding Registers | Address 0 Quantity 2 | CRC c5 e9 | Raw 03 03 00 00 00 02 c5 e9',
+          DisplayHex: '03 03 00 00 00 02 c5 e9',
+        },
+        {
+          Seq: 2,
+          Direction: '接收',
+          Length: 9,
+          DisplayText: 'Unit 3 | FC 03 Read Holding Registers | Byte Count 4 Values 0, 0 | CRC f0 33 | Raw 03 03 04 00 00 00 00 f0 33',
+          DisplayHex: '03 03 04 00 00 00 00 f0 33',
+        },
+      ],
+      Total: 2,
+      NextOffset: 2,
     })
     const wrapper = mount(SerialGraphPanel)
 
     await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
     await flushPromises()
-    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').trigger('click')
     await flushPromises()
 
-    const buffer = () => wrapper.find('[data-testid="serial-graph-content-node-buffer"]').element.textContent ?? ''
-    expect(buffer()).toContain('Offset')
-    expect(buffer()).toContain('03 03 00 00 00 02 c5 e9')
-    expect(buffer()).not.toContain(':030300000002F8')
+    expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').exists()).toBe(false)
+    const tableText = wrapper.find('[data-testid="serial-graph-content-node-frames"]').text()
+    expect(tableText).toContain('Unit 3')
+    expect(tableText).toContain('Read Holding Registers')
+    expect(tableText).toContain('Address 0 Quantity 2')
+    expect(tableText).toContain('Byte Count 4 Values 0, 0')
+    expect(tableText).toContain('Raw 03 03 00 00 00 02 c5 e9')
+    expect(tableText).not.toContain('Offset')
 
-    await wrapper.find('[data-testid="serial-graph-config-mode"]').setValue('ascii')
-    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
-      Offset: 0,
-      Data: btoa(':030300000002F8\r\n'),
-      Total: 17,
-      EOF: true,
+    const rows = wrapper.findAll('[data-testid="serial-graph-content-node-frame-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].classes()).toContain('serial-graph__frame-row--tx')
+    expect(rows[1].classes()).toContain('serial-graph__frame-row--rx')
+    const packetClass = rows[0].classes().find(item => item.startsWith('serial-graph__frame-row--packet-'))
+    expect(packetClass).toBeTruthy()
+    expect(rows[1].classes()).toContain(packetClass as string)
+
+    wrapper.unmount()
+  })
+
+  it('marks invalid modbus frames while still showing raw data', async () => {
+    const store = useSerialGraphStore()
+    const master = store.addNode('serial.modbus.master')
+    store.selectNode(master.id)
+    bindings.QuerySerialGraphNodeFrames.mockResolvedValue({
+      Frames: [
+        {
+          Seq: 1,
+          Direction: '接收',
+          Length: 3,
+          DisplayText: 'Modbus RTU | Invalid frame: rtu frame too short | Raw 01 03 00',
+          DisplayHex: '01 03 00',
+          Error: 'rtu frame too short',
+        } as any,
+      ],
+      Total: 1,
+      NextOffset: 1,
     })
-    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').trigger('click')
     await flushPromises()
 
-    expect(buffer()).toContain(':030300000002F8')
-    expect(buffer()).not.toContain('Offset')
+    const row = wrapper.find('[data-testid="serial-graph-content-node-frame-row"]')
+    expect(row.classes()).toContain('serial-graph__frame-row--error')
+    expect(row.text()).toContain('错误')
+    expect(row.text()).toContain('Raw 01 03 00')
 
     wrapper.unmount()
   })
@@ -636,8 +682,8 @@ describe('SerialGraphPanel', () => {
       { type: 'serial.script.transform', send: false, buffer: false, frames: false, counters: ['RX', 'TX'] },
       { type: 'serial.script.generator', send: false, buffer: false, frames: false, counters: ['TX'] },
       { type: 'serial.script.analyzer', send: false, buffer: false, frames: true, counters: ['RX'] },
-      { type: 'serial.modbus.master', send: true, buffer: true, frames: false, counters: ['RX', 'TX'] },
-      { type: 'serial.modbus.slave', send: false, buffer: true, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.modbus.master', send: true, buffer: false, frames: true, counters: ['RX', 'TX'] },
+      { type: 'serial.modbus.slave', send: false, buffer: false, frames: true, counters: ['RX', 'TX'] },
       { type: 'serial.fecbus.master', send: true, buffer: true, frames: false, counters: ['RX', 'TX'] },
       { type: 'serial.fecbus.slave', send: false, buffer: true, frames: false, counters: ['RX', 'TX'] },
     ]
@@ -979,6 +1025,41 @@ describe('SerialGraphPanel', () => {
 
       resolveBuffer({ Offset: 0, Data: btoa('late'), Total: 4, EOF: true })
       await flushPromises()
+
+      expect(wrapper.find(`[data-testid="serial-graph-node-${receiver.id}"]`).text()).toContain('RX 25')
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resumes node card counter polling when mounted for an already running graph', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = useSerialGraphStore()
+      const sender = store.addNode('serial.sender')
+      const receiver = store.addNode('serial.receiver')
+      store.connect(sender.id, 'out', receiver.id, 'in')
+      await store.startRuntime()
+      bindings.GetSerialGraphStatus.mockClear()
+      bindings.GetSerialGraphStatus.mockResolvedValue({
+        ID: 'graph-1',
+        Status: 'running',
+        Error: '',
+        Nodes: [
+          { ID: sender.id, Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 35, FrameCount: 0, ResourceID: '', Error: '' },
+          { ID: receiver.id, Type: 'serial.receiver', Status: 'running', RxBytes: 35, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
+        ],
+      })
+
+      const wrapper = mount(SerialGraphPanel)
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(250)
+      await flushPromises()
+
+      expect(bindings.GetSerialGraphStatus).toHaveBeenCalledWith('graph-1')
+      expect(wrapper.find(`[data-testid="serial-graph-node-${receiver.id}"]`).text()).toContain('RX 35')
+
       wrapper.unmount()
     } finally {
       vi.useRealTimers()

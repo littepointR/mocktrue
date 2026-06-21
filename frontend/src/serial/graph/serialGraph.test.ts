@@ -206,6 +206,35 @@ describe('serial graph model', () => {
     expect(result.errors.some(error => error.includes('cycle'))).toBe(true)
   })
 
+  it('allows protocol responses to return to a master receive input', () => {
+    const state = graph([
+      node('master', 'serial.modbus.master'),
+      node('slave', 'serial.modbus.slave'),
+      node('tap', 'serial.tap'),
+      node('receiver', 'serial.receiver'),
+    ], [
+      { id: 'edge-request', source: 'master', sourceHandle: 'tx', target: 'slave', targetHandle: 'rx' },
+      { id: 'edge-response-tap', source: 'slave', sourceHandle: 'tx', target: 'tap', targetHandle: 'in' },
+      { id: 'edge-response-receiver', source: 'tap', sourceHandle: 'out', target: 'receiver', targetHandle: 'in' },
+    ])
+
+    const result = canConnect(state, {
+      source: 'tap',
+      sourceHandle: 'out',
+      target: 'master',
+      targetHandle: 'rx',
+    })
+
+    expect(result.errors).toEqual([])
+    expect(validateGraph({
+      ...state,
+      edges: [
+        ...state.edges,
+        { id: 'edge-response-master', source: 'tap', sourceHandle: 'out', target: 'master', targetHandle: 'rx' },
+      ],
+    }).errors).toEqual([])
+  })
+
   it('rejects three-node directed cycles during validation', () => {
     const state = graph([
       node('node-a', 'serial.bridge'),

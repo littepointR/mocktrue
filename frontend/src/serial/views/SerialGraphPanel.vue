@@ -21,6 +21,17 @@ const minCanvasHeight = 120
 const minWorkbenchHeight = 160
 const defaultWorkbenchHeight = 320
 type GraphViewMode = 'content' | 'split' | 'topology'
+type GraphFrame = {
+  Seq: number
+  Direction: string
+  Length: number
+  Error?: string
+  DisplayText?: string
+  DisplayHex?: string
+  DisplayDec?: string
+  DisplayOct?: string
+  DisplayBin?: string
+}
 const edgePalette = [
   '#4fc3f7',
   '#ffb74d',
@@ -109,7 +120,10 @@ const selectedBufferDisplayText = computed(() => formatNodeBuffer(selectedBuffer
 const selectedFrames = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeFrames.get(selectedNode.value.id) ?? [] : []
 ))
-const selectedFrameDisplayMode = computed(() => String(selectedNode.value?.config.displayMode ?? 'hex'))
+const selectedFrameDisplayMode = computed(() => (
+  selectedNode.value ? frameDisplayModeForNode(selectedNode.value) : 'hex'
+))
+const selectedFrameRows = computed(() => buildFrameRows(selectedFrames.value, selectedNode.value))
 const selectedPayload = computed(() => String(selectedNode.value?.config.payload ?? ''))
 const selectedMode = computed(() => String(selectedNode.value?.config.mode ?? 'ascii'))
 const selectedModeOptions = computed(() => modeOptionsForNode(selectedNode.value))
@@ -395,15 +409,15 @@ function supportsBuffer(node: SerialGraphNode): boolean {
     'serial.receiver',
     'serial.physical',
     'serial.virtual',
-    'serial.modbus.master',
-    'serial.modbus.slave',
     'serial.fecbus.master',
     'serial.fecbus.slave',
   ].includes(node.type)
 }
 
 function supportsFrames(node: SerialGraphNode): boolean {
-  return node.type === 'serial.monitor' || node.type === 'serial.script.analyzer'
+  return node.type === 'serial.monitor' ||
+    node.type === 'serial.script.analyzer' ||
+    isModbusNode(node)
 }
 
 function supportsScriptEditor(node: SerialGraphNode): boolean {
@@ -411,10 +425,16 @@ function supportsScriptEditor(node: SerialGraphNode): boolean {
 }
 
 function bufferViewModeForNode(node: SerialGraphNode): string {
-  if (node.type === 'serial.modbus.slave') {
-    return String(node.config.mode ?? 'rtu') === 'ascii' ? 'ascii' : 'hexTable'
-  }
   return String(node.config.viewMode ?? 'ascii')
+}
+
+function frameDisplayModeForNode(node: SerialGraphNode): string {
+  if (isModbusNode(node)) return 'text'
+  return String(node.config.displayMode ?? 'hex')
+}
+
+function isModbusNode(node: SerialGraphNode | null | undefined): boolean {
+  return node?.type === 'serial.modbus.master' || node?.type === 'serial.modbus.slave'
 }
 
 function formatNodeBuffer(bytes: Uint8Array, text: string, viewMode: string): string {
@@ -477,6 +497,53 @@ function frameDisplay(frame: {
     default:
       return frame.DisplayHex || frame.DisplayText || ''
   }
+}
+
+function buildFrameRows(frames: GraphFrame[], node: SerialGraphNode | null) {
+  let packetIndex = -1
+  return frames.map((frame) => {
+    const directionClass = frameDirectionClass(frame.Direction)
+    const classes = ['serial-graph__frame-row', directionClass]
+    if (frame.Error) {
+      classes.push('serial-graph__frame-row--error')
+    }
+    let packetLabel = ''
+    if (isModbusNode(node)) {
+      if (packetIndex < 0 || startsModbusPacket(node, frame.Direction)) {
+        packetIndex += 1
+      }
+      const packet = Math.max(packetIndex, 0)
+      packetLabel = `包 ${packet + 1}`
+      classes.push(`serial-graph__frame-row--packet-${packet % 8}`)
+    }
+    return {
+      frame,
+      classes,
+      packetLabel,
+    }
+  })
+}
+
+function startsModbusPacket(node: SerialGraphNode | null, direction: string): boolean {
+  if (node?.type === 'serial.modbus.master') return isTxDirection(direction)
+  if (node?.type === 'serial.modbus.slave') return isRxDirection(direction)
+  return false
+}
+
+function frameDirectionClass(direction: string): string {
+  if (isTxDirection(direction)) return 'serial-graph__frame-row--tx'
+  if (isRxDirection(direction)) return 'serial-graph__frame-row--rx'
+  return 'serial-graph__frame-row--neutral'
+}
+
+function isTxDirection(direction: string): boolean {
+  const value = direction.toLowerCase()
+  return direction.includes('发') || value === 'tx' || value === 'send' || value === '发送'
+}
+
+function isRxDirection(direction: string): boolean {
+  const value = direction.toLowerCase()
+  return direction.includes('接') || value === 'rx' || value === 'receive' || value === '接收'
 }
 
 function modeOptionsForNode(node: SerialGraphNode | null): { value: string; label: string }[] {
@@ -831,6 +898,18 @@ watch(() => panelGraph.value?.selectedNodeId, () => {
   scriptNeedsRestart.value = false
   if (runtimeRunning.value) void pollSelectedRuntimeDetails()
 })
+
+watch(
+  () => [panelGraphDocumentId(), runtimeRunning.value] as const,
+  ([, running]) => {
+    if (running) {
+      startRuntimePolling()
+    } else {
+      stopRuntimePolling()
+    }
+  },
+  { immediate: true }
+)
 
 watch(
   () => props.graphId,
@@ -1243,15 +1322,33 @@ onUnmounted(() => {
                 class="serial-graph__frames"
                 data-testid="serial-graph-content-node-frames"
               >
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th v-if="isModbusNode(selectedNode)">包</th>
+                    <th>方向</th>
+                    <th>长度</th>
+                    <th>数据</th>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr
-                    v-for="frame in selectedFrames"
-                    :key="frame.Seq"
+                    v-for="row in selectedFrameRows"
+                    :key="row.frame.Seq"
+                    :class="row.classes"
+                    data-testid="serial-graph-content-node-frame-row"
                   >
-                    <td>{{ frame.Seq }}</td>
-                    <td>{{ frame.Direction }}</td>
-                    <td>{{ frame.Length }}</td>
-                    <td>{{ frameDisplay(frame) }}</td>
+                    <td>{{ row.frame.Seq }}</td>
+                    <td v-if="isModbusNode(selectedNode)">{{ row.packetLabel }}</td>
+                    <td>{{ row.frame.Direction }}</td>
+                    <td>{{ row.frame.Length }}</td>
+                    <td>
+                      <span
+                        v-if="row.frame.Error"
+                        class="serial-graph__frame-error-badge"
+                      >错误</span>
+                      {{ frameDisplay(row.frame) }}
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -1923,11 +2020,59 @@ onUnmounted(() => {
   border-collapse: collapse;
   font-size: 12px;
 }
+.serial-graph__frames th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--app-border, #2d2d2d);
+  background: var(--app-panel-bg, #252526);
+  color: var(--app-text-muted, #8b949e);
+  font-weight: 500;
+  text-align: left;
+}
 .serial-graph__frames td {
-  padding: 4px;
+  padding: 4px 6px;
   border-bottom: 1px solid var(--app-border, #2d2d2d);
   color: var(--app-text, #cccccc);
 }
+.serial-graph__frames td:last-child {
+  font-family: var(--terminal-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: pre-wrap;
+}
+.serial-graph__frame-row--tx td:first-child {
+  box-shadow: inset 3px 0 #f59e0b;
+}
+.serial-graph__frame-row--rx td:first-child {
+  box-shadow: inset 3px 0 #22c55e;
+}
+.serial-graph__frame-row--neutral td:first-child {
+  box-shadow: inset 3px 0 var(--app-border-strong, #3c3c3c);
+}
+.serial-graph__frame-row--error td {
+  color: var(--app-danger, #f85149);
+}
+.serial-graph__frame-error-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--app-danger, #f85149) 65%, transparent);
+  border-radius: 3px;
+  color: var(--app-danger, #f85149);
+  font-family: var(--app-font-family, system-ui, sans-serif);
+  font-size: 11px;
+  font-weight: 600;
+}
+.serial-graph__frame-row--packet-0 { background: color-mix(in srgb, #3b82f6 14%, transparent); }
+.serial-graph__frame-row--packet-1 { background: color-mix(in srgb, #22c55e 14%, transparent); }
+.serial-graph__frame-row--packet-2 { background: color-mix(in srgb, #f59e0b 14%, transparent); }
+.serial-graph__frame-row--packet-3 { background: color-mix(in srgb, #ef4444 14%, transparent); }
+.serial-graph__frame-row--packet-4 { background: color-mix(in srgb, #14b8a6 14%, transparent); }
+.serial-graph__frame-row--packet-5 { background: color-mix(in srgb, #a855f7 14%, transparent); }
+.serial-graph__frame-row--packet-6 { background: color-mix(in srgb, #84cc16 14%, transparent); }
+.serial-graph__frame-row--packet-7 { background: color-mix(in srgb, #ec4899 14%, transparent); }
 .serial-graph__errors {
   margin: 12px 0 0;
   padding-left: 18px;

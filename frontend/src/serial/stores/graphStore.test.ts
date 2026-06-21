@@ -311,4 +311,55 @@ describe('serial graph store', () => {
     expect(store.graphList).toEqual([{ id: 'graph-1', name: '运行拓扑' }])
     expect(store.activeGraphId).toBe('graph-1')
   })
+
+  it('queries recent node frames with a larger default page size', async () => {
+    const store = useSerialGraphStore()
+    const monitor = store.addNode('serial.monitor')
+    await store.startRuntime()
+
+    await store.queryNodeFramesForGraph('graph-1', monitor.id)
+
+    expect(bindings.QuerySerialGraphNodeFrames).toHaveBeenCalledWith(expect.objectContaining({
+      GraphID: 'graph-1',
+      NodeID: monitor.id,
+      Offset: -1000,
+      Limit: 1000,
+    }))
+  })
+
+  it('preserves fresh counters when a stale frame query completes later', async () => {
+    const store = useSerialGraphStore()
+    const monitor = store.addNode('serial.monitor')
+    bindings.StartSerialGraph.mockResolvedValue({
+      ID: 'graph-1',
+      Status: 'running',
+      Error: '',
+      Nodes: [
+        { ID: monitor.id, Type: 'serial.monitor', Status: 'running', RxBytes: 0, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
+      ],
+    })
+    await store.startRuntime()
+
+    let resolveFrames: (value: { Frames: any[]; Total: number; NextOffset: number }) => void = () => {}
+    bindings.QuerySerialGraphNodeFrames.mockImplementationOnce(() => new Promise(resolve => {
+      resolveFrames = resolve
+    }))
+    const query = store.queryNodeFramesForGraph('graph-1', monitor.id)
+
+    bindings.GetSerialGraphStatus.mockResolvedValue({
+      ID: 'graph-1',
+      Status: 'running',
+      Error: '',
+      Nodes: [
+        { ID: monitor.id, Type: 'serial.monitor', Status: 'running', RxBytes: 44, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
+      ],
+    })
+    await store.refreshRuntimeForGraph('graph-1')
+    expect(store.runtimeStateForGraph('graph-1').nodeStatuses.get(monitor.id)?.RxBytes).toBe(44)
+
+    resolveFrames({ Frames: [], Total: 0, NextOffset: 0 })
+    await query
+
+    expect(store.runtimeStateForGraph('graph-1').nodeStatuses.get(monitor.id)?.RxBytes).toBe(44)
+  })
 })

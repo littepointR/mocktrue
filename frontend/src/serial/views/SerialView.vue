@@ -39,6 +39,7 @@ const dropPreview = ref<{
   edge: 'left' | 'right' | 'top' | 'bottom' | 'center'
   style: Record<string, string>
 } | null>(null)
+const closedGraphTabIds = ref<Set<string>>(new Set())
 
 const tabs = computed(() => graphStore.graphList.map(graph => ({
   id: graphTabId(graph.id),
@@ -47,6 +48,10 @@ const tabs = computed(() => graphStore.graphList.map(graph => ({
   sourceId: graph.id,
   tooltip: workspaceFile.graphTooltip(graph.id),
 })))
+const visibleTabIds = computed(() => {
+  const closed = closedGraphTabIds.value
+  return tabs.value.map(tab => tab.id).filter(id => !closed.has(id))
+})
 
 onMounted(() => {
   focusGraphTab()
@@ -73,8 +78,13 @@ watch(
 )
 
 watch(
-  () => tabs.value.map(tab => tab.id),
+  () => visibleTabIds.value,
   (ids) => {
+    const allIds = new Set(tabs.value.map(tab => tab.id))
+    const nextClosed = new Set(Array.from(closedGraphTabIds.value).filter(id => allIds.has(id)))
+    if (nextClosed.size !== closedGraphTabIds.value.size) {
+      closedGraphTabIds.value = nextClosed
+    }
     const idSet = new Set(ids)
     let nextLayout = filterLayoutTabs(editorLayout.value, idSet) ?? createGroup()
     const assigned = new Set(collectTabIds(nextLayout))
@@ -107,6 +117,11 @@ function focusGraphTab() {
   if (!activeGraphId) return
 
   const tabId = graphTabId(activeGraphId)
+  if (closedGraphTabIds.value.has(tabId)) {
+    const nextClosed = new Set(closedGraphTabIds.value)
+    nextClosed.delete(tabId)
+    closedGraphTabIds.value = nextClosed
+  }
   let nextLayout = editorLayout.value
   if (!collectTabIds(nextLayout).includes(tabId)) {
     nextLayout = addTabsToFirstGroup(nextLayout, [tabId])
@@ -126,6 +141,11 @@ async function handleCloseTab(id: string) {
   if (!isGraphTabId(id)) return
   const graphId = graphIdFromTabId(id)
   if (workspaceFile.isGraphDirty(graphId) && !confirm('当前标签页有未保存的配置，确定关闭吗？')) {
+    return
+  }
+  if (graphStore.graphList.length <= 1) {
+    closedGraphTabIds.value = new Set([...closedGraphTabIds.value, id])
+    commitLayoutAfterTabClose(removeTabFromLayout(editorLayout.value, id) ?? createGroup())
     return
   }
   await graphStore.removeGraph(graphId)
@@ -452,6 +472,21 @@ function commitLayout(nextLayout: EditorLayoutTreeNode, activeGroupId: string, a
   activeByGroup.value = active
   if (isGraphTabId(activeHandleId)) {
     graphStore.setActiveGraph(graphIdFromTabId(activeHandleId))
+  }
+}
+
+function commitLayoutAfterTabClose(nextLayout: EditorLayoutTreeNode) {
+  const groups = collectGroups(nextLayout)
+  const active: Record<string, string | null> = {}
+  for (const group of groups) {
+    const previous = activeByGroup.value[group.id]
+    active[group.id] = previous && group.tabs.includes(previous) ? previous : group.tabs[0] ?? null
+  }
+  editorLayout.value = nextLayout
+  activeByGroup.value = active
+  const nextActive = Object.values(active).find((id): id is string => Boolean(id))
+  if (nextActive && isGraphTabId(nextActive)) {
+    graphStore.setActiveGraph(graphIdFromTabId(nextActive))
   }
 }
 

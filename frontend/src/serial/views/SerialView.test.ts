@@ -184,7 +184,7 @@ describe('SerialView graph workspace layout', () => {
     }
   })
 
-  it('does not delete the last graph document when its tab close button is clicked', async () => {
+  it('closes the last graph editor tab without deleting its graph document', async () => {
     const graph = useSerialGraphStore()
     graph.restoreState({
       graphs: [defaultSerialGraphDocument('graph-1', '唯一拓扑')],
@@ -204,7 +204,8 @@ describe('SerialView graph workspace layout', () => {
     const workspace = useSerialWorkspaceStore()
     expect(workspace.editorLayout.type).toBe('group')
     if (workspace.editorLayout.type === 'group') {
-      expect(workspace.editorLayout.tabs).toEqual(['graph:graph-1'])
+      expect(workspace.editorLayout.tabs).toEqual([])
+      expect(workspace.activeByGroup[workspace.editorLayout.id]).toBeNull()
     }
   })
 })

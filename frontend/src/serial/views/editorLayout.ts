@@ -20,4 +20,5 @@ export interface EditorTabInfo {
   name: string
   kind: 'graph'
   sourceId: string
+  tooltip?: string
 }

@@ -1,308 +1,213 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkspaceFileStore } from './workspaceFileStore'
-import { useSerialStore } from '../../serial/stores/serialStore'
+import { useSerialGraphStore } from '../../serial/stores/graphStore'
+import { defaultSerialSettings, useSettingsStore } from '../../settings/stores/settingsStore'
 
-const workspaceServiceMock = vi.hoisted(() => ({
-  DefaultWorkspacePath: vi.fn(async () => '/tmp/default.mocktrue.json'),
-  ExportWorkspace: vi.fn(async () => undefined),
-  SaveWorkspace: vi.fn(async () => undefined),
-  ReadWorkspace: vi.fn(async () => ({ Path: '/tmp/import.mocktrue.json', Content: '{"kind":"mocktrue.workspace.v1","value":3}' })),
-  LoadLastWorkspace: vi.fn(async () => ({ Found: true, Path: '/tmp/last.mocktrue.json', Content: '{"kind":"mocktrue.workspace.v1","value":4}' })),
-  RememberLastWorkspace: vi.fn(async () => undefined),
-  SelectWorkspaceOpenPath: vi.fn(async () => '/tmp/selected-open.mocktrue.json'),
-  SelectWorkspaceSavePath: vi.fn(async () => '/tmp/selected-save.mocktrue.json'),
-}))
+const workspaceServiceMock = vi.hoisted(() => {
+  const readFiles = new Map<string, string>()
+  return {
+    readFiles,
+    DefaultWorkspacePath: vi.fn(async () => '/tmp/default.mocktrue.json'),
+    ExportWorkspace: vi.fn(async (_path: string, _content: string) => undefined),
+    SaveWorkspace: vi.fn(async (_path: string, _content: string) => undefined),
+    ReadWorkspace: vi.fn(async (path: string) => ({ Path: path, Content: readFiles.get(path) ?? graphFile(path, '导入拓扑') })),
+    LoadLastWorkspace: vi.fn(async () => ({ Found: true, Path: '/tmp/last.mocktrue.json', Content: graphFile('/tmp/last.mocktrue.json', '最近拓扑') })),
+    RememberLastWorkspace: vi.fn(async () => undefined),
+    SelectWorkspaceOpenPath: vi.fn(async () => '/tmp/selected-open.mocktrue.json'),
+    SelectWorkspaceSavePath: vi.fn(async () => '/tmp/selected-save.mocktrue.json'),
+  }
 
-const sessionMock = vi.hoisted(() => ({
-  buildWorkspaceSnapshot: vi.fn(() => ({ kind: 'mocktrue.workspace.v1', value: 2 })),
-  restoreWorkspaceSnapshot: vi.fn(async () => ({ errors: [], handleMap: {} })),
+  function graphFile(path: string, name: string) {
+    return JSON.stringify({
+      kind: 'mocktrue.graph.v1',
+      settings: { serial: defaultSerialSettings },
+      graph: {
+        id: path.includes('last') ? 'last-graph' : 'imported-graph',
+        name,
+        nodes: [],
+        edges: [],
+        selectedNodeId: null,
+        selectedEdgeId: null,
+        nodeTabs: [],
+        activeNodeTabId: null,
+      },
+      runtime: { nodeBuffers: {}, nodeFrames: {} },
+    })
+  }
+})
+
+const serialBindingsMock = vi.hoisted(() => ({
+  StartSerialGraph: vi.fn(),
+  StopSerialGraph: vi.fn(),
+  GetSerialGraphStatus: vi.fn(),
+  SendSerialGraphNode: vi.fn(),
+  QuerySerialGraphNodeBuffer: vi.fn(),
+  QuerySerialGraphNodeFrames: vi.fn(),
+  ClearSerialGraphNodeBuffer: vi.fn(),
+  ResetSerialGraphNodeCounters: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js', () => workspaceServiceMock)
-vi.mock('../workspaceSession', () => sessionMock)
-vi.mock('../../serial/services/serialEvents', () => ({
-  serialEvents: {
-    onData: vi.fn(() => vi.fn()),
-  },
-}))
-vi.mock('../../serial/services/serialService', () => ({
-  serialService: {
-    closePort: vi.fn(async () => undefined),
-    enumeratePorts: vi.fn(async () => []),
-    listPorts: vi.fn(async () => []),
-    openPort: vi.fn(async () => {
-      throw new Error('not used in workspace file store tests')
-    }),
-    resetCounters: vi.fn(async () => undefined),
-    restoreCounters: vi.fn(async () => undefined),
-  },
-}))
+vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js', () => serialBindingsMock)
 
-describe('workspaceFileStore', () => {
+describe('workspaceFileStore graph tab files', () => {
   beforeEach(() => {
+    localStorage.clear()
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    workspaceServiceMock.readFiles.clear()
   })
 
-  it('tracks dirty state against the last saved snapshot', () => {
-    const store = useWorkspaceFileStore()
-    const saved = { kind: 'mocktrue.workspace.v1', value: 1 }
+  it('tracks dirty state per graph tab', () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    files.syncAllGraphSnapshots()
 
-    store.markClean('/tmp/session.mocktrue.json', saved)
-    expect(store.isDirty).toBe(false)
-    expect(store.currentPath).toBe('/tmp/session.mocktrue.json')
+    expect(files.isDirty).toBe(false)
 
-    store.updateCurrentSnapshot({ kind: 'mocktrue.workspace.v1', value: 2 })
-    expect(store.isDirty).toBe(true)
+    graph.addNode('serial.sender')
+    files.syncGraphSnapshot('graph-1')
 
-    store.markClean('/tmp/session.mocktrue.json', { kind: 'mocktrue.workspace.v1', value: 2 })
-    expect(store.isDirty).toBe(false)
+    expect(files.isDirty).toBe(true)
+    expect(files.isGraphDirty('graph-1')).toBe(true)
+
+    const second = graph.createGraph('第二拓扑')
+    files.syncGraphSnapshot(second.id)
+
+    expect(files.isGraphDirty(second.id)).toBe(false)
+    expect(files.isGraphDirty('graph-1')).toBe(true)
   })
 
-  it('saves current snapshot to the default path when no file is active', async () => {
-    const store = useWorkspaceFileStore()
+  it('saves only the active graph tab and marks it clean', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    graph.renameGraph('graph-1', '主拓扑')
+    graph.addNode('serial.sender')
+    files.syncAllGraphSnapshots()
 
-    await store.save()
+    const path = await files.save()
 
-    expect(workspaceServiceMock.DefaultWorkspacePath).toHaveBeenCalled()
+    expect(path).toBe('/tmp/default.mocktrue.json')
     expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalledWith(
       '/tmp/default.mocktrue.json',
-      '{"kind":"mocktrue.workspace.v1","value":2}'
+      expect.stringContaining('mocktrue.graph.v1')
     )
-    expect(store.currentPath).toBe('/tmp/default.mocktrue.json')
-    expect(store.isDirty).toBe(false)
+    const savedContent = workspaceServiceMock.SaveWorkspace.mock.calls[0]?.[1] as string
+    expect(savedContent).toContain('主拓扑')
+    expect(files.currentPath).toBe('/tmp/default.mocktrue.json')
+    expect(files.isDirty).toBe(false)
   })
 
-  it('selects a workspace path for the path input', async () => {
-    const store = useWorkspaceFileStore()
-    store.setPath('/tmp/current.mocktrue.json')
+  it('preserves a non-active graph tab serial settings when saving it', async () => {
+    const graph = useSerialGraphStore()
+    const settings = useSettingsStore()
+    const files = useWorkspaceFileStore()
+    const second = graph.createGraph('第二拓扑')
+    files.markClean('/tmp/first.mocktrue.json', JSON.parse(graphFile('/tmp/first.mocktrue.json', '第一拓扑', { TerminalFontSize: 15 })), 'graph-1')
+    files.markClean('/tmp/second.mocktrue.json', JSON.parse(graphFile('/tmp/second.mocktrue.json', '第二拓扑', { TerminalFontSize: 21 })), second.id)
+    graph.setActiveGraph('graph-1')
+    settings.updateSerial({ TerminalFontSize: 33 })
+    files.syncGraphSnapshot('graph-1', { useCurrentSerialSettings: true })
 
-    const selected = await store.selectOpenPath()
+    await files.saveGraph(second.id, '/tmp/second-save.mocktrue.json')
 
-    expect(workspaceServiceMock.SelectWorkspaceOpenPath).toHaveBeenCalledWith('/tmp/current.mocktrue.json')
-    expect(selected).toBe('/tmp/selected-open.mocktrue.json')
-    expect(store.currentPath).toBe('/tmp/selected-open.mocktrue.json')
+    const savedContent = workspaceServiceMock.SaveWorkspace.mock.calls[0]?.[1] as string
+    expect(JSON.parse(savedContent).settings.serial.TerminalFontSize).toBe(21)
+    expect(files.isGraphDirty('graph-1')).toBe(true)
+    expect(files.isGraphDirty(second.id)).toBe(false)
   })
 
-  it('saves as a selected file and marks that file clean', async () => {
-    const store = useWorkspaceFileStore()
-    store.setPath('/tmp/current.mocktrue.json')
+  it('opens a config file as a new graph tab and reuses it on the next open', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
 
-    const savedPath = await store.saveAs()
+    const first = await files.openFromPath('/tmp/import.mocktrue.json')
 
-    expect(workspaceServiceMock.SelectWorkspaceSavePath).toHaveBeenCalledWith('/tmp/current.mocktrue.json')
+    expect(first.reused).toBe(false)
+    expect(graph.graphList.map(item => item.name)).toEqual(['拓扑图 1', '导入拓扑'])
+    expect(files.currentPath).toBe('/tmp/import.mocktrue.json')
+    expect(files.isDirty).toBe(false)
+
+    const second = await files.openFromPath('/tmp/import.mocktrue.json')
+
+    expect(second.reused).toBe(true)
+    expect(graph.graphList.map(item => item.name)).toEqual(['拓扑图 1', '导入拓扑'])
+    expect(workspaceServiceMock.ReadWorkspace).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads examples as read-only graph tabs that save via save-as', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    const result = await files.loadDemo('bridge-demo')
+    const graphId = result.activeGraphId!
+
+    expect(graph.activeGraphId).toBe(graphId)
+    expect(files.graphState(graphId)?.sourceKind).toBe('demo')
+    expect(files.graphState(graphId)?.readOnly).toBe(true)
+
+    await files.save()
+
+    expect(workspaceServiceMock.SelectWorkspaceSavePath).toHaveBeenCalled()
     expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalledWith(
       '/tmp/selected-save.mocktrue.json',
-      '{"kind":"mocktrue.workspace.v1","value":2}'
+      expect.stringContaining('mocktrue.graph.v1')
     )
-    expect(savedPath).toBe('/tmp/selected-save.mocktrue.json')
-    expect(store.currentPath).toBe('/tmp/selected-save.mocktrue.json')
-    expect(store.isDirty).toBe(false)
+    expect(files.graphState(graphId)?.readOnly).toBe(false)
+    expect(files.graphState(graphId)?.sourceKind).toBe('file')
   })
 
-  it('does nothing when save-as path selection is cancelled', async () => {
-    workspaceServiceMock.SelectWorkspaceSavePath.mockResolvedValueOnce('')
-    const store = useWorkspaceFileStore()
-    store.markDirty()
+  it('prevents two graph tabs from binding to the same file path', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    files.markClean('/tmp/current.mocktrue.json', { kind: 'mocktrue.graph.v1', graph: 'one' }, 'graph-1')
+    const second = graph.createGraph('第二拓扑')
+    files.syncGraphSnapshot(second.id)
 
-    const savedPath = await store.saveAs()
-
-    expect(savedPath).toBe('')
-    expect(workspaceServiceMock.SaveWorkspace).not.toHaveBeenCalled()
-    expect(store.isDirty).toBe(true)
+    await expect(files.saveGraph(second.id, '/tmp/current.mocktrue.json')).rejects.toThrow('already open')
   })
 
-  it('imports a workspace file and marks the imported snapshot clean', async () => {
-    const store = useWorkspaceFileStore()
+  it('rejects unsupported JSON files instead of opening an empty graph', async () => {
+    workspaceServiceMock.readFiles.set('/tmp/unsupported.mocktrue.json', '{"kind":"other"}')
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
 
-    await store.importFromPath('/tmp/import.mocktrue.json')
+    await expect(files.openFromPath('/tmp/unsupported.mocktrue.json')).rejects.toThrow('unsupported MockTrue config file')
 
-    expect(workspaceServiceMock.ReadWorkspace).toHaveBeenCalledWith('/tmp/import.mocktrue.json')
-    expect(workspaceServiceMock.RememberLastWorkspace).toHaveBeenCalledWith('/tmp/import.mocktrue.json')
-    expect(sessionMock.restoreWorkspaceSnapshot).toHaveBeenCalledWith({ kind: 'mocktrue.workspace.v1', value: 3 })
-    expect(store.currentPath).toBe('/tmp/import.mocktrue.json')
-    expect(store.isDirty).toBe(false)
+    expect(graph.graphList.map(item => item.name)).toEqual(['拓扑图 1'])
   })
 
-  it('imports from a selected path when no path is configured', async () => {
-    const store = useWorkspaceFileStore()
+  it('loads recent files from local storage as graph tabs on startup', async () => {
+    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/first.mocktrue.json', '/tmp/second.mocktrue.json']))
+    workspaceServiceMock.readFiles.set('/tmp/first.mocktrue.json', graphFile('/tmp/first.mocktrue.json', '第一拓扑'))
+    workspaceServiceMock.readFiles.set('/tmp/second.mocktrue.json', graphFile('/tmp/second.mocktrue.json', '第二拓扑'))
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
 
-    await store.importSelected()
-
-    expect(workspaceServiceMock.SelectWorkspaceOpenPath).toHaveBeenCalledWith('')
-    expect(workspaceServiceMock.ReadWorkspace).toHaveBeenCalledWith('/tmp/selected-open.mocktrue.json')
-    expect(store.currentPath).toBe('/tmp/import.mocktrue.json')
-    expect(store.isDirty).toBe(false)
-  })
-
-  it('does nothing when import path selection is cancelled', async () => {
-    workspaceServiceMock.SelectWorkspaceOpenPath.mockResolvedValueOnce('')
-    const store = useWorkspaceFileStore()
-    store.markDirty()
-
-    const result = await store.importSelected()
-
-    expect(result).toBeNull()
-    expect(workspaceServiceMock.ReadWorkspace).not.toHaveBeenCalled()
-    expect(store.isDirty).toBe(true)
-  })
-
-  it('exports a copy without changing the active workspace or clean baseline', async () => {
-    const store = useWorkspaceFileStore()
-    store.markClean('/tmp/current.mocktrue.json', { kind: 'mocktrue.workspace.v1', value: 1 })
-    store.updateCurrentSnapshot({ kind: 'mocktrue.workspace.v1', value: 2 })
-
-    const exportedPath = await store.exportCopy()
-
-    expect(workspaceServiceMock.SelectWorkspaceSavePath).toHaveBeenCalledWith('/tmp/current.mocktrue.json')
-    expect(workspaceServiceMock.ExportWorkspace).toHaveBeenCalledWith(
-      '/tmp/selected-save.mocktrue.json',
-      '{"kind":"mocktrue.workspace.v1","value":2}'
-    )
-    expect(exportedPath).toBe('/tmp/selected-save.mocktrue.json')
-    expect(store.currentPath).toBe('/tmp/current.mocktrue.json')
-    expect(store.isDirty).toBe(true)
-  })
-
-  it('does nothing when export-copy path selection is cancelled', async () => {
-    workspaceServiceMock.SelectWorkspaceSavePath.mockResolvedValueOnce('')
-    const store = useWorkspaceFileStore()
-    store.markDirty()
-
-    const exportedPath = await store.exportCopy()
-
-    expect(exportedPath).toBe('')
-    expect(workspaceServiceMock.ExportWorkspace).not.toHaveBeenCalled()
-    expect(store.isDirty).toBe(true)
-  })
-
-  it('auto-loads the last workspace when it is available', async () => {
-    const store = useWorkspaceFileStore()
-
-    const loaded = await store.loadLast()
+    const loaded = await files.loadLast()
 
     expect(loaded).toBe(true)
-    expect(sessionMock.restoreWorkspaceSnapshot).toHaveBeenCalledWith({ kind: 'mocktrue.workspace.v1', value: 4 })
-    expect(store.currentPath).toBe('/tmp/last.mocktrue.json')
-    expect(store.isDirty).toBe(false)
-  })
-
-  it('updates the selected demo only for known demo ids', () => {
-    const store = useWorkspaceFileStore()
-
-    store.setSelectedDemo('bridge-demo')
-    expect(store.selectedDemoId).toBe('bridge-demo')
-
-    store.setSelectedDemo(null)
-    expect(store.selectedDemoId).toBe('bridge-demo')
-
-    store.setSelectedDemo('missing-demo')
-    expect(store.selectedDemoId).toBe('bridge-demo')
-
-    store.setSelectedDemo('modbus-demo')
-    expect(store.selectedDemoId).toBe('modbus-demo')
-  })
-
-  it('loads an example workspace as a normal editable workspace', async () => {
-    const store = useWorkspaceFileStore()
-
-    const result = await store.loadDemo('monitor-demo')
-
-    expect(result).toEqual({ errors: [], handleMap: {} })
-    expect(sessionMock.restoreWorkspaceSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'mocktrue.workspace.v1',
-      serial: expect.objectContaining({
-        virtualPorts: [],
-        bridges: [],
-        handles: [],
-        buffers: {},
-        monitors: expect.objectContaining({ sessions: [], frames: {} }),
-        graph: expect.objectContaining({
-          graphs: expect.arrayContaining([expect.objectContaining({
-            nodes: expect.arrayContaining([
-              expect.objectContaining({
-                type: 'serial.virtual',
-                config: expect.objectContaining({ portName: expect.stringContaining('mocktrue-demo-monitor') }),
-              }),
-              expect.objectContaining({ type: 'serial.monitor' }),
-            ]),
-          })]),
-        }),
-        workspace: expect.objectContaining({
-          selectedOperation: 'graph',
-          editorLayout: expect.objectContaining({
-            type: 'group',
-            tabs: expect.arrayContaining([expect.stringMatching(/^graph:/)]),
-          }),
-        }),
-      }),
-    }))
-    expect(store.sourceKind).toBe('empty')
-    expect(store.currentPath).toBe('')
-    expect(store.displayPath).toBe('')
-    expect(store.isDirty).toBe(false)
-  })
-
-  it('does not create display-only handles when example ports cannot be opened', async () => {
-    sessionMock.restoreWorkspaceSnapshot.mockResolvedValueOnce({
-      errors: [{ target: 'port:demo-open', message: 'open failed' }],
-      handleMap: {},
-    } as any)
-    const store = useWorkspaceFileStore()
-
-    await store.loadDemo('serial-open-demo')
-
-    const serial = useSerialStore()
-    expect(serial.openHandles).toHaveLength(0)
-    expect(serial.activePortId).toBeNull()
-  })
-
-  it('saves a loaded example directly like a normal workspace', async () => {
-    const store = useWorkspaceFileStore()
-    await store.loadDemo('bridge-demo')
-
-    await store.save()
-
-    expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalled()
-  })
-
-  it('treats the path input normally after an example is loaded', async () => {
-    const store = useWorkspaceFileStore()
-    await store.loadDemo('bridge-demo')
-
-    store.setPath('/tmp/manual-target.mocktrue.json')
-
-    expect(store.currentPath).toBe('/tmp/manual-target.mocktrue.json')
-    expect(store.displayPath).toBe('/tmp/manual-target.mocktrue.json')
-    await store.save()
-    expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalled()
-  })
-
-  it('saves a loaded example as a normal file', async () => {
-    const store = useWorkspaceFileStore()
-    await store.loadDemo('full-workspace-demo')
-
-    const savedPath = await store.saveAs()
-
-    expect(savedPath).toBe('/tmp/selected-save.mocktrue.json')
-    expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalledWith(
-      '/tmp/selected-save.mocktrue.json',
-      '{"kind":"mocktrue.workspace.v1","value":2}'
-    )
-    expect(store.sourceKind).toBe('file')
-    expect(store.currentPath).toBe('/tmp/selected-save.mocktrue.json')
-    expect(store.displayPath).toBe('/tmp/selected-save.mocktrue.json')
-  })
-
-  it('imports a file as an editable file source after a demo has been loaded', async () => {
-    const store = useWorkspaceFileStore()
-    await store.loadDemo('virtual-port-demo')
-
-    await store.importFromPath('/tmp/import.mocktrue.json')
-
-    expect(store.sourceKind).toBe('file')
-    expect(store.currentPath).toBe('/tmp/import.mocktrue.json')
-    expect(store.displayPath).toBe('/tmp/import.mocktrue.json')
+    expect(graph.graphList.map(item => item.name)).toEqual(['拓扑图 1', '第一拓扑', '第二拓扑'])
+    expect(files.currentPath).toBe('/tmp/second.mocktrue.json')
+    expect(workspaceServiceMock.LoadLastWorkspace).not.toHaveBeenCalled()
   })
 })
+
+function graphFile(path: string, name: string, serialSettings: Partial<typeof defaultSerialSettings> = {}) {
+  return JSON.stringify({
+    kind: 'mocktrue.graph.v1',
+    settings: { serial: { ...defaultSerialSettings, ...serialSettings } },
+    graph: {
+      id: path.includes('second') ? 'second-graph' : 'first-graph',
+      name,
+      nodes: [],
+      edges: [],
+      selectedNodeId: null,
+      selectedEdgeId: null,
+      nodeTabs: [],
+      activeNodeTabId: null,
+    },
+    runtime: { nodeBuffers: {}, nodeFrames: {} },
+  })
+}

@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildWorkspaceSnapshot, restoreWorkspaceSnapshot } from './workspaceSession'
+import { buildWorkspaceSnapshot, restoreGraphTabSnapshot, restoreWorkspaceSnapshot } from './workspaceSession'
 import { base64ToBytes } from './workspaceSnapshot'
 import { useSettingsStore } from '../settings/stores/settingsStore'
 import { useSerialStore } from '../serial/stores/serialStore'
@@ -222,6 +222,39 @@ describe('workspace session snapshot', () => {
 
     expect(result.errors).toEqual([])
     expect(useSerialGraphStore().exportState()).toEqual(defaultSerialGraphState())
+  })
+
+  it('restores serial module settings from a graph tab snapshot without changing global theme', async () => {
+    const settings = useSettingsStore()
+    settings.updateGlobal({ Theme: 'light' })
+    settings.updateSerial({ TerminalFontSize: 11, TextEncoding: 'utf-8' })
+
+    await restoreGraphTabSnapshot({
+      kind: 'mocktrue.graph.v1',
+      settings: {
+        serial: {
+          ...settings.snapshot().serial,
+          TerminalFontSize: 21,
+          TextEncoding: 'gb18030',
+        },
+      },
+      graph: {
+        id: 'graph-settings',
+        name: '带设置拓扑',
+        nodes: [],
+        edges: [],
+        selectedNodeId: null,
+        selectedEdgeId: null,
+        nodeTabs: [],
+        activeNodeTabId: null,
+      },
+      runtime: { nodeBuffers: {}, nodeFrames: {} },
+    })
+
+    expect(settings.global.Theme).toBe('light')
+    expect(settings.serial.TerminalFontSize).toBe(21)
+    expect(settings.serial.TextEncoding).toBe('gb18030')
+    expect(useSerialGraphStore().activeGraph?.name).toBe('带设置拓扑')
   })
 
   it('replaces the active topology when loading different demo snapshots sequentially', async () => {

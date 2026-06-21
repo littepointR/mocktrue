@@ -6,8 +6,11 @@ import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 import type { SerialGraphWorkspaceState } from '../serial/stores/graphStore'
+import type { SerialGraphDocument } from '../serial/graph/serialGraph'
+import type { Frame } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/monitor/models.js'
 
 export const workspaceKind = 'mocktrue.workspace.v1'
+export const graphTabKind = 'mocktrue.graph.v1'
 
 export type JsonRecord = Record<string, unknown>
 
@@ -41,6 +44,20 @@ export interface WorkspaceSnapshot {
     graph: SerialGraphWorkspaceState
     workspace: SerialWorkspaceState
   }
+}
+
+export interface GraphTabRuntimeSnapshot {
+  nodeBuffers: Record<string, WorkspaceBufferChunk[]>
+  nodeFrames: Record<string, Frame[]>
+}
+
+export interface GraphTabSnapshot {
+  kind: typeof graphTabKind
+  settings: {
+    serial: SerialModuleSettings
+  }
+  graph: SerialGraphDocument
+  runtime: GraphTabRuntimeSnapshot
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {

@@ -7,7 +7,6 @@ const props = defineProps<{
   activeId: string | null
   runtimeMetrics?: RuntimeMetrics | null
   mcpStatus?: MCPStatus | null
-  dirty?: boolean
   configPath?: string
 }>()
 
@@ -20,7 +19,7 @@ const metrics = computed(() => props.runtimeMetrics ?? sampledMetrics.value)
 const mcpStatus = computed(() => props.mcpStatus ?? sampledMCPStatus.value)
 const cpuText = computed(() => `${formatPercent(metrics.value?.CPUPercent ?? 0)}`)
 const memoryText = computed(() => formatBytes(metrics.value?.MemoryBytes ?? 0))
-const configPathText = computed(() => props.configPath || '未指定')
+const configPathText = computed(() => props.configPath || '未保存')
 const mcpText = computed(() => {
   const status = mcpStatus.value
   if (!status?.Enabled) return null
@@ -80,7 +79,7 @@ function formatBytes(value: number): string {
 
 <template>
   <div class="status-bar">
-    <span class="status-bar__left">MockTrue{{ dirty ? '*' : '' }} v0.1.0</span>
+    <span class="status-bar__left">MockTrue v0.1.0</span>
     <span class="status-bar__right">
       <span class="status-bar__metrics">CPU {{ cpuText }} · 内存 {{ memoryText }}</span>
       <span class="status-bar__config" :title="configPathText">配置 {{ configPathText }}</span>

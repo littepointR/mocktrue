@@ -6,6 +6,7 @@ import SerialView from './SerialView.vue'
 import { useSerialWorkspaceStore } from '../stores/workspaceStore'
 import { useSerialGraphStore } from '../stores/graphStore'
 import { defaultSerialGraphDocument } from '../graph/serialGraph'
+import { useWorkspaceFileStore } from '../../workspace/stores/workspaceFileStore'
 
 describe('SerialView graph workspace layout', () => {
   beforeEach(() => {
@@ -79,6 +80,24 @@ describe('SerialView graph workspace layout', () => {
       expect(layout.tabs).toEqual(['graph:graph-1', 'graph:graph-2'])
       expect(useSerialWorkspaceStore().activeByGroup[layout.id]).toBe('graph:graph-2')
     }
+  })
+
+  it('shows unsaved state and path metadata on graph editor tabs', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    graph.renameGraph('graph-1', '生产拓扑')
+    files.markClean('/tmp/production.mocktrue.json', { clean: true }, 'graph-1')
+    graph.addNode('serial.sender')
+    files.syncGraphSnapshot('graph-1')
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+    await nextTick()
+
+    expect(wrapper.find('.tabs-json').text()).toContain('生产拓扑*')
+    expect(wrapper.find('.tabs-json').text()).toContain('/tmp/production.mocktrue.json')
   })
 
   it('filters legacy non-graph tabs from restored layout', async () => {

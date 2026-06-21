@@ -32,55 +32,26 @@ vi.mock('naive-ui', () => ({
   },
 }))
 
-describe('GlobalSettingsPanel workspace file actions', () => {
+describe('GlobalSettingsPanel global settings and examples', () => {
   beforeEach(() => {
     localStorage.clear()
     __resetRegistryForTest()
     setActivePinia(createPinia())
   })
 
-  it('keeps the path input wired to the workspace file store', async () => {
-    const workspace = useWorkspaceFileStore()
+  it('does not expose global workspace file save or import actions', () => {
     const wrapper = mount(GlobalSettingsPanel)
 
-    await wrapper.find('input').setValue('/tmp/session.mocktrue.json')
-
-    expect(workspace.currentPath).toBe('/tmp/session.mocktrue.json')
-  })
-
-  it('selects a workspace file from the path button', async () => {
-    const workspace = useWorkspaceFileStore()
-    const selectOpenPath = vi.spyOn(workspace, 'selectOpenPath').mockResolvedValue('/tmp/session.mocktrue.json')
-    const wrapper = mount(GlobalSettingsPanel)
-
-    await wrapper.findAll('button').find(button => button.text() === '选择')?.trigger('click')
-
-    expect(selectOpenPath).toHaveBeenCalled()
-  })
-
-  it('runs the four workspace file actions without requiring a prefilled path', async () => {
-    const workspace = useWorkspaceFileStore()
-    const save = vi.spyOn(workspace, 'save').mockResolvedValue('/tmp/session.mocktrue.json')
-    const saveAs = vi.spyOn(workspace, 'saveAs').mockResolvedValue('/tmp/session-as.mocktrue.json')
-    const importSelected = vi.spyOn(workspace, 'importSelected').mockResolvedValue({ errors: [], handleMap: {} })
-    const exportCopy = vi.spyOn(workspace, 'exportCopy').mockResolvedValue('/tmp/export.mocktrue.json')
-
-    const wrapper = mount(GlobalSettingsPanel)
-    const buttons = wrapper.findAll('button')
-    await buttons.find(button => button.text() === '保存')?.trigger('click')
-    await buttons.find(button => button.text() === '另存为')?.trigger('click')
-    await buttons.find(button => button.text() === '导入')?.trigger('click')
-    await buttons.find(button => button.text() === '导出副本')?.trigger('click')
-
-    expect(save).toHaveBeenCalled()
-    expect(saveAs).toHaveBeenCalled()
-    expect(importSelected).toHaveBeenCalled()
-    expect(exportCopy).toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('配置文件路径')
+    expect(wrapper.text()).not.toContain('导入')
+    expect(wrapper.text()).not.toContain('导出副本')
+    expect(wrapper.findAll('button').map(button => button.text())).not.toContain('保存')
+    expect(wrapper.findAll('button').map(button => button.text())).not.toContain('另存为')
   })
 
   it('loads the selected example workspace from settings', async () => {
     const workspace = useWorkspaceFileStore()
-    const loadDemo = vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ errors: [], handleMap: {} })
+    const loadDemo = vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ graphIds: ['graph-1'], activeGraphId: 'graph-1' })
 
     const wrapper = mount(GlobalSettingsPanel)
     await wrapper.findAll('select')[1].setValue('monitor-demo')
@@ -103,7 +74,7 @@ describe('GlobalSettingsPanel workspace file actions', () => {
 
   it('keeps the selected example after switching away from settings', async () => {
     const workspace = useWorkspaceFileStore()
-    const loadDemo = vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ errors: [], handleMap: {} })
+    const loadDemo = vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ graphIds: ['graph-1'], activeGraphId: 'graph-1' })
 
     const first = mount(GlobalSettingsPanel)
     await first.findAll('select')[1].setValue('bridge-demo')
@@ -126,7 +97,7 @@ describe('GlobalSettingsPanel workspace file actions', () => {
     })
     registry.setActive('settings')
     const workspace = useWorkspaceFileStore()
-    vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ errors: [], handleMap: {} })
+    vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ graphIds: ['graph-1'], activeGraphId: 'graph-1' })
 
     const wrapper = mount(GlobalSettingsPanel)
     await wrapper.findAll('button').find(button => button.text() === '加载示例')?.trigger('click')
@@ -134,14 +105,10 @@ describe('GlobalSettingsPanel workspace file actions', () => {
     expect(registry.active.value).toBe('serial')
   })
 
-  it('keeps direct save enabled for loaded example workspaces', () => {
+  it('explains that examples open as read-only graph tabs', () => {
     const wrapper = mount(GlobalSettingsPanel)
-    const save = wrapper.findAll('button').find(button => button.text() === '保存')
-    const saveAs = wrapper.findAll('button').find(button => button.text() === '另存为')
 
-    expect(save?.attributes('disabled')).toBeUndefined()
-    expect(saveAs?.attributes('disabled')).toBeUndefined()
-    expect(wrapper.text()).not.toContain('只读 Demo')
+    expect(wrapper.text()).toContain('只读拓扑图标签页')
     expect(wrapper.text()).toContain('示例配置')
   })
 })

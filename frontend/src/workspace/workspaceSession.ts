@@ -1,4 +1,4 @@
-import { useSettingsStore } from '../settings/stores/settingsStore'
+import { useSettingsStore, type SerialModuleSettings } from '../settings/stores/settingsStore'
 import { useSerialStore } from '../serial/stores/serialStore'
 import { useBufferStore } from '../serial/stores/bufferStore'
 import type { SerializableBufferChunk } from '../serial/stores/bufferStore'
@@ -11,9 +11,12 @@ import { useSerialGraphStore } from '../serial/stores/graphStore'
 import {
   base64ToBytes,
   bytesToBase64,
+  graphTabKind,
+  type GraphTabSnapshot,
   workspaceKind,
   type WorkspaceSnapshot,
 } from './workspaceSnapshot'
+import { cloneSerialGraphDocument, cloneSerialGraphState, type SerialGraphDocument } from '../serial/graph/serialGraph'
 
 export interface WorkspaceRestoreError {
   target: string
@@ -23,6 +26,11 @@ export interface WorkspaceRestoreError {
 export interface WorkspaceRestoreResult {
   errors: WorkspaceRestoreError[]
   handleMap: Record<string, string>
+}
+
+export interface GraphTabRestoreResult {
+  graphIds: string[]
+  activeGraphId: string | null
 }
 
 export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
@@ -60,6 +68,71 @@ export function buildWorkspaceSnapshot(): WorkspaceSnapshot {
       workspace: workspaceStore.exportState(),
     },
   }
+}
+
+export function buildGraphTabSnapshot(
+  graphId?: string | null,
+  options: { serialSettings?: SerialModuleSettings } = {}
+): GraphTabSnapshot {
+  const settingsStore = useSettingsStore()
+  const graphStore = useSerialGraphStore()
+  const graph = graphStore.graphById(graphId ?? graphStore.activeGraphId) ?? graphStore.activeGraph
+  if (!graph) {
+    throw new Error('serial graph not found')
+  }
+  const runtime = graphStore.exportRuntimeSnapshot(graph.id)
+
+  return {
+    kind: graphTabKind,
+    settings: {
+      serial: options.serialSettings ?? settingsStore.snapshot().serial,
+    },
+    graph: exportGraphDocument(graph),
+    runtime: {
+      nodeBuffers: Object.fromEntries(Object.entries(runtime.nodeBuffers).map(([nodeId, bytes]) => [
+        nodeId,
+        [{ timestamp: 0, data: bytesToBase64(bytes) }],
+      ])),
+      nodeFrames: Object.fromEntries(Object.entries(runtime.nodeFrames).map(([nodeId, frames]) => [
+        nodeId,
+        frames.map(frame => ({ ...frame })),
+      ])),
+    },
+  }
+}
+
+export async function restoreGraphTabSnapshot(
+  snapshot: GraphTabSnapshot | WorkspaceSnapshot,
+  options: { activate?: boolean } = {}
+): Promise<GraphTabRestoreResult> {
+  const settingsStore = useSettingsStore()
+  const graphStore = useSerialGraphStore()
+  const graphSnapshots = graphTabSnapshotsFromUnknown(snapshot)
+  const graphIds: string[] = []
+  for (const [index, graphSnapshot] of graphSnapshots.entries()) {
+    settingsStore.replaceSerialSettings(graphSnapshot.settings?.serial)
+    const graph = graphStore.importGraphDocument(graphSnapshot.graph, options.activate !== false && index === graphSnapshots.length - 1)
+    graphStore.restoreRuntimeSnapshot(graph.id, importGraphRuntime(graphSnapshot))
+    graphIds.push(graph.id)
+  }
+  if (options.activate !== false && graphIds.length > 0) {
+    graphStore.setActiveGraph(graphIds[graphIds.length - 1])
+  }
+  return {
+    graphIds,
+    activeGraphId: graphIds.length > 0 ? graphIds[graphIds.length - 1] : graphStore.activeGraphId,
+  }
+}
+
+export function graphTabSnapshotsFromUnknown(snapshot: GraphTabSnapshot | WorkspaceSnapshot): GraphTabSnapshot[] {
+  const kind = (snapshot as GraphTabSnapshot | WorkspaceSnapshot | undefined)?.kind
+  if (kind === graphTabKind) {
+    return [normalizeGraphTabSnapshot(snapshot as GraphTabSnapshot)]
+  }
+  if (kind !== workspaceKind && !(snapshot as WorkspaceSnapshot | undefined)?.serial?.graph) {
+    throw new Error('unsupported MockTrue config file')
+  }
+  return graphTabSnapshotsFromWorkspace(snapshot as WorkspaceSnapshot)
 }
 
 export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Promise<WorkspaceRestoreResult> {
@@ -120,6 +193,72 @@ export async function restoreWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Pro
   serialStore.setActivePort(remapID(snapshot.serial.activePortId, handleMap))
 
   return { errors, handleMap }
+}
+
+function normalizeGraphTabSnapshot(snapshot: GraphTabSnapshot): GraphTabSnapshot {
+  return {
+    kind: graphTabKind,
+    settings: {
+      serial: snapshot.settings?.serial ?? useSettingsStore().snapshot().serial,
+    },
+    graph: cloneSerialGraphDocument(snapshot.graph),
+    runtime: {
+      nodeBuffers: snapshot.runtime?.nodeBuffers ?? {},
+      nodeFrames: snapshot.runtime?.nodeFrames ?? {},
+    },
+  }
+}
+
+function graphTabSnapshotsFromWorkspace(snapshot: WorkspaceSnapshot): GraphTabSnapshot[] {
+  const state = cloneSerialGraphState(snapshot.serial?.graph as any)
+  const activeGraphId = state.activeGraphId ?? state.graphs[0]?.id ?? null
+  const serialSettings = snapshot.settings?.serial ?? useSettingsStore().snapshot().serial
+  return state.graphs.map(graph => ({
+    kind: graphTabKind,
+    settings: { serial: serialSettings },
+    graph: cloneSerialGraphDocument({
+      ...graph,
+      id: graph.id === activeGraphId ? graph.id : graph.id,
+    }),
+    runtime: { nodeBuffers: {}, nodeFrames: {} },
+  }))
+}
+
+function exportGraphDocument(graph: SerialGraphDocument): SerialGraphDocument {
+  return cloneSerialGraphDocument({
+    ...graph,
+    nodes: graph.nodes.map(node => {
+      const { status, error, ...rest } = node
+      void status
+      void error
+      return rest
+    }),
+  })
+}
+
+function importGraphRuntime(snapshot: GraphTabSnapshot) {
+  return {
+    nodeBuffers: Object.fromEntries(Object.entries(snapshot.runtime?.nodeBuffers ?? {}).map(([nodeId, chunks]) => [
+      nodeId,
+      concatBufferChunks(chunks),
+    ])),
+    nodeFrames: Object.fromEntries(Object.entries(snapshot.runtime?.nodeFrames ?? {}).map(([nodeId, frames]) => [
+      nodeId,
+      frames.map(frame => ({ ...frame })),
+    ])),
+  }
+}
+
+function concatBufferChunks(chunks: WorkspaceSnapshot['serial']['buffers'][string]): Uint8Array {
+  const parts = chunks.map(chunk => base64ToBytes(chunk.data))
+  const length = parts.reduce((sum, bytes) => sum + bytes.length, 0)
+  const result = new Uint8Array(length)
+  let offset = 0
+  for (const part of parts) {
+    result.set(part, offset)
+    offset += part.length
+  }
+  return result
 }
 
 function exportBuffers(buffers: Record<string, SerializableBufferChunk[]>): WorkspaceSnapshot['serial']['buffers'] {

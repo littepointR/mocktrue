@@ -42,6 +42,11 @@ interface GraphRuntimeState {
   nodeFrames: Map<string, Frame[]>
 }
 
+export interface SerialGraphRuntimeSnapshot {
+  nodeBuffers: Record<string, Uint8Array>
+  nodeFrames: Record<string, Frame[]>
+}
+
 export const useSerialGraphStore = defineStore('serialGraph', () => {
   const initial = defaultSerialGraphState()
   const graphs = ref<SerialGraphDocument[]>(initial.graphs)
@@ -101,6 +106,28 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
       id: nextId,
       name: `${source.name} 副本`,
       nodes: source.nodes.map(node => {
+        const { status, error, ...rest } = node
+        void status
+        void error
+        return rest
+      }),
+    })
+    graphs.value = [...graphs.value, graph]
+    if (activate) {
+      activeGraphId.value = graph.id
+    }
+    return graph
+  }
+
+  function importGraphDocument(document: SerialGraphDocument, activate = true): SerialGraphDocument {
+    const usedIds = new Set(graphs.value.map(graph => graph.id))
+    const requested = cloneSerialGraphDocument(document)
+    const id = usedIds.has(requested.id) ? nextGraphId() : requested.id
+    const graph = cloneSerialGraphDocument({
+      ...requested,
+      id,
+      name: requested.name || `拓扑图 ${graphNumber(id)}`,
+      nodes: requested.nodes.map(node => {
         const { status, error, ...rest } = node
         void status
         void error
@@ -351,6 +378,44 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     graphs.value = empty.graphs
     activeGraphId.value = empty.activeGraphId
     runtimeStates.value = {}
+  }
+
+  function exportRuntimeSnapshot(graphId: string): SerialGraphRuntimeSnapshot {
+    const runtime = runtimeFor(graphId)
+    return {
+      nodeBuffers: Object.fromEntries(Array.from(runtime.nodeBuffers.entries()).map(([nodeId, bytes]) => [
+        nodeId,
+        new Uint8Array(bytes),
+      ])),
+      nodeFrames: Object.fromEntries(Array.from(runtime.nodeFrames.entries()).map(([nodeId, frames]) => [
+        nodeId,
+        frames.map(frame => ({ ...frame })),
+      ])),
+    }
+  }
+
+  function restoreRuntimeSnapshot(graphId: string, snapshot?: Partial<SerialGraphRuntimeSnapshot> | null) {
+    const runtime = runtimeFor(graphId)
+    const nodeBuffers = new Map<string, Uint8Array>()
+    const nodeBufferText = new Map<string, string>()
+    for (const [nodeId, bytes] of Object.entries(snapshot?.nodeBuffers ?? {})) {
+      const nextBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes as any)
+      nodeBuffers.set(nodeId, nextBytes)
+      nodeBufferText.set(nodeId, new TextDecoder().decode(nextBytes))
+    }
+    const nodeFrames = new Map<string, Frame[]>()
+    for (const [nodeId, frames] of Object.entries(snapshot?.nodeFrames ?? {})) {
+      nodeFrames.set(nodeId, (frames ?? []).map(frame => ({ ...frame })))
+    }
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graphId]: {
+        ...runtime,
+        nodeBuffers,
+        nodeBufferText,
+        nodeFrames,
+      },
+    }
   }
 
   function exportState(): SerialGraphWorkspaceState {
@@ -685,6 +750,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     validationForGraph,
     createGraph,
     duplicateGraph,
+    importGraphDocument,
     removeGraph,
     renameGraph,
     setActiveGraph,
@@ -711,6 +777,8 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     resetWorkspace,
     exportState,
     restoreState,
+    exportRuntimeSnapshot,
+    restoreRuntimeSnapshot,
     startRuntime,
     startRuntimeForGraph,
     stopRuntime,

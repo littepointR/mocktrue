@@ -65,6 +65,7 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
         :key="handleId"
         class="editor-tab n-tabs-tab"
         :class="{ 'editor-tab--active': activeByGroup[node.id] === handleId }"
+        :title="tabById.get(handleId)?.tooltip ?? tabById.get(handleId)?.name ?? handleId"
         type="button"
         @click="emit('setActiveTab', node.id, handleId)"
         @pointerdown="emit('tabPointerDown', $event, node.id, handleId)"

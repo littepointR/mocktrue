@@ -63,11 +63,10 @@ describe('StatusBar', () => {
     expect(wrapper.find('.status-bar__mcp').text()).toContain('MCP 127.0.0.1:39391')
   })
 
-  it('marks the app name dirty when workspace has unsaved changes', () => {
+  it('does not mark the app name dirty from workspace state', () => {
     const wrapper = mount(StatusBar, {
       props: {
         activeId: 'serial',
-        dirty: true,
         runtimeMetrics: {
           CPUPercent: 0,
           MemoryBytes: 0,
@@ -75,7 +74,7 @@ describe('StatusBar', () => {
       },
     })
 
-    expect(wrapper.find('.status-bar__left').text()).toContain('MockTrue* v0.1.0')
+    expect(wrapper.find('.status-bar__left').text()).toContain('MockTrue v0.1.0')
   })
 
   it('renders the current workspace file path', () => {
@@ -106,7 +105,7 @@ describe('StatusBar', () => {
       },
     })
 
-    expect(wrapper.find('.status-bar__config').text()).toBe('配置 未指定')
+    expect(wrapper.find('.status-bar__config').text()).toBe('配置 未保存')
   })
 
   it('renders the current config location when provided', () => {

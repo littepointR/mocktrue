@@ -78,14 +78,18 @@ describe('SerialGraphPanel', () => {
     const wrapper = mount(SerialGraphPanel)
     const store = useSerialGraphStore()
 
-    expect(wrapper.find('[data-testid="serial-graph-switcher"]').findAll('option')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="serial-graph-switcher"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-demo-select"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-load-demo"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-new"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-open-config"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-save-config"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-save-config-as"]').exists()).toBe(false)
     expect((wrapper.find('[data-testid="serial-graph-name"]').element as HTMLInputElement).value).toBe('拓扑图 1')
 
-    await wrapper.find('[data-testid="serial-graph-new"]').trigger('click')
-
-    expect(store.graphList.map(graph => graph.name)).toEqual(['拓扑图 1', '拓扑图 2'])
+    store.createGraph('第二拓扑')
+    await nextTick()
     expect(store.activeGraphId).toBe('graph-2')
-    expect(wrapper.find('[data-testid="serial-graph-switcher"]').findAll('option')).toHaveLength(2)
 
     const nameInput = wrapper.find('[data-testid="serial-graph-name"]')
     ;(nameInput.element as HTMLInputElement).value = '生产拓扑'
@@ -98,15 +102,11 @@ describe('SerialGraphPanel', () => {
     expect(store.graphList.map(graph => graph.name)).toEqual(['拓扑图 1', '生产拓扑', '生产拓扑 副本'])
     expect(store.activeGraphId).toBe('graph-3')
 
-    await wrapper.find('[data-testid="serial-graph-switcher"]').setValue('graph-1')
-
-    expect(store.activeGraphId).toBe('graph-1')
-
     await wrapper.find('[data-testid="serial-graph-remove"]').trigger('click')
     await flushPromises()
 
-    expect(store.graphList.map(graph => graph.id)).toEqual(['graph-2', 'graph-3'])
-    expect(store.activeGraphId).toBe('graph-2')
+    expect(store.graphList.map(graph => graph.id)).toEqual(['graph-1', 'graph-2'])
+    expect(store.activeGraphId).toBe('graph-1')
   })
 
   it('renders the graph passed by tab id without switching the active graph', () => {
@@ -135,8 +135,6 @@ describe('SerialGraphPanel', () => {
     })
 
     expect(store.activeGraphId).toBe('graph-2')
-    expect((first.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-1')
-    expect((second.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-2')
     expect(first.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('发送器')
     expect(first.find('[data-testid="serial-graph-node-node-1"]').text()).not.toContain('接收器')
     expect(second.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('接收器')
@@ -153,13 +151,11 @@ describe('SerialGraphPanel', () => {
     const wrapper = mount(SerialGraphPanel, {
       props: { graphId: 'graph-1' },
     })
-    expect((wrapper.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-1')
     expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('发送器')
 
     await wrapper.setProps({ graphId: secondGraph.id })
     await nextTick()
 
-    expect((wrapper.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe(secondGraph.id)
     expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('接收器')
     expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).not.toContain('发送器')
   })
@@ -192,7 +188,7 @@ describe('SerialGraphPanel', () => {
     wrapper.unmount()
   })
 
-  it('keeps toolbar graph switching local to a scoped panel', async () => {
+  it('duplicates graphs locally from a scoped panel without switching the active graph', async () => {
     const store = useSerialGraphStore()
     store.addNode('serial.sender')
     store.createGraph('辅助拓扑')
@@ -202,12 +198,12 @@ describe('SerialGraphPanel', () => {
       props: { graphId: 'graph-1' },
     })
 
-    await wrapper.find('[data-testid="serial-graph-switcher"]').setValue('graph-2')
+    await wrapper.find('[data-testid="serial-graph-duplicate"]').trigger('click')
 
     expect(store.activeGraphId).toBe('graph-1')
-    expect((wrapper.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-2')
-    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('接收器')
-    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).not.toContain('发送器')
+    expect(store.graphList.map(graph => graph.id)).toEqual(['graph-1', 'graph-2', 'graph-3'])
+    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('发送器')
+    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).not.toContain('接收器')
   })
 
   it('opens node content tabs when nodes are created and keeps nodes when tabs close', async () => {

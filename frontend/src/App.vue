@@ -9,17 +9,24 @@ import StatusBar from './shell/StatusBar.vue'
 import { useRegistry } from './core/registry'
 import { useSettingsStore } from './settings'
 import { useWorkspaceFileStore } from './workspace/stores/workspaceFileStore'
-import { buildWorkspaceSnapshot } from './workspace/workspaceSession'
+import { useSerialGraphStore } from './serial/stores/graphStore'
 
 const registry = useRegistry()
 const settings = useSettingsStore()
 const workspaceFile = useWorkspaceFileStore()
+const graphStore = useSerialGraphStore()
 const contributions = computed(() => registry.list())
 const activeId = registry.active
 const activeViewId = registry.activeView
 const activeViewVersion = registry.activeViewVersion
 const workspaceReady = ref(false)
 const sidebarExpanded = ref(true)
+const windowActions = [
+  { id: 'new-graph', label: '新建', title: '新建拓扑图', action: createGraph },
+  { id: 'open-graph', label: '打开', title: '打开拓扑图配置文件', action: openGraph },
+  { id: 'save-graph', label: '保存', title: '保存当前拓扑图', action: saveGraph },
+  { id: 'save-as-graph', label: '另存为', title: '将当前拓扑图另存为文件', action: saveGraphAs },
+]
 const systemTheme = ref<'dark' | 'light'>(resolveSystemTheme())
 let systemThemeMedia: MediaQueryList | null = null
 
@@ -89,10 +96,10 @@ onMounted(async () => {
   try {
     const loaded = await workspaceFile.loadLast()
     if (!loaded) {
-      workspaceFile.markClean('', buildWorkspaceSnapshot())
+      workspaceFile.syncAllGraphSnapshots()
     }
   } catch {
-    workspaceFile.markClean('', buildWorkspaceSnapshot())
+    workspaceFile.syncAllGraphSnapshots()
   } finally {
     workspaceReady.value = true
   }
@@ -106,12 +113,29 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => buildWorkspaceSnapshot(),
-  snapshot => {
+  () => graphStore.exportState(),
+  () => {
     if (!workspaceReady.value) return
-    workspaceFile.updateCurrentSnapshot(snapshot)
+    workspaceFile.syncAllGraphSnapshots()
   },
   { deep: true }
+)
+
+watch(
+  () => settings.serial,
+  () => {
+    if (!workspaceReady.value || !graphStore.activeGraphId) return
+    workspaceFile.syncGraphSnapshot(graphStore.activeGraphId, { useCurrentSerialSettings: true })
+  },
+  { deep: true }
+)
+
+watch(
+  () => graphStore.activeGraphId,
+  graphId => {
+    if (!workspaceReady.value || !graphId) return
+    workspaceFile.applyGraphSerialSettings(graphId)
+  }
 )
 
 function resolveSystemTheme(): 'dark' | 'light' {
@@ -151,6 +175,29 @@ function handleActivitySelect(id: string) {
   registry.setActive(id)
   sidebarExpanded.value = true
 }
+
+function createGraph() {
+  const graph = graphStore.createGraph(undefined, true)
+  workspaceFile.applyGraphSerialSettings(graph.id)
+}
+
+async function openGraph() {
+  const path = await workspaceFile.selectOpenPath()
+  if (!path) return
+  await workspaceFile.openFromPath(path)
+}
+
+async function saveGraph() {
+  const graphId = graphStore.activeGraphId ?? graphStore.graphList[0]?.id
+  if (!graphId) return
+  await workspaceFile.saveGraph(graphId)
+}
+
+async function saveGraphAs() {
+  const graphId = graphStore.activeGraphId ?? graphStore.graphList[0]?.id
+  if (!graphId) return
+  await workspaceFile.saveGraphAs(graphId)
+}
 </script>
 
 <template>
@@ -159,6 +206,21 @@ function handleActivitySelect(id: string) {
       class="app-shell"
       :class="`app-shell--${effectiveTheme}`"
     >
+      <div class="app-shell__titlebar" data-app-region="drag">
+        <div class="app-shell__titlebar-actions" data-app-region="no-drag">
+          <button
+            v-for="action in windowActions"
+            :key="action.id"
+            type="button"
+            class="app-shell__titlebar-action"
+            :data-testid="`app-titlebar-${action.id}`"
+            :title="action.title"
+            @click="action.action"
+          >
+            {{ action.label }}
+          </button>
+        </div>
+      </div>
       <div class="app-shell__body">
         <ActivityBar
           :contributions="contributions"
@@ -180,8 +242,7 @@ function handleActivitySelect(id: string) {
       <Panel />
       <StatusBar
         :active-id="activeId"
-        :dirty="workspaceFile.isDirty"
-        :config-path="workspaceFile.displayPath"
+        :config-path="workspaceFile.activeDisplayPath"
       />
     </div>
   </NConfigProvider>
@@ -196,9 +257,35 @@ function handleActivitySelect(id: string) {
   overflow: hidden;
   background: var(--app-bg);
   color: var(--app-text);
-  /* macOS 窗口控制按钮安全区域 */
-  padding-top: 50px;
+  padding-top: 0;
   box-sizing: border-box;
+}
+.app-shell__titlebar {
+  height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 86px;
+  padding-right: 10px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+}
+.app-shell__titlebar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-shell__titlebar-action {
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--app-border);
+  background: var(--app-hover-bg);
+  color: var(--app-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
 }
 .app-shell--dark {
   --app-bg: #1e1e1e;

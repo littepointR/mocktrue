@@ -9,6 +9,7 @@ import type {
 } from './editorLayout'
 import { useSerialWorkspaceStore } from '../stores/workspaceStore'
 import { useSerialGraphStore } from '../stores/graphStore'
+import { useWorkspaceFileStore } from '../../workspace/stores/workspaceFileStore'
 
 const props = defineProps<{
   activeViewId: string | null
@@ -17,6 +18,7 @@ const props = defineProps<{
 
 const workspaceStore = useSerialWorkspaceStore()
 const graphStore = useSerialGraphStore()
+const workspaceFile = useWorkspaceFileStore()
 
 const editorLayout = computed({
   get: () => workspaceStore.editorLayout,
@@ -40,9 +42,10 @@ const dropPreview = ref<{
 
 const tabs = computed(() => graphStore.graphList.map(graph => ({
   id: graphTabId(graph.id),
-  name: graph.name,
+  name: workspaceFile.graphTitle(graph.id, graph.name),
   kind: 'graph' as const,
   sourceId: graph.id,
+  tooltip: workspaceFile.graphTooltip(graph.id),
 })))
 
 onMounted(() => {
@@ -121,7 +124,14 @@ function focusGraphTab() {
 
 async function handleCloseTab(id: string) {
   if (!isGraphTabId(id)) return
-  await graphStore.removeGraph(graphIdFromTabId(id))
+  const graphId = graphIdFromTabId(id)
+  if (workspaceFile.isGraphDirty(graphId) && !confirm('当前标签页有未保存的配置，确定关闭吗？')) {
+    return
+  }
+  await graphStore.removeGraph(graphId)
+  if (!graphStore.graphById(graphId)) {
+    workspaceFile.removeGraphState(graphId)
+  }
 }
 
 function nextGroupId(): string {

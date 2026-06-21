@@ -6,20 +6,45 @@ import App from './App.vue'
 import appSource from './App.vue?raw'
 import { __resetRegistryForTest, useRegistry } from './core/registry'
 import { serialModule } from './serial'
-import { settingsModule, useSettingsStore } from './settings'
+import { defaultSerialSettings, settingsModule, useSettingsStore } from './settings'
 import { useWorkspaceFileStore } from './workspace/stores/workspaceFileStore'
+import { useSerialGraphStore } from './serial/stores/graphStore'
 
-vi.mock('../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js', () => ({
+const workspaceBindings = vi.hoisted(() => ({
   LoadLastWorkspace: vi.fn(async () => ({ Found: false, Path: '', Content: '' })),
   DefaultWorkspacePath: vi.fn(async () => '/tmp/default.mocktrue.json'),
+  ExportWorkspace: vi.fn(async () => undefined),
   SaveWorkspace: vi.fn(async () => undefined),
-  ReadWorkspace: vi.fn(async () => null),
+  ReadWorkspace: vi.fn(async (path: string) => ({
+    Path: path,
+    Content: JSON.stringify({
+      kind: 'mocktrue.graph.v1',
+      settings: {},
+      graph: {
+        id: 'opened-graph',
+        name: '打开拓扑',
+        nodes: [],
+        edges: [],
+        selectedNodeId: null,
+        selectedEdgeId: null,
+        nodeTabs: [],
+        activeNodeTabId: null,
+      },
+      runtime: { nodeBuffers: {}, nodeFrames: {} },
+    }),
+  })),
+  RememberLastWorkspace: vi.fn(async () => undefined),
+  SelectWorkspaceOpenPath: vi.fn(async () => '/tmp/opened.mocktrue.json'),
+  SelectWorkspaceSavePath: vi.fn(async () => '/tmp/save-as.mocktrue.json'),
 }))
+
+vi.mock('../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js', () => workspaceBindings)
 
 describe('App settings effects', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
+    vi.clearAllMocks()
     __resetRegistryForTest()
     const registry = useRegistry()
     registry.register(serialModule)
@@ -64,16 +89,17 @@ describe('App settings effects', () => {
     expect(appSource).toContain('--app-table-header')
   })
 
-  it('marks the status bar dirty after workspace changes', async () => {
+  it('does not pass a global dirty flag to the status bar', async () => {
     const wrapper = mount(App, {
       global: { stubs },
     })
     await flushPromises()
 
-    useSettingsStore().updateSerial({ BaudRate: 9600 })
+    useSerialGraphStore().addNode('serial.sender')
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.find('footer').text()).toBe('dirty')
+    const status = wrapper.findComponent({ name: 'StatusBar' })
+    expect(status.props('dirty')).toBeUndefined()
   })
 
   it('passes the current workspace path to the status bar', async () => {
@@ -88,6 +114,51 @@ describe('App settings effects', () => {
     const status = wrapper.findComponent({ name: 'StatusBar' })
 
     expect(status.props('configPath')).toBe('/tmp/current-workspace.json')
+  })
+
+  it('marks only the active graph tab dirty when serial settings change', async () => {
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    const settings = useSettingsStore()
+    const second = graph.createGraph('第二拓扑')
+    await wrapper.vm.$nextTick()
+    graph.setActiveGraph('graph-1')
+    await wrapper.vm.$nextTick()
+
+    settings.updateSerial({ TerminalFontSize: 23 })
+    await wrapper.vm.$nextTick()
+
+    expect(files.isGraphDirty('graph-1')).toBe(true)
+    expect(files.isGraphDirty(second.id)).toBe(false)
+  })
+
+  it('restores serial settings from the active graph tab when switching tabs', async () => {
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    const settings = useSettingsStore()
+    const second = graph.createGraph('第二拓扑')
+    files.markClean('/tmp/first.mocktrue.json', graphSnapshot('graph-1', '第一拓扑', 15), 'graph-1')
+    files.markClean('/tmp/second.mocktrue.json', graphSnapshot(second.id, '第二拓扑', 21), second.id)
+
+    graph.setActiveGraph(second.id)
+    await wrapper.vm.$nextTick()
+
+    expect(settings.serial.TerminalFontSize).toBe(21)
+
+    graph.setActiveGraph('graph-1')
+    await wrapper.vm.$nextTick()
+
+    expect(settings.serial.TerminalFontSize).toBe(15)
   })
 
   it('toggles the operation sidebar from the active activity icon', async () => {
@@ -118,6 +189,54 @@ describe('App settings effects', () => {
     expect(useRegistry().active.value).toBe('settings')
     expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true)
   })
+
+  it('places app actions in the titlebar safe area and omits custom window controls', () => {
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+
+    const titlebar = wrapper.find('.app-shell__titlebar')
+
+    expect(titlebar.exists()).toBe(true)
+    expect(titlebar.find('[title="新建拓扑图"]').exists()).toBe(true)
+    expect(titlebar.find('[title="打开拓扑图配置文件"]').exists()).toBe(true)
+    expect(titlebar.find('[title="保存当前拓扑图"]').exists()).toBe(true)
+    expect(titlebar.find('[title="将当前拓扑图另存为文件"]').exists()).toBe(true)
+    expect(wrapper.find('.app-shell__window-controls').exists()).toBe(false)
+    expect(wrapper.find('.app-shell__window-button').exists()).toBe(false)
+  })
+
+  it('runs graph file actions from the titlebar', async () => {
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="app-titlebar-new-graph"]').trigger('click')
+    expect(useSerialGraphStore().activeGraph?.name).toBe('拓扑图 2')
+
+    await wrapper.find('[data-testid="app-titlebar-open-graph"]').trigger('click')
+    await flushPromises()
+    expect(workspaceBindings.SelectWorkspaceOpenPath).toHaveBeenCalled()
+    expect(workspaceBindings.ReadWorkspace).toHaveBeenCalledWith('/tmp/opened.mocktrue.json')
+    expect(useSerialGraphStore().activeGraph?.name).toBe('打开拓扑')
+
+    useSerialGraphStore().renameGraph('opened-graph', '保存拓扑')
+    await wrapper.find('[data-testid="app-titlebar-save-graph"]').trigger('click')
+    await flushPromises()
+    expect(workspaceBindings.SaveWorkspace).toHaveBeenCalledWith(
+      '/tmp/opened.mocktrue.json',
+      expect.stringContaining('保存拓扑')
+    )
+
+    await wrapper.find('[data-testid="app-titlebar-save-as-graph"]').trigger('click')
+    await flushPromises()
+    expect(workspaceBindings.SelectWorkspaceSavePath).toHaveBeenCalledWith('/tmp/opened.mocktrue.json')
+    expect(workspaceBindings.SaveWorkspace).toHaveBeenLastCalledWith(
+      '/tmp/save-as.mocktrue.json',
+      expect.stringContaining('保存拓扑')
+    )
+  })
 })
 
 const stubs = {
@@ -126,7 +245,30 @@ const stubs = {
   Sidebar: { template: '<aside />' },
   EditorGroups: { template: '<main />' },
   Panel: { template: '<section />' },
-  StatusBar: { name: 'StatusBar', props: ['dirty', 'configPath'], template: '<footer>{{ dirty ? "dirty" : "clean" }}</footer>' },
+  StatusBar: { name: 'StatusBar', props: ['configPath'], template: '<footer>{{ configPath }}</footer>' },
+}
+
+function graphSnapshot(id: string, name: string, terminalFontSize: number) {
+  return {
+    kind: 'mocktrue.graph.v1',
+    settings: {
+      serial: {
+        ...defaultSerialSettings,
+        TerminalFontSize: terminalFontSize,
+      },
+    },
+    graph: {
+      id,
+      name,
+      nodes: [],
+      edges: [],
+      selectedNodeId: null,
+      selectedEdgeId: null,
+      nodeTabs: [],
+      activeNodeTabId: null,
+    },
+    runtime: { nodeBuffers: {}, nodeFrames: {} },
+  }
 }
 
 const interactiveShellStubs = {

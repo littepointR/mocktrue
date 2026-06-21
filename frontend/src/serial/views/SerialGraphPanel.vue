@@ -134,11 +134,6 @@ function addNode(type: string) {
   store.addNodeToGraph(graphId, type)
 }
 
-function createGraph() {
-  const graph = store.createGraph(undefined, !props.graphId)
-  localGraphId.value = props.graphId ? graph.id : null
-}
-
 function duplicateGraph() {
   const graph = store.duplicateGraph(panelGraph.value?.id ?? store.activeGraphId, !props.graphId)
   if (graph) {
@@ -153,15 +148,6 @@ async function removeGraph() {
   if (!store.graphById(id)) {
     localGraphId.value = store.activeGraphId ?? store.graphList[0]?.id ?? null
   }
-}
-
-function switchGraph(id: string) {
-  if (props.graphId) {
-    localGraphId.value = id
-    return
-  }
-  localGraphId.value = null
-  store.setActiveGraph(id)
 }
 
 function renameGraph(value: string) {
@@ -877,33 +863,12 @@ onUnmounted(() => {
       :class="{ 'serial-graph__workspace--resizing': splitResizing }"
     >
       <div class="serial-graph__toolbar">
-        <select
-          class="serial-graph__graph-select"
-          :value="panelGraph?.id ?? ''"
-          data-testid="serial-graph-switcher"
-          @change="switchGraph(($event.target as HTMLSelectElement).value)"
-        >
-          <option
-            v-for="graph in store.graphList"
-            :key="graph.id"
-            :value="graph.id"
-          >
-            {{ graph.name }}
-          </option>
-        </select>
         <input
           class="serial-graph__graph-name"
           :value="activeGraphName"
           data-testid="serial-graph-name"
           @change="renameGraph(($event.target as HTMLInputElement).value)"
         >
-        <button
-          type="button"
-          data-testid="serial-graph-new"
-          @click="createGraph"
-        >
-          新建
-        </button>
         <button
           type="button"
           data-testid="serial-graph-duplicate"
@@ -1483,26 +1448,23 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--app-border, #2d2d2d);
   color: var(--app-text-muted, #858585);
   font-size: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
-.serial-graph__graph-select,
 .serial-graph__graph-name {
   min-width: 0;
+  width: 132px;
   height: 24px;
+  padding: 0 6px;
   border: 1px solid var(--app-border, #2d2d2d);
   border-radius: 4px;
   background: var(--app-bg, #1e1e1e);
   color: var(--app-text, #cccccc);
   font-size: 12px;
 }
-.serial-graph__graph-select {
-  width: 110px;
-}
-.serial-graph__graph-name {
-  width: 132px;
-  padding: 0 6px;
-}
 .serial-graph__toolbar button,
 .serial-graph__node-content button {
+  flex: 0 0 auto;
   padding: 4px 8px;
   border: 1px solid var(--app-border, #2d2d2d);
   border-radius: 4px;

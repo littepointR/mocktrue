@@ -67,6 +67,57 @@ describe('scriptLanguage', () => {
     expect(scriptHoverForModel(model as any, { lineNumber: 1, column: 9 })?.contents[0].value).toContain('output.bytes')
   })
 
+  it('narrows completion items for dotted MockTrue API objects', () => {
+    const monaco = {
+      languages: {
+        CompletionItemKind: {
+          Function: 1,
+          Variable: 2,
+          Field: 3,
+        },
+      },
+    }
+    const model = {
+      uri: { toString: () => 'inmemory://script-transform' },
+      getLineContent: () => 'input.',
+      getWordAtPosition: () => null,
+    }
+    registerScriptModel(model.uri.toString(), 'serial.script.transform')
+
+    const labels = completionItemsForModel(monaco as any, model as any, { lineNumber: 1, column: 7 }).map(item => item.label)
+
+    expect(labels).toEqual(['bytes()', 'hex()', 'text(encoding)'])
+  })
+
+  it('does not suggest unavailable dotted APIs for node types', () => {
+    const monaco = {
+      languages: {
+        CompletionItemKind: {
+          Function: 1,
+          Variable: 2,
+          Field: 3,
+        },
+      },
+    }
+    const generatorModel = {
+      uri: { toString: () => 'inmemory://script-generator' },
+      getLineContent: () => 'input.',
+      getWordAtPosition: () => null,
+    }
+    registerScriptModel(generatorModel.uri.toString(), 'serial.script.generator')
+
+    expect(completionItemsForModel(monaco as any, generatorModel as any, { lineNumber: 1, column: 7 })).toEqual([])
+
+    const analyzerModel = {
+      uri: { toString: () => 'inmemory://script-analyzer' },
+      getLineContent: () => 'output.',
+      getWordAtPosition: () => null,
+    }
+    registerScriptModel(analyzerModel.uri.toString(), 'serial.script.analyzer')
+
+    expect(completionItemsForModel(monaco as any, analyzerModel as any, { lineNumber: 1, column: 8 })).toEqual([])
+  })
+
   it('reports basic diagnostics without exposing the frozen-out serial API', () => {
     expect(buildScriptDiagnostics('', 'serial.script.transform').map(item => item.message)).toEqual([
       '脚本不能为空',
@@ -93,6 +144,8 @@ describe('scriptLanguage', () => {
         register: vi.fn(),
         registerCompletionItemProvider: vi.fn(),
         registerHoverProvider: vi.fn(),
+        setMonarchTokensProvider: vi.fn(),
+        setLanguageConfiguration: vi.fn(),
         CompletionItemKind: {
           Function: 1,
           Variable: 2,
@@ -107,5 +160,74 @@ describe('scriptLanguage', () => {
     expect(monaco.languages.register).toHaveBeenCalledTimes(1)
     expect(monaco.languages.registerCompletionItemProvider).toHaveBeenCalledTimes(1)
     expect(monaco.languages.registerHoverProvider).toHaveBeenCalledTimes(1)
+  })
+
+  it('registers completion trigger characters for dot member access', () => {
+    const monaco = {
+      languages: {
+        register: vi.fn(),
+        registerCompletionItemProvider: vi.fn(),
+        registerHoverProvider: vi.fn(),
+        setMonarchTokensProvider: vi.fn(),
+        setLanguageConfiguration: vi.fn(),
+        CompletionItemKind: {
+          Function: 1,
+          Variable: 2,
+          Field: 3,
+        },
+      },
+    }
+
+    registerScriptLanguage(monaco as any)
+
+    expect(monaco.languages.registerCompletionItemProvider).toHaveBeenCalledWith(
+      'mocktrue-script',
+      expect.objectContaining({
+        triggerCharacters: ['.', '('],
+        provideCompletionItems: expect.any(Function),
+      })
+    )
+  })
+
+  it('registers Monaco syntax highlighting and language configuration once', () => {
+    const monaco = {
+      languages: {
+        register: vi.fn(),
+        registerCompletionItemProvider: vi.fn(),
+        registerHoverProvider: vi.fn(),
+        setMonarchTokensProvider: vi.fn(),
+        setLanguageConfiguration: vi.fn(),
+        CompletionItemKind: {
+          Function: 1,
+          Variable: 2,
+          Field: 3,
+        },
+      },
+    }
+
+    registerScriptLanguage(monaco as any)
+    registerScriptLanguage(monaco as any)
+
+    expect(monaco.languages.setMonarchTokensProvider).toHaveBeenCalledTimes(1)
+    expect(monaco.languages.setMonarchTokensProvider).toHaveBeenCalledWith(
+      'mocktrue-script',
+      expect.objectContaining({
+        tokenizer: expect.objectContaining({
+          root: expect.any(Array),
+        }),
+      })
+    )
+    expect(monaco.languages.setLanguageConfiguration).toHaveBeenCalledTimes(1)
+    expect(monaco.languages.setLanguageConfiguration).toHaveBeenCalledWith(
+      'mocktrue-script',
+      expect.objectContaining({
+        comments: expect.objectContaining({ lineComment: '//' }),
+        brackets: expect.arrayContaining([['{', '}'], ['[', ']'], ['(', ')']]),
+        autoClosingPairs: expect.arrayContaining([
+          expect.objectContaining({ open: '"', close: '"' }),
+          expect.objectContaining({ open: '(', close: ')' }),
+        ]),
+      })
+    )
   })
 })

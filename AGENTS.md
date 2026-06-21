@@ -2,7 +2,9 @@
 
 ## Multi-Agent Development Workflow
 
-For non-trivial feature work, bug fixes, refactors, or verification tasks, use a multi-agent development loop when the tool environment supports sub-agents.
+Use the multi-agent development loop as the default workflow for non-trivial feature work, bug fixes, refactors, verification tasks, and release-quality changes.
+
+If the tool environment supports sub-agents, delegate each phase to focused agents. If sub-agents are unavailable, the main agent must still follow the same loop sequentially: requirements analysis, implementation, code review, and test verification.
 
 Each sub-agent must have one clear responsibility. Do not assign overlapping ownership unless the later agent is explicitly doing review or verification.
 
@@ -16,8 +18,8 @@ Recommended roles:
 Workflow:
 
 1. Start with explicit assumptions and success criteria.
-2. Split work into single-responsibility agents with disjoint write scopes.
-3. Keep analysis/review/test agents read-only.
+2. Split work into single-responsibility phases or agents with disjoint write scopes.
+3. Keep analysis/review/test phases read-only.
 4. Tell write-enabled agents they are not alone in the codebase, must not revert unrelated changes, and must respect existing dirty files.
 5. Integrate returned findings in the main agent, then fix any blocking issues.
 6. Run a second review/test pass after fixes when the change is substantial.

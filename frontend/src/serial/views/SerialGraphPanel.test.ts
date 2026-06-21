@@ -557,10 +557,49 @@ describe('SerialGraphPanel', () => {
     wrapper.unmount()
   })
 
+  it('renders modbus slave buffer according to the configured mode', async () => {
+    const store = useSerialGraphStore()
+    const slave = store.addNode('serial.modbus.slave')
+    store.selectNode(slave.id)
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
+      Offset: 0,
+      Data: btoa(String.fromCharCode(0x03, 0x03, 0x00, 0x00, 0x00, 0x02, 0xc5, 0xe9)),
+      Total: 8,
+      EOF: true,
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+
+    const buffer = () => wrapper.find('[data-testid="serial-graph-content-node-buffer"]').element.textContent ?? ''
+    expect(buffer()).toContain('Offset')
+    expect(buffer()).toContain('03 03 00 00 00 02 c5 e9')
+    expect(buffer()).not.toContain(':030300000002F8')
+
+    await wrapper.find('[data-testid="serial-graph-config-mode"]').setValue('ascii')
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
+      Offset: 0,
+      Data: btoa(':030300000002F8\r\n'),
+      Total: 17,
+      EOF: true,
+    })
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+
+    expect(buffer()).toContain(':030300000002F8')
+    expect(buffer()).not.toContain('Offset')
+
+    wrapper.unmount()
+  })
+
   it('shows mode options that match the selected node type', async () => {
     const store = useSerialGraphStore()
     const sender = store.addNode('serial.sender')
     const master = store.addNode('serial.modbus.master')
+    const slave = store.addNode('serial.modbus.slave')
     const wrapper = mount(SerialGraphPanel)
 
     store.selectNode(sender.id)
@@ -574,6 +613,12 @@ describe('SerialGraphPanel', () => {
 
     const modbusMode = wrapper.find('[data-testid="serial-graph-config-mode"]')
     expect(modbusMode.findAll('option').map(option => option.attributes('value'))).toEqual(['rtu', 'ascii'])
+
+    store.selectNode(slave.id)
+    await nextTick()
+
+    const slaveMode = wrapper.find('[data-testid="serial-graph-config-mode"]')
+    expect(slaveMode.findAll('option').map(option => option.attributes('value'))).toEqual(['rtu', 'ascii'])
 
     wrapper.unmount()
   })
@@ -888,6 +933,52 @@ describe('SerialGraphPanel', () => {
       expect(bindings.GetSerialGraphStatus).toHaveBeenCalledWith('graph-1')
       expect(wrapper.find(`[data-testid="serial-graph-node-${receiver.id}"]`).text()).toContain('RX 25')
 
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps node card counters polling while selected node buffer refresh is pending', async () => {
+    vi.useFakeTimers()
+    let resolveBuffer: (value: { Offset: number; Data: string; Total: number; EOF: boolean }) => void = () => {}
+    try {
+      const store = useSerialGraphStore()
+      const sender = store.addNode('serial.sender')
+      const receiver = store.addNode('serial.receiver')
+      store.connect(sender.id, 'out', receiver.id, 'in')
+      store.selectNode(receiver.id)
+      bindings.QuerySerialGraphNodeBuffer.mockImplementation(() => new Promise(resolve => {
+        resolveBuffer = resolve
+      }))
+      const wrapper = mount(SerialGraphPanel)
+
+      await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+      await flushPromises()
+      expect(bindings.QuerySerialGraphNodeBuffer).toHaveBeenCalledWith(expect.objectContaining({
+        GraphID: 'graph-1',
+        NodeID: receiver.id,
+      }))
+
+      bindings.GetSerialGraphStatus.mockClear()
+      bindings.GetSerialGraphStatus.mockResolvedValue({
+        ID: 'graph-1',
+        Status: 'running',
+        Error: '',
+        Nodes: [
+          { ID: sender.id, Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 25, FrameCount: 0, ResourceID: '', Error: '' },
+          { ID: receiver.id, Type: 'serial.receiver', Status: 'running', RxBytes: 25, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
+        ],
+      })
+
+      await vi.advanceTimersByTimeAsync(250)
+      await flushPromises()
+
+      expect(bindings.GetSerialGraphStatus).toHaveBeenCalledWith('graph-1')
+      expect(wrapper.find(`[data-testid="serial-graph-node-${receiver.id}"]`).text()).toContain('RX 25')
+
+      resolveBuffer({ Offset: 0, Data: btoa('late'), Total: 4, EOF: true })
+      await flushPromises()
       wrapper.unmount()
     } finally {
       vi.useRealTimers()

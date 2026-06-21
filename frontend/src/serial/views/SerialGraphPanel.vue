@@ -51,7 +51,8 @@ const panning = ref<{
 } | null>(null)
 const suppressCanvasClick = ref(false)
 const runtimePollTimer = ref<number | null>(null)
-const runtimePollInFlight = ref(false)
+const runtimeStatusPollInFlight = ref(false)
+const runtimeDetailsPollInFlight = ref(false)
 const localGraphId = ref<string | null>(null)
 const graphViewMode = ref<GraphViewMode>('split')
 const workbenchHeight = ref(defaultWorkbenchHeight)
@@ -101,7 +102,9 @@ const selectedBufferText = computed(() => (
 const selectedBufferBytes = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeBuffers.get(selectedNode.value.id) ?? new Uint8Array() : new Uint8Array()
 ))
-const selectedBufferViewMode = computed(() => String(selectedNode.value?.config.viewMode ?? 'ascii'))
+const selectedBufferViewMode = computed(() => (
+  selectedNode.value ? bufferViewModeForNode(selectedNode.value) : 'ascii'
+))
 const selectedBufferDisplayText = computed(() => formatNodeBuffer(selectedBufferBytes.value, selectedBufferText.value, selectedBufferViewMode.value))
 const selectedFrames = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeFrames.get(selectedNode.value.id) ?? [] : []
@@ -407,6 +410,13 @@ function supportsScriptEditor(node: SerialGraphNode): boolean {
   return isScriptNodeType(node.type)
 }
 
+function bufferViewModeForNode(node: SerialGraphNode): string {
+  if (node.type === 'serial.modbus.slave') {
+    return String(node.config.mode ?? 'rtu') === 'ascii' ? 'ascii' : 'hexTable'
+  }
+  return String(node.config.viewMode ?? 'ascii')
+}
+
 function formatNodeBuffer(bytes: Uint8Array, text: string, viewMode: string): string {
   switch (viewMode) {
     case 'hexClassic':
@@ -509,16 +519,34 @@ function stopRuntimePolling() {
   runtimePollTimer.value = null
 }
 
-async function pollSelectedRuntimeDetails() {
-  if (!runtimeRunning.value || runtimePollInFlight.value) return
+function pollSelectedRuntimeDetails() {
+  if (!runtimeRunning.value) return
   const graphId = panelGraphDocumentId()
   if (!graphId) return
 
-  runtimePollInFlight.value = true
+  void pollRuntimeStatus(graphId)
+  void pollSelectedRuntimeNodeDetails(graphId)
+}
+
+async function pollRuntimeStatus(graphId: string) {
+  if (runtimeStatusPollInFlight.value) return
+  runtimeStatusPollInFlight.value = true
   try {
     await store.refreshRuntimeForGraph(graphId)
-    const node = selectedNode.value
-    if (!runtimeRunning.value || !node) return
+  } catch {
+    // Runtime polling is best-effort; explicit actions still surface errors.
+  } finally {
+    runtimeStatusPollInFlight.value = false
+  }
+}
+
+async function pollSelectedRuntimeNodeDetails(graphId: string) {
+  if (runtimeDetailsPollInFlight.value) return
+  const node = selectedNode.value
+  if (!runtimeRunning.value || !node) return
+
+  runtimeDetailsPollInFlight.value = true
+  try {
     if (supportsBuffer(node)) {
       await store.queryNodeBufferForGraph(graphId, node.id)
       await scrollSelectedBufferToBottom()
@@ -529,7 +557,7 @@ async function pollSelectedRuntimeDetails() {
   } catch {
     // Runtime polling is best-effort; explicit actions still surface errors.
   } finally {
-    runtimePollInFlight.value = false
+    runtimeDetailsPollInFlight.value = false
   }
 }
 

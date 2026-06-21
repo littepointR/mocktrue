@@ -38,7 +38,7 @@ const workspaceBindings = vi.hoisted(() => ({
   SelectWorkspaceSavePath: vi.fn(async () => '/tmp/save-as.mocktrue.json'),
 }))
 
-vi.mock('../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js', () => workspaceBindings)
+vi.mock('../bindings/github.com/littepointR/mocktrue/internal/core/workspace/service.js', () => workspaceBindings)
 
 describe('App settings effects', () => {
   beforeEach(() => {

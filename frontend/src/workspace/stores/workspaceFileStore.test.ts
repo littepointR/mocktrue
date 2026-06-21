@@ -48,8 +48,8 @@ const serialBindingsMock = vi.hoisted(() => ({
   ResetSerialGraphNodeCounters: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js', () => workspaceServiceMock)
-vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js', () => serialBindingsMock)
+vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/core/workspace/service.js', () => workspaceServiceMock)
+vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => serialBindingsMock)
 
 describe('workspaceFileStore graph tab files', () => {
   beforeEach(() => {

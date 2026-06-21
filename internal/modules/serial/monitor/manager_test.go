@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
-	"github.com/suyue/mocktrue/internal/modules/serial/virtualserial"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/modules/serial/virtualserial"
 )
 
 func TestManagerRejectsInvalidStartRequests(t *testing.T) {

@@ -1,10 +1,10 @@
 package serial
 
 import (
-	"github.com/suyue/mocktrue/internal/core/config"
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/core/logging"
-	"github.com/suyue/mocktrue/internal/core/module"
+	"github.com/littepointR/mocktrue/internal/core/config"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/core/logging"
+	"github.com/littepointR/mocktrue/internal/core/module"
 )
 
 // testDeps returns a minimal, non-nil Deps for lifecycle tests. It uses a

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/modules/serial"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/modules/serial"
 )
 
 // TestEnv 提供测试环境的完整生命周期管理

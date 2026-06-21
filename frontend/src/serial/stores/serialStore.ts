@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { serialService } from '../services/serialService'
-import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
-import type { HandleStatus } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models.js'
-import type { SerialConfig } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
+import type { PortInfo } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/port/models.js'
+import type { HandleStatus } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/manager/models.js'
+import type { SerialConfig } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/port/models.js'
 
 export const useSerialStore = defineStore('serial', () => {
   // State

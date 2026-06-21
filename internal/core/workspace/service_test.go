@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/suyue/mocktrue/internal/core/platform"
+	"github.com/littepointR/mocktrue/internal/core/platform"
 )
 
 func TestServiceSaveReadAndRememberLastWorkspace(t *testing.T) {

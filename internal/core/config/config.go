@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
-	mterrors "github.com/suyue/mocktrue/internal/core/errors"
+	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
 )
 
 // Schema is the application configuration model.

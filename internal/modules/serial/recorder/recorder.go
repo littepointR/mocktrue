@@ -10,7 +10,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
-	"github.com/suyue/mocktrue/internal/core/errors"
+	"github.com/littepointR/mocktrue/internal/core/errors"
 )
 
 const (

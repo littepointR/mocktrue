@@ -3,7 +3,7 @@ package visual
 import (
 	"testing"
 
-	"github.com/suyue/mocktrue/internal/modules/serial/protocol"
+	"github.com/littepointR/mocktrue/internal/modules/serial/protocol"
 )
 
 func TestVisualParserAA55Frame(t *testing.T) {

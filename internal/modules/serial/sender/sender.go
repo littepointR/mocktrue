@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/core/errors"
+	"github.com/littepointR/mocktrue/internal/core/errors"
 )
 
 // SendFunc is the function signature for sending data to a port.

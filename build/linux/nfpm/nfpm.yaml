@@ -10,9 +10,9 @@ version: "0.1.0"
 section: "default"
 priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "A mocktrue application"
-vendor: "My Company"
-homepage: "https://wails.io"
+description: "Cross-platform embedded debugging toolkit"
+vendor: "MockTrue"
+homepage: "https://github.com/littepointR/mocktrue"
 license: "MIT"
 release: "1"
 

@@ -5,10 +5,10 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/suyue/mocktrue/internal/core/config"
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/core/logging"
-	"github.com/suyue/mocktrue/internal/core/platform"
+	"github.com/littepointR/mocktrue/internal/core/config"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/core/logging"
+	"github.com/littepointR/mocktrue/internal/core/platform"
 )
 
 // Deps is the immutable dependency bundle injected into each Module at Init.

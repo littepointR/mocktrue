@@ -5,9 +5,9 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/core/logging"
-	"github.com/suyue/mocktrue/internal/core/module"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/core/logging"
+	"github.com/littepointR/mocktrue/internal/core/module"
 )
 
 // Module implements module.Module for the serial debugging feature.

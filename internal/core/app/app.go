@@ -10,12 +10,12 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
-	"github.com/suyue/mocktrue/internal/core/config"
-	mterrors "github.com/suyue/mocktrue/internal/core/errors"
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/core/logging"
-	"github.com/suyue/mocktrue/internal/core/module"
-	"github.com/suyue/mocktrue/internal/core/platform"
+	"github.com/littepointR/mocktrue/internal/core/config"
+	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/core/logging"
+	"github.com/littepointR/mocktrue/internal/core/module"
+	"github.com/littepointR/mocktrue/internal/core/platform"
 )
 
 // assetsFS returns the sub-filesystem rooted at dir within the embedded FS.

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
-	"github.com/suyue/mocktrue/internal/modules/serial/protocol"
+	"github.com/littepointR/mocktrue/internal/modules/serial/protocol"
 )
 
 // Engine manages a goja JavaScript runtime for protocol parsing scripts.

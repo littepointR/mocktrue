@@ -13,13 +13,13 @@ import type {
   SlaveUnitState,
   StartSlaveRequest,
   Transaction,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/fecbus/models.js'
 import {
   FrameType,
   FunctionCode,
   SessionRole,
   StatusCode,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/fecbus/models.js'
 
 export type FecbusRole = 'master' | 'slave'
 

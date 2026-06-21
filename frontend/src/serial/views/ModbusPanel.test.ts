@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ModbusPanel from './ModbusPanel.vue'
 import { useModbusStore } from '../stores/modbusStore'
-import { FrameMode, SessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { FrameMode, SessionRole } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
 
 vi.mock('../services/serialService', () => ({
   serialService: {

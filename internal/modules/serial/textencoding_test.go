@@ -3,7 +3,7 @@ package serial
 import (
 	"testing"
 
-	"github.com/suyue/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
 )
 
 func TestEncodeSerialTextSupportsConfiguredEncodings(t *testing.T) {

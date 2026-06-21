@@ -1,7 +1,7 @@
 package manager
 
 import (
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 )
 
 // OpenRequest bundles the parameters for opening a serial port.

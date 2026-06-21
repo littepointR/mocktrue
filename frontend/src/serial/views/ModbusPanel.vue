@@ -26,7 +26,7 @@ import type {
   ModbusSlaveUnitGridState,
   ModbusWordOrder,
 } from '../stores/modbusStore'
-import { SessionRole } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { SessionRole } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
 
 const props = withDefaults(defineProps<{
   variant?: 'create' | 'tab'

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
-	"github.com/suyue/mocktrue/internal/modules/serial/manager"
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/modules/serial/buffer"
+	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 )
 
 func TestSerialEndToEnd(t *testing.T) {

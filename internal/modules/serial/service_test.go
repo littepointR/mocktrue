@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/modules/serial/manager"
-	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
+	"github.com/littepointR/mocktrue/internal/modules/serial/monitor"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 	goserial "go.bug.st/serial"
 )
 

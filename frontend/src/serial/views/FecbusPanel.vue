@@ -20,7 +20,7 @@ import {
   fecbusFunctionOptions,
   useFecbusStore,
 } from '../stores/fecbusStore'
-import { FrameType, FunctionCode, SessionRole, StatusCode } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+import { FrameType, FunctionCode, SessionRole, StatusCode } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/fecbus/models.js'
 
 const props = withDefaults(defineProps<{
   variant?: 'create' | 'tab'

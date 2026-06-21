@@ -31,10 +31,10 @@ import {
   RemoveModbusSlaveUnit,
   ListModbusSlaveUnits,
   UpdateModbusSlaveUnitData,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
 
-import type { PortInfo } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/port/models.js'
-import type { HandleStatus, OpenRequest } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/manager/models.js'
+import type { PortInfo } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/port/models.js'
+import type { HandleStatus, OpenRequest } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/manager/models.js'
 import type {
   FramePage as FecbusFramePage,
   OpenSessionRequest as FecbusOpenSessionRequest,
@@ -46,7 +46,7 @@ import type {
   SlaveUnitState as FecbusSlaveUnitState,
   StartSlaveRequest as FecbusStartSlaveRequest,
   Transaction as FecbusTransaction,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/fecbus/models.js'
 import type {
   DataModelSnapshot,
   MasterRequest,
@@ -62,7 +62,7 @@ import type {
   Transaction,
   UnitScanRequest,
   UnitScanResult,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
 
 /**
  * SerialService encapsulates all serial port API calls.

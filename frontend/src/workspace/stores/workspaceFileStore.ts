@@ -10,7 +10,7 @@ import {
   SaveWorkspace,
   SelectWorkspaceOpenPath,
   SelectWorkspaceSavePath,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/core/workspace/service.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/core/workspace/service.js'
 import {
   buildGraphTabSnapshot,
   graphTabSnapshotsFromUnknown,

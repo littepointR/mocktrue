@@ -1,4 +1,4 @@
-package com.wails.app;
+package com.mocktrue.app;
 
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;

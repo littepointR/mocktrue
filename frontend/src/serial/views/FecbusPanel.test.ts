@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FecbusPanel from './FecbusPanel.vue'
 import { useFecbusStore } from '../stores/fecbusStore'
-import { FunctionCode, SessionRole, StatusCode } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+import { FunctionCode, SessionRole, StatusCode } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/fecbus/models.js'
 
 vi.mock('../services/serialService', () => ({
   serialService: {

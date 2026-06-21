@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/core/errors"
+	"github.com/littepointR/mocktrue/internal/core/errors"
 )
 
 // VirtualPair holds the two ends of a socat-created virtual serial pair.

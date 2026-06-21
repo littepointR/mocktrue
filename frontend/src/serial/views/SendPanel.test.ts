@@ -7,9 +7,9 @@ import {
   DecodeHexToText,
   EncodeTextToHex,
   Send,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
 
-vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js', () => ({
+vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => ({
   Send: vi.fn(async () => 2),
   EncodeTextToHex: vi.fn(async () => 'b4 ae bf da'),
   DecodeHexToText: vi.fn(async () => '串口'),

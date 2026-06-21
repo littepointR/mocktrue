@@ -57,7 +57,7 @@ vi.mock('../serial/services/serialService', () => ({
   serialService: serialServiceMock,
 }))
 
-vi.mock('../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js', () => serialBindingsMock)
+vi.mock('../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => serialBindingsMock)
 
 describe('workspace session snapshot', () => {
   beforeEach(() => {

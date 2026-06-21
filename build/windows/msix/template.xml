@@ -10,24 +10,24 @@
     <Installer
         Path="mocktrue"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\MockTrue\MockTrue">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
-        PublisherName="CN=My Company"
-        PublisherDisplayName="My Company"
+        PackageName="MockTrue"
+        PackageDisplayName="MockTrue"
+        PublisherName="CN=MockTrue"
+        PublisherDisplayName="MockTrue"
         Version="0.1.0.0"
-        PackageDescription="A mocktrue application">
+        PackageDescription="Cross-platform embedded debugging toolkit">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
         </Capabilities>
         <Applications>
             <Application
-                Id="com.example.mocktrue"
-                Description="A mocktrue application"
-                DisplayName="My Product"
+                Id="com.mocktrue.app"
+                Description="Cross-platform embedded debugging toolkit"
+                DisplayName="MockTrue"
                 ExecutableName="mocktrue"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,9 +41,9 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
-            <PublisherDisplayName>My Company</PublisherDisplayName>
-            <Description>A mocktrue application</Description>
+            <DisplayName>MockTrue</DisplayName>
+            <PublisherDisplayName>MockTrue</PublisherDisplayName>
+            <Description>Cross-platform embedded debugging toolkit</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>

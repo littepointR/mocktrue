@@ -14,8 +14,8 @@ import {
   slaveGridToDataModel,
   useModbusStore,
 } from './modbusStore'
-import { DataType, WordOrder } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
-import { FrameMode } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
+import { DataType, WordOrder } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
+import { FrameMode } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
 
 const serialServiceMock = vi.hoisted(() => ({
   listModbusSessions: vi.fn(async () => []),

@@ -2,7 +2,7 @@
 import { computed, h, onMounted, ref } from 'vue'
 import { NButton, NForm, NFormItem, NInputNumber, NSelect } from 'naive-ui'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { ListSystemFonts } from '../../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+import { ListSystemFonts } from '../../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
 import { serialTerminalFontFamily } from '../../../serial/utils/terminalStyle'
 
 const store = useSettingsStore()

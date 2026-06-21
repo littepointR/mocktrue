@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 )
 
 func TestManagerMasterRequest(t *testing.T) {

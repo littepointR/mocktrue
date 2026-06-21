@@ -13,7 +13,7 @@ const bindings = vi.hoisted(() => ({
   ResetSerialGraphNodeCounters: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js', () => bindings)
+vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => bindings)
 
 describe('serial graph store', () => {
   beforeEach(() => {

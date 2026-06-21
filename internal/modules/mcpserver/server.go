@@ -13,15 +13,15 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/suyue/mocktrue/internal/core/config"
-	"github.com/suyue/mocktrue/internal/core/errors"
-	"github.com/suyue/mocktrue/internal/modules/serial"
-	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
-	fb "github.com/suyue/mocktrue/internal/modules/serial/fecbus"
-	"github.com/suyue/mocktrue/internal/modules/serial/manager"
-	mb "github.com/suyue/mocktrue/internal/modules/serial/modbus"
-	"github.com/suyue/mocktrue/internal/modules/serial/monitor"
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/core/config"
+	"github.com/littepointR/mocktrue/internal/core/errors"
+	"github.com/littepointR/mocktrue/internal/modules/serial"
+	"github.com/littepointR/mocktrue/internal/modules/serial/buffer"
+	fb "github.com/littepointR/mocktrue/internal/modules/serial/fecbus"
+	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
+	mb "github.com/littepointR/mocktrue/internal/modules/serial/modbus"
+	"github.com/littepointR/mocktrue/internal/modules/serial/monitor"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 )
 
 // SerialRuntime is the serial surface exposed through MCP tools.

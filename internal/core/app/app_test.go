@@ -9,8 +9,8 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/suyue/mocktrue/internal/core/logging"
-	"github.com/suyue/mocktrue/internal/core/module"
+	"github.com/littepointR/mocktrue/internal/core/logging"
+	"github.com/littepointR/mocktrue/internal/core/module"
 )
 
 type shutdownTestModule struct {

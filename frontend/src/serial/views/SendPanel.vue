@@ -5,7 +5,7 @@ import {
   DecodeHexToText,
   EncodeTextToHex,
   Send,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
 import { useSerialStore } from '../stores/serialStore'
 import { useSettingsStore } from '../../settings/stores/settingsStore'
 import { formatHexInput } from '../utils/bytes'

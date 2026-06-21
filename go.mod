@@ -1,4 +1,4 @@
-module github.com/suyue/mocktrue
+module github.com/littepointR/mocktrue
 
 go 1.26.0
 

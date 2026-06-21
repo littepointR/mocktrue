@@ -5,7 +5,7 @@ import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 import type { EditorLayoutNode } from '../serial/views/editorLayout'
 import { defaultSerialGraphState, nodeTabTitle, type SerialGraphEdge, type SerialGraphNode, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
-import { FrameType, FunctionCode, StatusCode } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+import { FrameType, FunctionCode, StatusCode } from '../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/fecbus/models.js'
 import { workspaceKind, type WorkspaceSnapshot } from './workspaceSnapshot'
 
 export interface DemoWorkspace {

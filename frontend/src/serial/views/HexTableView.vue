@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { NDataTable } from 'naive-ui'
 import { Events } from '@wailsio/runtime'
 import { useSerialStore } from '../stores/serialStore'
-import { QueryPage } from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+import { QueryPage } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
 import { toByteArray } from '../utils/bytes'
 
 interface RowData {

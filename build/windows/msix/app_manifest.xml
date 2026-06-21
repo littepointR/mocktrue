@@ -8,15 +8,15 @@
   IgnorableNamespaces="uap3">
   
   <Identity 
-    Name="com.example.mocktrue"
-    Publisher="CN=My Company"
+    Name="com.mocktrue.app"
+    Publisher="CN=MockTrue"
     Version="0.1.0.0" 
     ProcessorArchitecture="arm64" />
   
   <Properties>
-    <DisplayName>My Product</DisplayName>
-    <PublisherDisplayName>My Company</PublisherDisplayName>
-    <Description>A mocktrue application</Description>
+    <DisplayName>MockTrue</DisplayName>
+    <PublisherDisplayName>MockTrue</PublisherDisplayName>
+    <Description>Cross-platform embedded debugging toolkit</Description>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   
@@ -29,10 +29,10 @@
   </Resources>
   
   <Applications>
-    <Application Id="com.example.mocktrue" Executable="mocktrue" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="com.mocktrue.app" Executable="mocktrue" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="My Product"
-        Description="A mocktrue application"
+        DisplayName="MockTrue"
+        Description="Cross-platform embedded debugging toolkit"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

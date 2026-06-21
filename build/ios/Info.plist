@@ -5,11 +5,11 @@
     <key>CFBundleExecutable</key>
     <string>mocktrue</string>
     <key>CFBundleIdentifier</key>
-    <string>com.example.mocktrue</string>
+    <string>com.mocktrue.app</string>
     <key>CFBundleName</key>
-    <string>My Product</string>
+    <string>MockTrue</string>
     <key>CFBundleDisplayName</key>
-    <string>My Product</string>
+    <string>MockTrue</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -49,11 +49,11 @@
     
     
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026, My Company</string>
+    <string>© 2026, MockTrue</string>
     
     
     <key>CFBundleGetInfoString</key>
-    <string>This is a comment</string>
+    <string>MockTrue cross-platform embedded debugging toolkit</string>
     
 </dict>
 </plist>

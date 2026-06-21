@@ -1,4 +1,4 @@
-package com.wails.app;
+package com.mocktrue.app;
 
 import android.app.Activity;
 import android.app.Notification;

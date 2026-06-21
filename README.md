@@ -1,59 +1,119 @@
-# Welcome to Your New Wails3 Project!
+# MockTrue
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+[![CI](https://github.com/littepointR/mocktrue/actions/workflows/ci.yml/badge.svg)](https://github.com/littepointR/mocktrue/actions/workflows/ci.yml)
 
-## Getting Started
+MockTrue 是一个跨平台高性能嵌入式调试工具，面向串口、协议调试、虚拟设备模拟和自动化验证场景。
 
-1. Navigate to your project directory in the terminal.
+MockTrue is a cross-platform embedded debugging toolkit for serial communication, protocol debugging, virtual device simulation, and automated validation workflows.
 
-2. To run your application in development mode, use the following command:
+## 功能特性 / Features
 
-   ```
-   wails3 dev
-   ```
+- 串口拓扑图：通过节点和连接线组织物理串口、虚拟串口、桥接、监控、分流、发送器和接收器。
+- 自动收发与演示工作区：示例配置基于真实功能构建，可使用虚拟串口循环运行数据。
+- 串口监控：自动创建虚拟监听端口，按实际时间记录收发帧。
+- Modbus 支持：支持 Modbus RTU/ASCII 主站、从站、多 Unit ID、寄存器表格和原始帧显示。
+- FECbus 支持：支持 FECbus 主从站、多从站、数据帧分段标注和自定义功能码。
+- 脚本节点：提供受限 MockTrue 脚本 API，用于生成、转换和分析串口数据。
+- MCP 服务：暴露串口和运行时能力，便于外部工具和自动化流程集成。
+- 配置工作区：每个标签页可独立保存、加载和恢复配置。
 
-   This will start your application and enable hot-reloading for both frontend and backend changes.
+## 技术栈 / Tech Stack
 
-3. To build your application for production, use:
+- Desktop: Wails v3
+- Backend: Go
+- Frontend: Vue 3, TypeScript, Vite, Naive UI, Pinia, Monaco Editor
+- Tests: Vitest, Playwright, Go test
+- CI: GitHub Actions
 
-   ```
-   wails3 build
-   ```
+## 环境要求 / Requirements
 
-   This will create a production-ready executable in the `build` directory.
+- Go `1.26.0`，以 `go.mod` 为准
+- Node.js `22`，与 CI 配置一致
+- pnpm `10.32.1`
+- Wails CLI v3 alpha
 
-## Exploring Wails3 Features
+安装 Wails CLI：
 
-Now that you have your project set up, it's time to explore the features that Wails3 offers:
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.103
+```
 
-1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
+安装前端依赖：
 
-2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
+```bash
+cd frontend
+pnpm install
+```
 
-   ```
-   go run .
-   ```
+## 开发 / Development
 
-   Note: Some examples may be under development during the alpha phase.
+从仓库根目录启动桌面应用：
 
-3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
+```bash
+wails3 dev -config ./build/config.yml -port 9245
+```
 
-4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
+也可以使用 Taskfile：
 
-## Project Structure
+```bash
+wails3 task dev
+```
 
-Take a moment to familiarize yourself with your project structure:
+构建和打包：
 
-- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
-- `main.go`: The entry point of your Go backend
-- `app.go`: Define your application structure and methods here
-- `wails.json`: Configuration file for your Wails project
+```bash
+wails3 task build
+wails3 task package
+```
 
-## Next Steps
+运行服务端模式：
 
-1. Modify the frontend in the `frontend/` directory to create your desired UI.
-2. Add backend functionality in `main.go`.
-3. Use `wails3 dev` to see your changes in real-time.
-4. When ready, build your application with `wails3 build`.
+```bash
+wails3 task run:server
+```
 
-Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.
+## 测试 / Tests
+
+前端测试：
+
+```bash
+cd frontend
+pnpm test -- --run
+pnpm exec vue-tsc --noEmit
+pnpm run build:dev
+```
+
+后端串口模块测试：
+
+```bash
+go test ./internal/modules/serial/... -count=1
+```
+
+完整 Go 测试：
+
+```bash
+go test ./... -count=1
+```
+
+## 项目结构 / Project Structure
+
+```text
+.
+├── build/                 # Wails build configuration and platform tasks
+├── docs/                  # Design notes and planning documents
+├── frontend/              # Vue/TypeScript frontend
+├── internal/modules/      # Backend modules, including serial, Modbus, FECbus, MCP
+├── main.go                # Application entry point
+├── Taskfile.yml           # Development, build, package, and server tasks
+└── README.md
+```
+
+## 贡献 / Contributing
+
+请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。提交变更前至少运行与改动相关的测试；涉及前端或后端公共能力时，同时运行类型检查和构建检查。
+
+安全问题请按 [SECURITY.md](SECURITY.md) 报告，不要在公开 issue 中披露敏感细节。
+
+## 许可证 / License
+
+MockTrue is licensed under the [MIT License](LICENSE).

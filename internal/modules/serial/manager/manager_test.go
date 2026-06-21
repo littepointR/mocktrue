@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 )
 
 func TestManagerOpenRejectsEmptyPortName(t *testing.T) {

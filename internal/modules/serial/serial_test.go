@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	mterrors "github.com/suyue/mocktrue/internal/core/errors"
-	"github.com/suyue/mocktrue/internal/core/eventbus"
-	"github.com/suyue/mocktrue/internal/modules/serial/buffer"
-	"github.com/suyue/mocktrue/internal/modules/serial/manager"
-	"github.com/suyue/mocktrue/internal/modules/serial/port"
+	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
+	"github.com/littepointR/mocktrue/internal/core/eventbus"
+	"github.com/littepointR/mocktrue/internal/modules/serial/buffer"
+	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
+	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 )
 
 func TestIDAndManifest(t *testing.T) {

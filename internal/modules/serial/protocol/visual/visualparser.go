@@ -3,7 +3,7 @@ package visual
 import (
 	"fmt"
 
-	"github.com/suyue/mocktrue/internal/modules/serial/protocol"
+	"github.com/littepointR/mocktrue/internal/modules/serial/protocol"
 )
 
 // VisualParser parses frames based on a FrameSpec configuration.

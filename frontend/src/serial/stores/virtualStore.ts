@@ -8,7 +8,7 @@ import {
   DeleteBridge,
   ListBridges,
   CleanupVirtual,
-} from '../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js'
+} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
 
 export interface VirtualPort {
   ID: string

@@ -6,15 +6,15 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	coreapp "github.com/suyue/mocktrue/internal/core/app"
-	"github.com/suyue/mocktrue/internal/core/config"
-	"github.com/suyue/mocktrue/internal/core/logging"
-	"github.com/suyue/mocktrue/internal/core/module"
-	"github.com/suyue/mocktrue/internal/core/platform"
-	runtimemetrics "github.com/suyue/mocktrue/internal/core/runtime"
-	"github.com/suyue/mocktrue/internal/core/workspace"
-	"github.com/suyue/mocktrue/internal/modules/mcpserver"
-	"github.com/suyue/mocktrue/internal/modules/serial"
+	coreapp "github.com/littepointR/mocktrue/internal/core/app"
+	"github.com/littepointR/mocktrue/internal/core/config"
+	"github.com/littepointR/mocktrue/internal/core/logging"
+	"github.com/littepointR/mocktrue/internal/core/module"
+	"github.com/littepointR/mocktrue/internal/core/platform"
+	runtimemetrics "github.com/littepointR/mocktrue/internal/core/runtime"
+	"github.com/littepointR/mocktrue/internal/core/workspace"
+	"github.com/littepointR/mocktrue/internal/modules/mcpserver"
+	"github.com/littepointR/mocktrue/internal/modules/serial"
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the

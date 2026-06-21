@@ -360,11 +360,74 @@ describe('SerialGraphPanel', () => {
     expect(input.classes()).toContain('serial-graph__port--connected')
   })
 
-  it('shows all connected edge colors on ports with multiple connections', () => {
+  it('changes colors at each node endpoint while keeping each endpoint consistent', () => {
     const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const virtualPort = store.addNode('serial.virtual')
     const tap = store.addNode('serial.tap')
     const receiverA = store.addNode('serial.receiver')
     const receiverB = store.addNode('serial.receiver')
+    const senderToVirtual = store.connect(sender.id, 'out', virtualPort.id, 'tx')
+    const virtualToTap = store.connect(virtualPort.id, 'rx', tap.id, 'in')
+    const tapToReceiverA = store.connect(tap.id, 'out', receiverA.id, 'in')
+    const tapToReceiverB = store.connect(tap.id, 'out', receiverB.id, 'in')
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${senderToVirtual?.id}"]`).attributes('style')).toContain('--edge-color: #4fc3f7')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${virtualToTap?.id}"]`).attributes('style')).toContain('--edge-color: #ffb74d')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${tapToReceiverA?.id}"]`).attributes('style')).toContain('--edge-color: #81c784')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${tapToReceiverB?.id}"]`).attributes('style')).toContain('--edge-color: #81c784')
+    expect(wrapper.find(`[data-testid="serial-graph-input-${virtualPort.id}-tx"]`).attributes('style')).toContain('--port-edge-color: #4fc3f7')
+    expect(wrapper.find(`[data-testid="serial-graph-output-${virtualPort.id}-rx"]`).attributes('style')).toContain('--port-edge-color: #ffb74d')
+    expect(wrapper.find(`[data-testid="serial-graph-input-${tap.id}-in"]`).attributes('style')).toContain('--port-edge-color: #ffb74d')
+    expect(wrapper.find(`[data-testid="serial-graph-output-${tap.id}-out"]`).attributes('style')).toContain('--port-edge-color: #81c784')
+    expect(wrapper.find(`[data-testid="serial-graph-output-${tap.id}-out"]`).attributes('style')).toContain('--port-edge-marker: #81c784')
+  })
+
+  it('uses different colors for independent data paths', () => {
+    const store = useSerialGraphStore()
+    const senderA = store.addNode('serial.sender')
+    const receiverA = store.addNode('serial.receiver')
+    const senderB = store.addNode('serial.sender')
+    const receiverB = store.addNode('serial.receiver')
+    const first = store.connect(senderA.id, 'out', receiverA.id, 'in')
+    const second = store.connect(senderB.id, 'out', receiverB.id, 'in')
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${first?.id}"]`).attributes('style')).toContain('--edge-color: #4fc3f7')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${second?.id}"]`).attributes('style')).toContain('--edge-color: #ffb74d')
+  })
+
+  it('keeps every bridge endpoint visually distinct unless the same endpoint has multiple lines', () => {
+    const store = useSerialGraphStore()
+    const senderA = store.addNode('serial.sender')
+    const receiverA = store.addNode('serial.receiver')
+    const senderB = store.addNode('serial.sender')
+    const receiverB = store.addNode('serial.receiver')
+    const bridge = store.addNode('serial.bridge')
+    const firstInput = store.connect(senderA.id, 'out', bridge.id, 'a-in')
+    const firstOutput = store.connect(bridge.id, 'b-out', receiverA.id, 'in')
+    const secondInput = store.connect(senderB.id, 'out', bridge.id, 'b-in')
+    const secondOutput = store.connect(bridge.id, 'a-out', receiverB.id, 'in')
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${firstInput?.id}"]`).attributes('style')).toContain('--edge-color: #4fc3f7')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${firstOutput?.id}"]`).attributes('style')).toContain('--edge-color: #ffb74d')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${secondInput?.id}"]`).attributes('style')).toContain('--edge-color: #81c784')
+    expect(wrapper.find(`[data-testid="serial-graph-edge-line-${secondOutput?.id}"]`).attributes('style')).toContain('--edge-color: #ba68c8')
+    expect(wrapper.find(`[data-testid="serial-graph-input-${bridge.id}-a-in"]`).attributes('style')).toContain('--port-edge-color: #4fc3f7')
+    expect(wrapper.find(`[data-testid="serial-graph-output-${bridge.id}-b-out"]`).attributes('style')).toContain('--port-edge-color: #ffb74d')
+    expect(wrapper.find(`[data-testid="serial-graph-input-${bridge.id}-b-in"]`).attributes('style')).toContain('--port-edge-color: #81c784')
+    expect(wrapper.find(`[data-testid="serial-graph-output-${bridge.id}-a-out"]`).attributes('style')).toContain('--port-edge-color: #ba68c8')
+  })
+
+  it('shows the shared endpoint color on ports with multiple connections', () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const tap = store.addNode('serial.tap')
+    const receiverA = store.addNode('serial.receiver')
+    const receiverB = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', tap.id, 'in')
     store.connect(tap.id, 'out', receiverA.id, 'in')
     store.connect(tap.id, 'out', receiverB.id, 'in')
     const wrapper = mount(SerialGraphPanel)
@@ -372,8 +435,8 @@ describe('SerialGraphPanel', () => {
     const output = wrapper.find(`[data-testid="serial-graph-output-${tap.id}-out"]`)
 
     expect(output.classes()).toContain('serial-graph__port--multi-connected')
-    expect(output.attributes('style')).toContain('--port-edge-color: #4fc3f7')
-    expect(output.attributes('style')).toContain('--port-edge-marker: linear-gradient(90deg, #4fc3f7 0% 50%, #ffb74d 50% 100%)')
+    expect(output.attributes('style')).toContain('--port-edge-color: #ffb74d')
+    expect(output.attributes('style')).toContain('--port-edge-marker: #ffb74d')
   })
 
   it('selects and deletes a connection line from the bottom details area', async () => {
@@ -512,6 +575,78 @@ describe('SerialGraphPanel', () => {
     wrapper.unmount()
   })
 
+  it('shows only node-appropriate operation panes and counters for every graph node type', async () => {
+    const cases = [
+      { type: 'serial.physical', send: false, buffer: true, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.virtual', send: false, buffer: true, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.bridge', send: false, buffer: false, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.monitor', send: false, buffer: false, frames: true, counters: ['RX'] },
+      { type: 'serial.tap', send: false, buffer: false, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.tee', send: false, buffer: false, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.sender', send: true, buffer: false, frames: false, counters: ['TX'] },
+      { type: 'serial.receiver', send: false, buffer: true, frames: false, counters: ['RX'] },
+      { type: 'serial.modbus.master', send: true, buffer: true, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.modbus.slave', send: false, buffer: true, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.fecbus.master', send: true, buffer: true, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.fecbus.slave', send: false, buffer: true, frames: false, counters: ['RX', 'TX'] },
+    ]
+    const store = useSerialGraphStore()
+    const nodes = cases.map(item => store.addNode(item.type))
+    const statuses = nodes.map((node, index) => ({
+      ID: node.id,
+      Type: node.type,
+      Status: 'running',
+      RxBytes: 100 + index,
+      TxBytes: 200 + index,
+      FrameCount: node.type === 'serial.monitor' ? 3 : 0,
+      ResourceID: '',
+      Error: '',
+    }))
+    const info = {
+      ID: 'graph-1',
+      Status: 'running',
+      Error: '',
+      Nodes: statuses,
+    }
+    bindings.StartSerialGraph.mockResolvedValue(info)
+    bindings.GetSerialGraphStatus.mockResolvedValue(info)
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+
+    for (const [index, item] of cases.entries()) {
+      const node = nodes[index]
+      const status = statuses[index]
+      store.selectNode(node.id)
+      await nextTick()
+
+      const content = wrapper.find('[data-testid="serial-graph-node-content"]')
+      const statusGridText = content.find('.serial-graph__status-grid--content').text()
+      const cardStatusText = wrapper.find(`[data-testid="serial-graph-node-${node.id}"] .serial-graph__node-status`).text()
+
+      expect(wrapper.find('[data-testid="serial-graph-content-send"]').exists(), `${item.type} send pane`).toBe(item.send)
+      expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').exists(), `${item.type} receive buffer`).toBe(item.buffer)
+      expect(wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').exists(), `${item.type} frame pane`).toBe(item.frames)
+
+      for (const label of ['RX', 'TX']) {
+        const expected = item.counters.includes(label)
+        expect(statusGridText.includes(label), `${item.type} content ${label}`).toBe(expected)
+        expect(cardStatusText.includes(label), `${item.type} card ${label}`).toBe(expected)
+      }
+      if (item.counters.includes('RX')) {
+        expect(statusGridText).toContain(String(status.RxBytes))
+        expect(cardStatusText).toContain(`RX ${status.RxBytes}`)
+      }
+      if (item.counters.includes('TX')) {
+        expect(statusGridText).toContain(String(status.TxBytes))
+        expect(cardStatusText).toContain(`TX ${status.TxBytes}`)
+      }
+    }
+
+    wrapper.unmount()
+  })
+
   it('auto-scrolls receiver buffers only when autoScroll is enabled', async () => {
     const store = useSerialGraphStore()
     const sender = store.addNode('serial.sender')
@@ -592,14 +727,24 @@ describe('SerialGraphPanel', () => {
       NodeID: sender.id,
       Content: 'hello',
     }))
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('TX')
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).not.toContain('RX')
+    expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').exists()).toBe(false)
+    expect(wrapper.find(`[data-testid="serial-graph-node-${sender.id}"]`).text()).toContain('TX 5')
+    expect(wrapper.find(`[data-testid="serial-graph-node-${sender.id}"]`).text()).not.toContain('RX')
 
     store.selectNode(receiver.id)
     await nextTick()
     await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
     await nextTick()
 
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('RX')
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).not.toContain('TX')
+    expect(wrapper.find('[data-testid="serial-graph-content-send"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()).toContain('hello')
     expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').classes()).toContain('serial-graph__buffer--content')
+    expect(wrapper.find(`[data-testid="serial-graph-node-${receiver.id}"]`).text()).toContain('RX 5')
+    expect(wrapper.find(`[data-testid="serial-graph-node-${receiver.id}"]`).text()).not.toContain('TX')
     expect(wrapper.find('[data-testid="serial-graph-send"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="serial-graph-node-buffer"]').exists()).toBe(false)
 

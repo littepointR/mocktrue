@@ -4,6 +4,7 @@ import { useSerialGraphStore } from '../stores/graphStore'
 import {
   providerByType,
   serialGraphProviders,
+  type SerialGraphEdge,
   type SerialGraphNode,
   type SerialGraphPortSpec,
 } from '../graph/serialGraph'
@@ -121,6 +122,7 @@ const workbenchStyle = computed(() => {
   }
   return undefined
 })
+const edgeNetworkColors = computed(() => buildEndpointNetworkColors(panelEdges.value))
 
 function addNode(type: string) {
   const graphId = panelGraphDocumentId()
@@ -349,16 +351,39 @@ function closeNodeTab(nodeId: string) {
 function nodeRuntimeSummary(node: SerialGraphNode): string {
   const status = panelRuntime.value.nodeStatuses.get(node.id)
   if (!status) return node.status ?? 'idle'
-  return `${status.Status} RX ${status.RxBytes} TX ${status.TxBytes}`
+  const counters = runtimeCounterItems(node, status.RxBytes, status.TxBytes)
+  return [status.Status, ...counters.map(counter => `${counter.label} ${counter.value}`)].join(' ')
 }
 
-function supportsSend(node: SerialGraphNode): boolean {
+function selectedRuntimeCounterItems(): Array<{ label: string; value: number }> {
+  if (!selectedNode.value) return []
+  return runtimeCounterItems(
+    selectedNode.value,
+    selectedStatus.value?.RxBytes ?? 0,
+    selectedStatus.value?.TxBytes ?? 0
+  )
+}
+
+function runtimeCounterItems(node: SerialGraphNode, rxBytes: number, txBytes: number): Array<{ label: string; value: number }> {
+  const provider = providerByType(node.type)
+  const items: Array<{ label: string; value: number }> = []
+  if ((provider?.inputs.length ?? 0) > 0) {
+    items.push({ label: 'RX', value: rxBytes })
+  }
+  if ((provider?.outputs.length ?? 0) > 0) {
+    items.push({ label: 'TX', value: txBytes })
+  }
+  if (items.length === 0) {
+    return [{ label: 'RX', value: rxBytes }]
+  }
+  return items
+}
+
+function supportsManualSend(node: SerialGraphNode): boolean {
   return [
     'serial.sender',
     'serial.modbus.master',
-    'serial.modbus.slave',
     'serial.fecbus.master',
-    'serial.fecbus.slave',
   ].includes(node.type)
 }
 
@@ -648,18 +673,22 @@ function edgeTitle(edge: { source: string; sourceHandle: string; target: string;
 }
 
 function edgeColor(edgeId: string): string {
-  const index = panelEdges.value.findIndex(edge => edge.id === edgeId)
-  return edgePalette[Math.max(0, index) % edgePalette.length]
+  return edgeNetworkColors.value.get(edgeId) ?? edgePalette[0]
 }
 
-function portEdgeColors(nodeId: string, handleId: string, direction: 'input' | 'output'): string[] {
+function connectedPortEdges(nodeId: string, handleId: string, direction: 'input' | 'output'): SerialGraphEdge[] {
   return panelEdges.value
     .filter(edge => (
       direction === 'input'
         ? edge.target === nodeId && edge.targetHandle === handleId
         : edge.source === nodeId && edge.sourceHandle === handleId
     ))
-    .map(edge => edgeColor(edge.id))
+}
+
+function portEdgeColors(nodeId: string, handleId: string, direction: 'input' | 'output'): string[] {
+  return Array.from(new Set(
+    connectedPortEdges(nodeId, handleId, direction).map(edge => edgeColor(edge.id))
+  ))
 }
 
 function portEdgeMarker(colors: string[]): string {
@@ -684,12 +713,82 @@ function portStyle(nodeId: string, handleId: string, direction: 'input' | 'outpu
 }
 
 function portClasses(nodeId: string, handleId: string, direction: 'input' | 'output'): Record<string, boolean> {
-  const count = portEdgeColors(nodeId, handleId, direction).length
+  const count = connectedPortEdges(nodeId, handleId, direction).length
   return {
     'serial-graph__port--connected': count > 0,
     'serial-graph__port--multi-connected': count > 1,
     'serial-graph__port--pending': direction === 'output' && isPendingOutput(nodeId, handleId),
   }
+}
+
+function buildEndpointNetworkColors(edges: SerialGraphEdge[]): Map<string, string> {
+  const parent = new Map<string, string>()
+  for (const edge of edges) {
+    parent.set(edge.id, edge.id)
+  }
+
+  const find = (edgeId: string): string => {
+    const next = parent.get(edgeId)
+    if (!next || next === edgeId) return edgeId
+    const root = find(next)
+    parent.set(edgeId, root)
+    return root
+  }
+  const union = (first: string, second: string) => {
+    const firstRoot = find(first)
+    const secondRoot = find(second)
+    if (firstRoot !== secondRoot) {
+      parent.set(secondRoot, firstRoot)
+    }
+  }
+  const unionAll = (items: SerialGraphEdge[]) => {
+    const [first, ...rest] = items
+    if (!first) return
+    for (const edge of rest) {
+      union(first.id, edge.id)
+    }
+  }
+
+  const incomingByPort = new Map<string, SerialGraphEdge[]>()
+  const outgoingByPort = new Map<string, SerialGraphEdge[]>()
+  for (const edge of edges) {
+    addPortEdge(outgoingByPort, edge.source, edge.sourceHandle, edge)
+    addPortEdge(incomingByPort, edge.target, edge.targetHandle, edge)
+  }
+
+  for (const outgoingEdges of outgoingByPort.values()) {
+    unionAll(outgoingEdges)
+  }
+  for (const incomingEdges of incomingByPort.values()) {
+    unionAll(incomingEdges)
+  }
+
+  const colorsByRoot = new Map<string, string>()
+  const colorsByEdge = new Map<string, string>()
+  for (const edge of edges) {
+    const root = find(edge.id)
+    if (!colorsByRoot.has(root)) {
+      colorsByRoot.set(root, edgePalette[colorsByRoot.size % edgePalette.length])
+    }
+    colorsByEdge.set(edge.id, colorsByRoot.get(root) ?? edgePalette[0])
+  }
+  return colorsByEdge
+}
+
+function addPortEdge(
+  portEdges: Map<string, SerialGraphEdge[]>,
+  nodeId: string,
+  handleId: string,
+  edge: SerialGraphEdge
+) {
+  const key = portKey(nodeId, handleId)
+  const edges = portEdges.get(key) ?? []
+  edges.push(edge)
+  portEdges.set(key, edges)
+}
+
+function portKey(nodeId: string, handleId: string): string {
+  return `${nodeId}:${handleId}`
 }
 
 function isPendingOutput(nodeId: string, handleId: string): boolean {
@@ -1025,12 +1124,15 @@ onUnmounted(() => {
           <div class="serial-graph__status-grid serial-graph__status-grid--content">
             <span>状态</span>
             <strong>{{ selectedStatus?.Status ?? selectedNode.status ?? 'idle' }}</strong>
-            <span>RX</span>
-            <strong>{{ selectedStatus?.RxBytes ?? 0 }}</strong>
-            <span>TX</span>
-            <strong>{{ selectedStatus?.TxBytes ?? 0 }}</strong>
+            <template
+              v-for="counter in selectedRuntimeCounterItems()"
+              :key="counter.label"
+            >
+              <span>{{ counter.label }}</span>
+              <strong>{{ counter.value }}</strong>
+            </template>
           </div>
-          <template v-if="supportsSend(selectedNode)">
+          <template v-if="supportsManualSend(selectedNode)">
             <div class="serial-graph__send-content">
               <label class="serial-graph__field">
                 <span>mode</span>

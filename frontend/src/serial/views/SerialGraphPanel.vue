@@ -499,6 +499,21 @@ function frameDisplay(frame: {
   }
 }
 
+function parsedFrameDisplay(frame: GraphFrame, node: SerialGraphNode | null): string {
+  const display = frameDisplay(frame)
+  if (!isModbusNode(node)) return display
+  return display.replace(/\s*\|\s*Raw\s+.*$/i, '').trim()
+}
+
+function rawFrameDisplay(frame: GraphFrame): string {
+  return frame.DisplayHex || rawFrameDisplayFromText(frame.DisplayText)
+}
+
+function rawFrameDisplayFromText(text?: string): string {
+  const match = text?.match(/(?:^|\|\s*)Raw\s+(.+)$/i)
+  return match?.[1]?.trim() ?? ''
+}
+
 function buildFrameRows(frames: GraphFrame[], node: SerialGraphNode | null) {
   let packetIndex = -1
   return frames.map((frame) => {
@@ -1329,6 +1344,7 @@ onUnmounted(() => {
                     <th>方向</th>
                     <th>长度</th>
                     <th>数据</th>
+                    <th v-if="isModbusNode(selectedNode)">原始数据</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1342,13 +1358,17 @@ onUnmounted(() => {
                     <td v-if="isModbusNode(selectedNode)">{{ row.packetLabel }}</td>
                     <td>{{ row.frame.Direction }}</td>
                     <td>{{ row.frame.Length }}</td>
-                    <td>
+                    <td class="serial-graph__frame-data">
                       <span
                         v-if="row.frame.Error"
                         class="serial-graph__frame-error-badge"
                       >错误</span>
-                      {{ frameDisplay(row.frame) }}
+                      {{ parsedFrameDisplay(row.frame, selectedNode) }}
                     </td>
+                    <td
+                      v-if="isModbusNode(selectedNode)"
+                      class="serial-graph__frame-raw"
+                    >{{ rawFrameDisplay(row.frame) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -2036,9 +2056,17 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--app-border, #2d2d2d);
   color: var(--app-text, #cccccc);
 }
-.serial-graph__frames td:last-child {
+.serial-graph__frame-data {
+  min-width: 360px;
   font-family: var(--terminal-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
   white-space: pre-wrap;
+}
+.serial-graph__frame-raw {
+  min-width: 220px;
+  font-family: var(--terminal-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--app-text-muted, #8b949e);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .serial-graph__frame-row--tx td:first-child {
   box-shadow: inset 3px 0 #f59e0b;

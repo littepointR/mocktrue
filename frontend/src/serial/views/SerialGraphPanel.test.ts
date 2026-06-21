@@ -594,11 +594,22 @@ describe('SerialGraphPanel', () => {
     expect(tableText).toContain('Read Holding Registers')
     expect(tableText).toContain('Address 0 Quantity 2')
     expect(tableText).toContain('Byte Count 4 Values 0, 0')
-    expect(tableText).toContain('Raw 03 03 00 00 00 02 c5 e9')
+    expect(tableText).toContain('原始数据')
+    expect(tableText).toContain('03 03 00 00 00 02 c5 e9')
+    expect(tableText).not.toContain('Raw 03 03 00 00 00 02 c5 e9')
     expect(tableText).not.toContain('Offset')
 
     const rows = wrapper.findAll('[data-testid="serial-graph-content-node-frame-row"]')
     expect(rows).toHaveLength(2)
+    const firstCells = rows[0].findAll('td').map(cell => cell.text())
+    expect(firstCells).toEqual([
+      '1',
+      '包 1',
+      '发送',
+      '8',
+      'Unit 3 | FC 03 Read Holding Registers | Address 0 Quantity 2 | CRC c5 e9',
+      '03 03 00 00 00 02 c5 e9',
+    ])
     expect(rows[0].classes()).toContain('serial-graph__frame-row--tx')
     expect(rows[1].classes()).toContain('serial-graph__frame-row--rx')
     const packetClass = rows[0].classes().find(item => item.startsWith('serial-graph__frame-row--packet-'))
@@ -634,9 +645,12 @@ describe('SerialGraphPanel', () => {
     await flushPromises()
 
     const row = wrapper.find('[data-testid="serial-graph-content-node-frame-row"]')
+    const cells = row.findAll('td').map(cell => cell.text())
     expect(row.classes()).toContain('serial-graph__frame-row--error')
-    expect(row.text()).toContain('错误')
-    expect(row.text()).toContain('Raw 01 03 00')
+    expect(cells[4]).toContain('错误')
+    expect(cells[4]).toContain('Modbus RTU | Invalid frame: rtu frame too short')
+    expect(cells[4]).not.toContain('Raw 01 03 00')
+    expect(cells[5]).toBe('01 03 00')
 
     wrapper.unmount()
   })

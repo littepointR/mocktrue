@@ -80,6 +80,9 @@ const selectedPayload = computed(() => String(selectedNode.value?.config.payload
 const selectedMode = computed(() => String(selectedNode.value?.config.mode ?? 'ascii'))
 const runtimeRunning = computed(() => panelRuntime.value.runtimeStatus === 'running')
 const activeGraphName = computed(() => panelGraph.value?.name ?? '')
+const showDetailsWorkbench = computed(() => (
+  panelNodeTabs.value.length > 0 || Boolean(selectedEdge.value) || panelValidation.value.errors.length > 0
+))
 
 function addNode(type: string) {
   const graphId = panelGraphDocumentId()
@@ -665,11 +668,14 @@ onUnmounted(() => {
         </article>
       </div>
       <section
-        v-if="panelNodeTabs.length > 0"
+        v-if="showDetailsWorkbench"
         class="serial-graph__node-workbench"
         data-testid="serial-graph-node-workbench"
       >
-        <div class="serial-graph__node-tabs">
+        <div
+          v-if="panelNodeTabs.length > 0"
+          class="serial-graph__node-tabs"
+        >
           <button
             v-for="tab in panelNodeTabs"
             :key="tab.nodeId"
@@ -696,6 +702,12 @@ onUnmounted(() => {
           class="serial-graph__node-content"
           data-testid="serial-graph-node-content"
         >
+          <div class="serial-graph__node-content-header">
+            <div>
+              <h3>{{ selectedProvider?.title ?? selectedNode.type }}</h3>
+              <p>{{ selectedProvider?.description ?? selectedNode.type }}</p>
+            </div>
+          </div>
           <div class="serial-graph__status-grid serial-graph__status-grid--content">
             <span>状态</span>
             <strong>{{ selectedStatus?.Status ?? selectedNode.status ?? 'idle' }}</strong>
@@ -793,185 +805,120 @@ onUnmounted(() => {
               </tbody>
             </table>
           </template>
+          <section
+            v-if="selectedConfigEntries.length > 0"
+            class="serial-graph__config-section"
+          >
+            <div class="serial-graph__section-title">配置</div>
+            <div class="serial-graph__config-grid">
+              <label
+                v-for="[key, value] in selectedConfigEntries"
+                :key="key"
+                class="serial-graph__field"
+              >
+                <span>{{ key }}</span>
+                <input
+                  v-if="typeof value === 'boolean'"
+                  type="checkbox"
+                  :checked="value"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @change="updateConfig(key, ($event.target as HTMLInputElement).checked)"
+                >
+                <input
+                  v-else-if="typeof value === 'number'"
+                  type="number"
+                  :value="value"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @input="updateConfig(key, ($event.target as HTMLInputElement).value)"
+                >
+                <select
+                  v-else-if="key === 'mode' || key === 'viewMode'"
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="ascii">ascii</option>
+                  <option value="hex">hex</option>
+                  <option value="rtu">rtu</option>
+                </select>
+                <input
+                  v-else
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @input="updateConfig(key, ($event.target as HTMLInputElement).value)"
+                >
+              </label>
+            </div>
+          </section>
+          <ul
+            v-if="panelValidation.errors.length > 0"
+            class="serial-graph__errors"
+          >
+            <li
+              v-for="error in panelValidation.errors"
+              :key="error"
+            >
+              {{ error }}
+            </li>
+          </ul>
+        </div>
+        <div
+          v-else-if="selectedEdge"
+          class="serial-graph__node-content"
+          data-testid="serial-graph-edge-content"
+        >
+          <div class="serial-graph__node-content-header">
+            <div>
+              <h3>连接线</h3>
+              <p data-testid="serial-graph-selected-edge">{{ edgeTitle(selectedEdge) }}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="serial-graph__danger-button"
+            data-testid="serial-graph-delete-edge"
+            @click="removeSelectedEdge"
+          >
+            删除连接线
+          </button>
+          <ul
+            v-if="panelValidation.errors.length > 0"
+            class="serial-graph__errors"
+          >
+            <li
+              v-for="error in panelValidation.errors"
+              :key="error"
+            >
+              {{ error }}
+            </li>
+          </ul>
+        </div>
+        <div
+          v-else
+          class="serial-graph__node-content"
+          data-testid="serial-graph-validation-content"
+        >
+          <ul
+            v-if="panelValidation.errors.length > 0"
+            class="serial-graph__errors"
+          >
+            <li
+              v-for="error in panelValidation.errors"
+              :key="error"
+            >
+              {{ error }}
+            </li>
+          </ul>
         </div>
       </section>
     </main>
-
-    <aside class="serial-graph__inspector">
-      <div class="serial-graph__panel-title">配置</div>
-      <template v-if="selectedNode && selectedProvider">
-        <h3>{{ selectedProvider.title }}</h3>
-        <p>{{ selectedProvider.description }}</p>
-        <section class="serial-graph__runtime-panel">
-          <div class="serial-graph__section-title">运行</div>
-          <div class="serial-graph__status-grid">
-            <span>状态</span>
-            <strong data-testid="serial-graph-selected-status">{{ selectedStatus?.Status ?? selectedNode.status ?? 'idle' }}</strong>
-            <span>RX</span>
-            <strong>{{ selectedStatus?.RxBytes ?? 0 }}</strong>
-            <span>TX</span>
-            <strong>{{ selectedStatus?.TxBytes ?? 0 }}</strong>
-          </div>
-          <template v-if="supportsSend(selectedNode)">
-            <label class="serial-graph__field">
-              <span>mode</span>
-              <select
-                :value="selectedMode"
-                data-testid="serial-graph-send-mode"
-                @change="updateConfig('mode', ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="ascii">ascii</option>
-                <option value="hex">hex</option>
-              </select>
-            </label>
-            <label class="serial-graph__field">
-              <span>payload</span>
-              <textarea
-                :value="selectedPayload"
-                data-testid="serial-graph-send-payload"
-                @input="updateConfig('payload', ($event.target as HTMLTextAreaElement).value)"
-              />
-            </label>
-            <button
-              type="button"
-              data-testid="serial-graph-send"
-              :disabled="!runtimeRunning"
-              @click="sendSelectedNode"
-            >
-              发送
-            </button>
-          </template>
-          <template v-if="supportsBuffer(selectedNode)">
-            <div class="serial-graph__button-row">
-              <button
-                type="button"
-                data-testid="serial-graph-refresh-buffer"
-                :disabled="!runtimeRunning"
-                @click="refreshSelectedBuffer"
-              >
-                刷新
-              </button>
-              <button
-                type="button"
-                data-testid="serial-graph-clear-buffer"
-                :disabled="!runtimeRunning"
-                @click="clearSelectedBuffer"
-              >
-                清空
-              </button>
-              <button
-                type="button"
-                data-testid="serial-graph-reset-counters"
-                :disabled="!runtimeRunning"
-                @click="resetSelectedCounters"
-              >
-                复位计数
-              </button>
-            </div>
-            <pre
-              class="serial-graph__buffer"
-              data-testid="serial-graph-node-buffer"
-            >{{ selectedBufferText }}</pre>
-          </template>
-          <template v-if="supportsFrames(selectedNode)">
-            <button
-              type="button"
-              data-testid="serial-graph-refresh-frames"
-              :disabled="!runtimeRunning"
-              @click="refreshSelectedFrames"
-            >
-              刷新帧
-            </button>
-            <table
-              class="serial-graph__frames"
-              data-testid="serial-graph-node-frames"
-            >
-              <tbody>
-                <tr
-                  v-for="frame in selectedFrames"
-                  :key="frame.Seq"
-                >
-                  <td>{{ frame.Seq }}</td>
-                  <td>{{ frame.Direction }}</td>
-                  <td>{{ frame.Length }}</td>
-                  <td>{{ frame.DisplayHex || frame.DisplayText }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </template>
-        </section>
-        <div class="serial-graph__section-title">配置</div>
-        <label
-          v-for="[key, value] in selectedConfigEntries"
-          :key="key"
-          class="serial-graph__field"
-        >
-          <span>{{ key }}</span>
-          <input
-            v-if="typeof value === 'boolean'"
-            type="checkbox"
-            :checked="value"
-            @change="updateConfig(key, ($event.target as HTMLInputElement).checked)"
-          >
-          <input
-            v-else-if="typeof value === 'number'"
-            type="number"
-            :value="value"
-            @input="updateConfig(key, ($event.target as HTMLInputElement).value)"
-          >
-          <select
-            v-else-if="key === 'mode' || key === 'viewMode'"
-            :value="String(value)"
-            @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="ascii">ascii</option>
-            <option value="hex">hex</option>
-            <option value="rtu">rtu</option>
-          </select>
-          <input
-            v-else
-            :value="String(value)"
-            @input="updateConfig(key, ($event.target as HTMLInputElement).value)"
-          >
-        </label>
-      </template>
-      <template v-else-if="selectedEdge">
-        <h3>连接线</h3>
-        <p data-testid="serial-graph-selected-edge">{{ edgeTitle(selectedEdge) }}</p>
-        <button
-          type="button"
-          class="serial-graph__danger-button"
-          data-testid="serial-graph-delete-edge"
-          @click="removeSelectedEdge"
-        >
-          删除连接线
-        </button>
-      </template>
-      <p
-        v-else
-        class="serial-graph__empty"
-      >
-        选择节点
-      </p>
-      <ul
-        v-if="panelValidation.errors.length > 0"
-        class="serial-graph__errors"
-      >
-        <li
-          v-for="error in panelValidation.errors"
-          :key="error"
-        >
-          {{ error }}
-        </li>
-      </ul>
-    </aside>
   </div>
 </template>
 
 <style scoped>
 .serial-graph {
   display: grid;
-  grid-template-columns: 190px minmax(360px, 1fr) 220px;
+  grid-template-columns: 190px minmax(360px, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -980,18 +927,11 @@ onUnmounted(() => {
   background: var(--app-bg, #1e1e1e);
   color: var(--app-text, #cccccc);
 }
-.serial-graph__palette,
-.serial-graph__inspector {
+.serial-graph__palette {
   min-width: 0;
   overflow: auto;
   background: var(--app-surface, #252526);
-}
-.serial-graph__palette {
   border-right: 1px solid var(--app-border, #2d2d2d);
-}
-.serial-graph__inspector {
-  border-left: 1px solid var(--app-border, #2d2d2d);
-  padding: 10px;
 }
 .serial-graph__panel-title {
   height: 32px;
@@ -1004,7 +944,7 @@ onUnmounted(() => {
   padding: 8px;
 }
 .serial-graph__provider-group h3,
-.serial-graph__inspector h3 {
+.serial-graph__node-content-header h3 {
   margin: 4px 0 8px;
   color: var(--app-text, #cccccc);
   font-size: 13px;
@@ -1069,7 +1009,7 @@ onUnmounted(() => {
   padding: 0 6px;
 }
 .serial-graph__toolbar button,
-.serial-graph__runtime-panel button {
+.serial-graph__node-content button {
   padding: 4px 8px;
   border: 1px solid var(--app-border, #2d2d2d);
   border-radius: 4px;
@@ -1079,7 +1019,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .serial-graph__toolbar button:disabled,
-.serial-graph__runtime-panel button:disabled {
+.serial-graph__node-content button:disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -1124,10 +1064,10 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 .serial-graph__node-workbench {
-  flex: 0 0 260px;
+  flex: 0 0 320px;
   display: flex;
   flex-direction: column;
-  min-height: 180px;
+  min-height: 220px;
   border-top: 1px solid var(--app-border, #2d2d2d);
   background: var(--app-bg, #1e1e1e);
 }
@@ -1182,6 +1122,19 @@ onUnmounted(() => {
   min-height: 0;
   padding: 10px;
   overflow: auto;
+}
+.serial-graph__node-content-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.serial-graph__node-content-header p {
+  margin: 0;
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .serial-graph__send-content {
   display: grid;
@@ -1287,12 +1240,6 @@ onUnmounted(() => {
   border-color: var(--app-accent, #007acc);
   color: var(--app-text, #ffffff);
 }
-.serial-graph__inspector p {
-  margin: 0 0 10px;
-  color: var(--app-text-muted, #858585);
-  font-size: 12px;
-  line-height: 1.4;
-}
 .serial-graph__field {
   display: block;
   margin-bottom: 8px;
@@ -1312,6 +1259,9 @@ onUnmounted(() => {
   background: var(--app-bg, #1e1e1e);
   color: var(--app-text, #cccccc);
 }
+.serial-graph__field input[type="checkbox"] {
+  width: auto;
+}
 .serial-graph__field select,
 .serial-graph__field textarea {
   width: 100%;
@@ -1328,16 +1278,21 @@ onUnmounted(() => {
   font-family: var(--terminal-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
 }
-.serial-graph__runtime-panel {
-  margin: 10px 0 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--app-border, #2d2d2d);
-}
 .serial-graph__section-title {
   margin: 8px 0;
   color: var(--app-text-muted, #858585);
   font-size: 12px;
   font-weight: 600;
+}
+.serial-graph__config-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--app-border, #2d2d2d);
+}
+.serial-graph__config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 12px;
 }
 .serial-graph__status-grid {
   display: grid;
@@ -1386,9 +1341,6 @@ onUnmounted(() => {
   padding: 4px;
   border-bottom: 1px solid var(--app-border, #2d2d2d);
   color: var(--app-text, #cccccc);
-}
-.serial-graph__empty {
-  padding: 10px 0;
 }
 .serial-graph__errors {
   margin: 12px 0 0;

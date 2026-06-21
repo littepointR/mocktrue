@@ -210,6 +210,7 @@ describe('SerialGraphPanel', () => {
     await wrapper.find('[data-testid="serial-graph-provider-serial.sender"]').trigger('click')
 
     const sender = store.nodes[0]
+    expect(wrapper.find('.serial-graph__inspector').exists()).toBe(false)
     expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(true)
     expect(wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"]`).text()).toContain('发送器')
     expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('payload')
@@ -259,7 +260,7 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find('[data-testid="serial-graph-edge-edge-1"]').exists()).toBe(true)
   })
 
-  it('selects and deletes a connection line from the inspector', async () => {
+  it('selects and deletes a connection line from the bottom details area', async () => {
     const store = useSerialGraphStore()
     const sender = store.addNode('serial.sender')
     const receiver = store.addNode('serial.receiver')
@@ -269,6 +270,8 @@ describe('SerialGraphPanel', () => {
     await wrapper.find(`[data-testid="serial-graph-edge-${edge?.id}"]`).trigger('click')
 
     expect(store.selectedEdgeId).toBe(edge?.id)
+    expect(wrapper.find('.serial-graph__inspector').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="serial-graph-selected-edge"]').text()).toContain(`${sender.id}.out`)
 
     await wrapper.find('[data-testid="serial-graph-delete-edge"]').trigger('click')
@@ -282,12 +285,10 @@ describe('SerialGraphPanel', () => {
     const port = store.addNode('serial.physical')
     const wrapper = mount(SerialGraphPanel)
 
-    const baudRateInput = wrapper.findAll('input').find(input => (
-      (input.element as HTMLInputElement).value === '115200'
-    ))
-    expect(baudRateInput).toBeTruthy()
+    const baudRateInput = wrapper.find('[data-testid="serial-graph-config-baudRate"]')
+    expect(baudRateInput.exists()).toBe(true)
 
-    await baudRateInput!.setValue('57600')
+    await baudRateInput.setValue('57600')
 
     expect(store.nodes.find(node => node.id === port.id)?.config.baudRate).toBe(57600)
     expect(typeof store.nodes.find(node => node.id === port.id)?.config.baudRate).toBe('number')
@@ -295,7 +296,7 @@ describe('SerialGraphPanel', () => {
     const receiver = store.addNode('serial.receiver')
     await nextTick()
 
-    const autoScrollInput = wrapper.find('input[type="checkbox"]')
+    const autoScrollInput = wrapper.find('[data-testid="serial-graph-config-autoScroll"]')
     expect(autoScrollInput.exists()).toBe(true)
 
     await autoScrollInput.setValue(false)
@@ -337,8 +338,8 @@ describe('SerialGraphPanel', () => {
     expect(bindings.StartSerialGraph).toHaveBeenCalled()
     expect(wrapper.find('[data-testid="serial-graph-runtime-status"]').text()).toBe('running')
 
-    await wrapper.find('[data-testid="serial-graph-send-payload"]').setValue('hello')
-    await wrapper.find('[data-testid="serial-graph-send"]').trigger('click')
+    await wrapper.find('[data-testid="serial-graph-content-send-payload"]').setValue('hello')
+    await wrapper.find('[data-testid="serial-graph-content-send"]').trigger('click')
 
     expect(bindings.SendSerialGraphNode).toHaveBeenCalledWith(expect.objectContaining({
       GraphID: 'graph-1',
@@ -348,10 +349,12 @@ describe('SerialGraphPanel', () => {
 
     store.selectNode(receiver.id)
     await nextTick()
-    await wrapper.find('[data-testid="serial-graph-refresh-buffer"]').trigger('click')
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
     await nextTick()
 
-    expect(wrapper.find('[data-testid="serial-graph-node-buffer"]').text()).toContain('hello')
+    expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()).toContain('hello')
+    expect(wrapper.find('[data-testid="serial-graph-send"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-node-buffer"]').exists()).toBe(false)
 
     wrapper.unmount()
   })
@@ -371,7 +374,7 @@ describe('SerialGraphPanel', () => {
       GraphID: 'graph-1',
       NodeID: receiver.id,
     }))
-    expect(wrapper.find('[data-testid="serial-graph-node-buffer"]').text()).toContain('hello')
+    expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()).toContain('hello')
 
     wrapper.unmount()
   })

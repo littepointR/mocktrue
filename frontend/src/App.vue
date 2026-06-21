@@ -240,10 +240,7 @@ async function saveGraphAs() {
         />
       </div>
       <Panel />
-      <StatusBar
-        :active-id="activeId"
-        :config-path="workspaceFile.activeDisplayPath"
-      />
+      <StatusBar :active-id="activeId" />
     </div>
   </NConfigProvider>
 </template>

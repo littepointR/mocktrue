@@ -48,8 +48,6 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   const currentPath = computed(() => activeState.value?.path ?? '')
   const sourceKind = computed(() => activeState.value?.sourceKind ?? 'empty')
   const isDirty = computed(() => Boolean(activeState.value && activeState.value.currentSnapshot !== activeState.value.savedSnapshot))
-  const displayPath = computed(() => currentPath.value)
-  const activeDisplayPath = computed(() => currentPath.value || '未保存')
 
   function graphState(graphId: string): GraphFileState | null {
     return states.value[graphId] ?? null
@@ -456,8 +454,6 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     lastError,
     sourceKind,
     isDirty,
-    displayPath,
-    activeDisplayPath,
     activeState,
     graphState,
     isGraphDirty,

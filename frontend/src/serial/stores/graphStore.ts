@@ -144,27 +144,20 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
   }
 
   async function removeGraph(id: string) {
-    if (graphs.value.length <= 1) return
     const runtime = runtimeStates.value[id]
     if (runtime?.runtimeGraphId && runtime.runtimeStatus === 'running') {
       await StopSerialGraph(runtime.runtimeGraphId)
     }
-    if (!graphs.value.some(graph => graph.id === id) || graphs.value.length <= 1) return
+    if (!graphs.value.some(graph => graph.id === id)) return
     removeGraphLocal(id)
   }
 
   function removeGraphLocal(id: string) {
     const remaining = graphs.value.filter(graph => graph.id !== id)
     delete runtimeStates.value[id]
-    if (remaining.length === 0) {
-      const graph = defaultSerialGraphDocument()
-      graphs.value = [graph]
-      activeGraphId.value = graph.id
-      return
-    }
     graphs.value = remaining
-    if (activeGraphId.value === id) {
-      activeGraphId.value = remaining[0].id
+    if (activeGraphId.value === id || (activeGraphId.value && !remaining.some(graph => graph.id === activeGraphId.value))) {
+      activeGraphId.value = remaining[0]?.id ?? null
     }
   }
 

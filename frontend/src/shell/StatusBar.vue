@@ -7,7 +7,6 @@ const props = defineProps<{
   activeId: string | null
   runtimeMetrics?: RuntimeMetrics | null
   mcpStatus?: MCPStatus | null
-  configPath?: string
 }>()
 
 const sampledMetrics = ref<RuntimeMetrics | null>(props.runtimeMetrics ?? null)
@@ -19,7 +18,6 @@ const metrics = computed(() => props.runtimeMetrics ?? sampledMetrics.value)
 const mcpStatus = computed(() => props.mcpStatus ?? sampledMCPStatus.value)
 const cpuText = computed(() => `${formatPercent(metrics.value?.CPUPercent ?? 0)}`)
 const memoryText = computed(() => formatBytes(metrics.value?.MemoryBytes ?? 0))
-const configPathText = computed(() => props.configPath || '未保存')
 const mcpText = computed(() => {
   const status = mcpStatus.value
   if (!status?.Enabled) return null
@@ -82,7 +80,6 @@ function formatBytes(value: number): string {
     <span class="status-bar__left">MockTrue v0.1.0</span>
     <span class="status-bar__right">
       <span class="status-bar__metrics">CPU {{ cpuText }} · 内存 {{ memoryText }}</span>
-      <span class="status-bar__config" :title="configPathText">配置 {{ configPathText }}</span>
       <span v-if="mcpText" class="status-bar__mcp">{{ mcpText }}</span>
       <span class="status-bar__active">{{ activeId ?? '—' }}</span>
     </span>
@@ -111,12 +108,6 @@ function formatBytes(value: number): string {
 .status-bar__metrics {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-.status-bar__config {
-  max-width: min(34vw, 520px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .status-bar__mcp {
   white-space: nowrap;

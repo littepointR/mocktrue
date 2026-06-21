@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SerialView from './SerialView.vue'
 import { useSerialWorkspaceStore } from '../stores/workspaceStore'
 import { useSerialGraphStore } from '../stores/graphStore'
@@ -11,6 +11,10 @@ import { useWorkspaceFileStore } from '../../workspace/stores/workspaceFileStore
 describe('SerialView graph workspace layout', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('uses persisted graph editor layout after remounting', async () => {
@@ -184,7 +188,7 @@ describe('SerialView graph workspace layout', () => {
     }
   })
 
-  it('closes the last graph editor tab without deleting its graph document', async () => {
+  it('closes the last graph editor tab and leaves an empty editor area', async () => {
     const graph = useSerialGraphStore()
     graph.restoreState({
       graphs: [defaultSerialGraphDocument('graph-1', '唯一拓扑')],
@@ -200,13 +204,46 @@ describe('SerialView graph workspace layout', () => {
     await wrapper.find('[data-testid="close-graph-graph-1"]').trigger('click')
     await nextTick()
 
-    expect(graph.graphList).toEqual([{ id: 'graph-1', name: '唯一拓扑' }])
+    expect(graph.graphList).toEqual([])
+    expect(graph.activeGraphId).toBeNull()
+    expect(wrapper.find('.serial-view__empty').exists()).toBe(true)
     const workspace = useSerialWorkspaceStore()
     expect(workspace.editorLayout.type).toBe('group')
     if (workspace.editorLayout.type === 'group') {
       expect(workspace.editorLayout.tabs).toEqual([])
       expect(workspace.activeByGroup[workspace.editorLayout.id]).toBeNull()
     }
+  })
+
+  it('asks before closing a graph editor tab with unsaved changes', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    graph.renameGraph('graph-1', '未保存拓扑')
+    files.markClean('/tmp/dirty.mocktrue.json', { clean: true }, 'graph-1')
+    graph.addNode('serial.sender')
+    files.syncGraphSnapshot('graph-1')
+    const confirm = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    vi.stubGlobal('confirm', confirm)
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs },
+    })
+    await nextTick()
+
+    await wrapper.find('[data-testid="close-graph-graph-1"]').trigger('click')
+    await nextTick()
+
+    expect(confirm).toHaveBeenCalledWith('当前标签页有未保存的配置，确定关闭吗？')
+    expect(graph.graphList).toEqual([{ id: 'graph-1', name: '未保存拓扑' }])
+
+    await wrapper.find('[data-testid="close-graph-graph-1"]').trigger('click')
+    await nextTick()
+
+    expect(graph.graphList).toEqual([])
+    expect(files.graphState('graph-1')).toBeNull()
   })
 })
 

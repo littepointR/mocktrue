@@ -77,11 +77,10 @@ describe('StatusBar', () => {
     expect(wrapper.find('.status-bar__left').text()).toContain('MockTrue v0.1.0')
   })
 
-  it('renders the current workspace file path', () => {
+  it('does not render graph config file state in the status bar', () => {
     const wrapper = mount(StatusBar, {
       props: {
         activeId: 'settings',
-        configPath: '/tmp/mocktrue-session.json',
         runtimeMetrics: {
           CPUPercent: 0,
           MemoryBytes: 0,
@@ -89,38 +88,6 @@ describe('StatusBar', () => {
       },
     })
 
-    expect(wrapper.find('.status-bar__config').text()).toBe('配置 /tmp/mocktrue-session.json')
-    expect(wrapper.find('.status-bar__config').attributes('title')).toBe('/tmp/mocktrue-session.json')
-  })
-
-  it('shows an empty config path placeholder before a workspace file is selected', () => {
-    const wrapper = mount(StatusBar, {
-      props: {
-        activeId: 'settings',
-        configPath: '',
-        runtimeMetrics: {
-          CPUPercent: 0,
-          MemoryBytes: 0,
-        },
-      },
-    })
-
-    expect(wrapper.find('.status-bar__config').text()).toBe('配置 未保存')
-  })
-
-  it('renders the current config location when provided', () => {
-    const wrapper = mount(StatusBar, {
-      props: {
-        activeId: 'settings',
-        configPath: '/tmp/example.mocktrue.json',
-        runtimeMetrics: {
-          CPUPercent: 0,
-          MemoryBytes: 0,
-        },
-      },
-    })
-
-    expect(wrapper.find('.status-bar__config').text()).toBe('配置 /tmp/example.mocktrue.json')
-    expect(wrapper.find('.status-bar__config').attributes('title')).toBe('/tmp/example.mocktrue.json')
+    expect(wrapper.find('.status-bar__config').exists()).toBe(false)
   })
 })

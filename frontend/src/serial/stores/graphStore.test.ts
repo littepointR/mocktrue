@@ -291,7 +291,20 @@ describe('serial graph store', () => {
     expect(store.runtimeStatus).toBe('idle')
   })
 
-  it('does not replace the last remaining graph after an async remove race', async () => {
+  it('allows removing the last topology graph after stopping its runtime', async () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.sender')
+    await store.startRuntime('graph-1-runtime')
+
+    await store.removeGraph('graph-1')
+
+    expect(bindings.StopSerialGraph).toHaveBeenCalledWith('graph-1-runtime')
+    expect(store.graphList).toEqual([])
+    expect(store.activeGraphId).toBeNull()
+    expect(store.runtimeStatus).toBe('idle')
+  })
+
+  it('allows all graph tabs to be removed after an async remove race', async () => {
     const stopResolvers: Array<() => void> = []
     bindings.StopSerialGraph.mockImplementationOnce(() => new Promise<void>(resolve => {
       stopResolvers.push(resolve)
@@ -308,8 +321,8 @@ describe('serial graph store', () => {
     stopResolvers[0]?.()
     await removingFirst
 
-    expect(store.graphList).toEqual([{ id: 'graph-1', name: '运行拓扑' }])
-    expect(store.activeGraphId).toBe('graph-1')
+    expect(store.graphList).toEqual([])
+    expect(store.activeGraphId).toBeNull()
   })
 
   it('queries recent node frames with a larger default page size', async () => {

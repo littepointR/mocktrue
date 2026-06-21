@@ -100,20 +100,7 @@ describe('App settings effects', () => {
 
     const status = wrapper.findComponent({ name: 'StatusBar' })
     expect(status.props('dirty')).toBeUndefined()
-  })
-
-  it('passes the current workspace path to the status bar', async () => {
-    const wrapper = mount(App, {
-      global: { stubs },
-    })
-    await flushPromises()
-
-    useWorkspaceFileStore().setPath('/tmp/current-workspace.json')
-    await wrapper.vm.$nextTick()
-
-    const status = wrapper.findComponent({ name: 'StatusBar' })
-
-    expect(status.props('configPath')).toBe('/tmp/current-workspace.json')
+    expect(status.props('configPath')).toBeUndefined()
   })
 
   it('marks only the active graph tab dirty when serial settings change', async () => {
@@ -245,7 +232,7 @@ const stubs = {
   Sidebar: { template: '<aside />' },
   EditorGroups: { template: '<main />' },
   Panel: { template: '<section />' },
-  StatusBar: { name: 'StatusBar', props: ['configPath'], template: '<footer>{{ configPath }}</footer>' },
+  StatusBar: { name: 'StatusBar', template: '<footer />' },
 }
 
 function graphSnapshot(id: string, name: string, terminalFontSize: number) {

@@ -1,13 +1,11 @@
 import { defaultSerialSettings } from '../settings/stores/settingsStore'
-import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
 import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
 import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
 import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 import type { EditorLayoutNode } from '../serial/views/editorLayout'
-import { defaultSerialGraphState, nodeTabTitle, type SerialGraphNode, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
-import { FrameMode, SessionRole } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/modbus/models.js'
-import { FrameType, FunctionCode, SessionRole as FecbusSessionRole, StatusCode } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
+import { defaultSerialGraphState, nodeTabTitle, type SerialGraphEdge, type SerialGraphNode, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
+import { FrameType, FunctionCode, StatusCode } from '../../bindings/github.com/suyue/mocktrue/internal/modules/serial/fecbus/models.js'
 import { workspaceKind, type WorkspaceSnapshot } from './workspaceSnapshot'
 
 export interface DemoWorkspace {
@@ -38,7 +36,7 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'bridge-demo',
     title: '串口桥接演示',
-    description: '展示两个自动虚拟串口之间的桥接配置。',
+    description: '展示拓扑图中两路虚拟串口字节流的桥接配置。',
     snapshotFactory: createBridgeDemo,
   },
   {
@@ -50,13 +48,13 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'modbus-demo',
     title: 'Modbus 调试演示',
-    description: '展示 Modbus RTU/ASCII 主站配置和从站数据表。',
+    description: '展示拓扑图中的 Modbus RTU/ASCII 主站和多 Unit ID 从站。',
     snapshotFactory: createModbusDemo,
   },
   {
     id: 'fecbus-demo',
     title: 'FECbus 调试演示',
-    description: '展示 FECbus 主控节点发送、设备状态应答和帧历史配置。',
+    description: '展示拓扑图中的 FECbus 主控发送和从机应答配置。',
     snapshotFactory: createFecbusDemo,
   },
   {
@@ -68,7 +66,7 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'full-workspace-demo',
     title: '完整工作区演示',
-    description: '展示设置、虚拟串口、桥接和 Modbus 配置。',
+    description: '展示设置以及拓扑图中的虚拟串口、桥接、监控、Modbus 和 FECbus 配置。',
     snapshotFactory: createFullWorkspaceDemo,
   },
 ]
@@ -91,10 +89,9 @@ export function createDemoWorkspaceSnapshot(id: string): WorkspaceSnapshot | nul
 function createSerialOpenDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `mocktrue-demo-open-${suffix}`
-  const graph = serialGraphState(suffix, `${portName}-graph`)
+  const graph = serialOpenGraphState(suffix, `${portName}-graph`)
 
   return snapshot({
-    virtualPorts: [virtualPort(`demo-open-port-${suffix}`, portName)],
     graph,
     workspace: graphWorkspace(graph),
   })
@@ -103,10 +100,9 @@ function createSerialOpenDemo(): WorkspaceSnapshot {
 function createVirtualPortDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portNames = ['sensor', 'gateway', 'logger'].map(name => `mocktrue-demo-${name}-${suffix}`)
-  const graph = serialGraphState(suffix, `${portNames[0]}-graph`)
+  const graph = virtualPortGraphState(suffix, portNames)
 
   return snapshot({
-    virtualPorts: portNames.map((portName, index) => virtualPort(`demo-vport-${index + 1}-${suffix}`, portName)),
     graph,
     workspace: graphWorkspace(graph),
   })
@@ -116,19 +112,9 @@ function createBridgeDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portA = `mocktrue-demo-bridge-a-${suffix}`
   const portB = `mocktrue-demo-bridge-b-${suffix}`
-  const graph = serialGraphState(suffix, `${portA}-graph`)
+  const graph = bridgeGraphState(suffix, portA, portB)
 
   return snapshot({
-    virtualPorts: [
-      virtualPort(`demo-bridge-a-${suffix}`, portA),
-      virtualPort(`demo-bridge-b-${suffix}`, portB),
-    ],
-    bridges: [{
-      ID: `demo-bridge-${suffix}`,
-      Port1: toPortPath(portA),
-      Port2: toPortPath(portB),
-      BaudRate: 115200,
-    }],
     graph,
     workspace: graphWorkspace(graph),
   })
@@ -137,10 +123,9 @@ function createBridgeDemo(): WorkspaceSnapshot {
 function createMonitorDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const sourcePort = `mocktrue-demo-monitor-${suffix}`
-  const graph = serialGraphState(suffix, `${sourcePort}-graph`)
+  const graph = monitorGraphState(suffix, `${sourcePort}-graph`)
 
   return snapshot({
-    virtualPorts: [virtualPort(`demo-monitor-port-${suffix}`, sourcePort)],
     graph,
     workspace: graphWorkspace(graph),
   })
@@ -148,13 +133,9 @@ function createMonitorDemo(): WorkspaceSnapshot {
 
 function createModbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `mocktrue-demo-modbus-${suffix}`
-  const sessionId = `demo-modbus-${suffix}`
-  const graph = serialGraphState(suffix, `${portName}-graph`)
+  const graph = modbusGraphState(suffix)
 
   return snapshot({
-    virtualPorts: [virtualPort(`demo-modbus-port-${suffix}`, portName)],
-    modbus: modbusState(sessionId, toPortPath(portName)),
     graph,
     workspace: graphWorkspace(graph),
   })
@@ -162,13 +143,9 @@ function createModbusDemo(): WorkspaceSnapshot {
 
 function createFecbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `mocktrue-demo-fecbus-${suffix}`
-  const sessionId = `demo-fecbus-${suffix}`
-  const graph = serialGraphState(suffix, `${portName}-graph`)
+  const graph = fecbusGraphState(suffix)
 
   return snapshot({
-    virtualPorts: [virtualPort(`demo-fecbus-port-${suffix}`, portName)],
-    fecbus: fecbusState(sessionId, toPortPath(portName)),
     graph,
     workspace: graphWorkspace(graph),
   })
@@ -190,9 +167,7 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const terminalPort = `mocktrue-demo-terminal-${suffix}`
   const bridgePortA = `mocktrue-demo-full-a-${suffix}`
   const bridgePortB = `mocktrue-demo-full-b-${suffix}`
-  const fecbusPort = `mocktrue-demo-full-fecbus-${suffix}`
-  const graphPort = `mocktrue-demo-full-graph-${suffix}`
-  const graph = serialGraphState(suffix, graphPort)
+  const graph = fullWorkspaceGraphState(suffix, terminalPort, bridgePortA, bridgePortB)
 
   return snapshot({
     settings: {
@@ -205,20 +180,6 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
         EnterString: '\r\n',
       },
     },
-    virtualPorts: [
-      virtualPort(`demo-full-terminal-${suffix}`, terminalPort),
-      virtualPort(`demo-full-a-${suffix}`, bridgePortA),
-      virtualPort(`demo-full-b-${suffix}`, bridgePortB),
-      virtualPort(`demo-full-fecbus-${suffix}`, fecbusPort),
-    ],
-    bridges: [{
-      ID: `demo-full-bridge-${suffix}`,
-      Port1: toPortPath(bridgePortA),
-      Port2: toPortPath(bridgePortB),
-      BaudRate: 115200,
-    }],
-    modbus: modbusState(`demo-full-modbus-${suffix}`, toPortPath(terminalPort)),
-    fecbus: fecbusState(`demo-full-fecbus-${suffix}`, toPortPath(fecbusPort)),
     graph,
     workspace: graphWorkspace(graph),
   })
@@ -228,8 +189,8 @@ function snapshot(input: {
   settings?: WorkspaceSnapshot['settings']
   activePortId?: string | null
   handles?: WorkspaceSnapshot['serial']['handles']
-  virtualPorts?: VirtualPort[]
-  bridges?: Bridge[]
+  virtualPorts?: WorkspaceSnapshot['serial']['virtualPorts']
+  bridges?: WorkspaceSnapshot['serial']['bridges']
   buffers?: WorkspaceSnapshot['serial']['buffers']
   monitors?: MonitorWorkspaceState
   modbus?: ModbusWorkspaceState
@@ -281,10 +242,6 @@ function defaultSettings(): WorkspaceSnapshot['settings'] {
   return {
     serial: { ...defaultSerialSettings },
   }
-}
-
-function virtualPort(id: string, portName: string): VirtualPort {
-  return { ID: id, Port: portName }
 }
 
 function emptyMonitorState(): MonitorWorkspaceState {
@@ -479,333 +436,220 @@ function emptyFecbusState(): FecbusWorkspaceState {
   }
 }
 
-function modbusState(id: string, portName: string): ModbusWorkspaceState {
-  const state = emptyModbusState()
-  const config = {
-    PortName: portName,
-    BaudRate: 115200,
-    DataBits: 8,
-    StopBits: '1',
-    Parity: 'none',
-    FlowMode: 'none',
-    ReadBufKB: 32,
-  }
-  state.activeSessionId = id
-  state.sessions = [{
-    ID: id,
-    Name: 'Modbus RTU 演示',
-    Mode: FrameMode.FrameModeRTU,
-    Role: SessionRole.SessionRoleMaster,
-    Config: config,
-    Status: 'stopped',
-    RxBytes: 0,
-    TxBytes: 0,
-    SlaveRunning: false,
-    UnitID: 1,
-    UnitIDs: [1, 2],
-    StartedAt: '',
-    StoppedAt: '',
-    LastError: '',
-  }]
-  state.portForm = {
-    ...state.portForm,
-    sessionId: `next-${id}`,
-    port: portName,
-    name: 'Modbus RTU 演示',
-    mode: 'rtu',
-  }
-  state.slaveUnitForms = [
-    {
-      unitId: 1,
-      coils: '0=1\n1=0\n2=1',
-      discreteInputs: '0=1\n1=1',
-      inputRegisters: '0=24\n1=42',
-      holdingRegisters: '0=24\n1=42',
-    },
-    {
-      unitId: 2,
-      coils: '0=0\n1=1\n2=1',
-      discreteInputs: '0=0\n1=1',
-      inputRegisters: '0=120\n1=230',
-      holdingRegisters: '0=100\n1=200',
-    },
-  ]
-  state.slaveUnitGrids = [
-    {
-      unitId: 1,
-      coils: [
-        { id: `${id}-u1-coil-0`, address: 0, value: true },
-        { id: `${id}-u1-coil-1`, address: 1, value: false },
-        { id: `${id}-u1-coil-2`, address: 2, value: true },
-      ],
-      discreteInputs: [
-        { id: `${id}-u1-di-0`, address: 0, value: true },
-        { id: `${id}-u1-di-1`, address: 1, value: true },
-      ],
-      inputRegisters: [
-        { id: `${id}-u1-ir-0`, address: 0, value: 24, dataType: 'uint16', comment: '输入温度' },
-        { id: `${id}-u1-ir-1`, address: 1, value: 42, dataType: 'uint16', comment: '输入湿度' },
-      ],
-      holdingRegisters: [
-        { id: `${id}-u1-hr-0`, address: 0, value: 24, dataType: 'uint16', comment: '保持寄存器 0' },
-        { id: `${id}-u1-hr-1`, address: 1, value: 42, dataType: 'uint16', comment: '保持寄存器 1' },
-      ],
-    },
-    {
-      unitId: 2,
-      coils: [
-        { id: `${id}-u2-coil-0`, address: 0, value: false },
-        { id: `${id}-u2-coil-1`, address: 1, value: true },
-        { id: `${id}-u2-coil-2`, address: 2, value: true },
-      ],
-      discreteInputs: [
-        { id: `${id}-u2-di-0`, address: 0, value: false },
-        { id: `${id}-u2-di-1`, address: 1, value: true },
-      ],
-      inputRegisters: [
-        { id: `${id}-u2-ir-0`, address: 0, value: 120, dataType: 'uint16', comment: '输入电压' },
-        { id: `${id}-u2-ir-1`, address: 1, value: 230, dataType: 'uint16', comment: '输入电流' },
-      ],
-      holdingRegisters: [
-        { id: `${id}-u2-hr-0`, address: 0, value: 100, dataType: 'uint16', comment: '目标值' },
-        { id: `${id}-u2-hr-1`, address: 1, value: 200, dataType: 'uint16', comment: '限制值' },
-      ],
-    },
-  ]
-  state.activeSlaveUnitId = 1
-  state.slaveForm = { ...state.slaveUnitForms[0] }
-  state.masterGrid = {
-    ...state.masterGrid,
-    unitId: 1,
-    registerType: 'holding_registers',
-    address: 0,
-    length: 4,
-    addressBase: 0,
-    rawVisible: true,
-    logVisible: true,
-  }
-  state.masterMappings = [
-    {
-      id: `${id}-map-counter`,
-      address: 0,
-      dataType: 'int32',
-      wordOrder: 'big',
-      length: 0,
-      scalingFactor: 0,
-      comment: '累计计数',
-      groupEnd: false,
-    },
-    {
-      id: `${id}-map-temperature`,
-      address: 2,
-      dataType: 'float',
-      wordOrder: 'big',
-      length: 0,
-      scalingFactor: 1,
-      comment: '温度',
-      groupEnd: true,
-    },
-  ]
-  return state
-}
-
 function graphTabId(id: string): string {
   return `graph:${id}`
 }
 
-function fecbusState(id: string, portName: string): FecbusWorkspaceState {
-  const state = emptyFecbusState()
-  const config = {
-    PortName: portName,
-    BaudRate: 9600,
-    DataBits: 8,
-    StopBits: '1',
-    Parity: 'none',
-    FlowMode: 'none',
-    ReadBufKB: 32,
-  }
-  state.activeSessionId = id
-  state.sessions = [{
-    ID: id,
-    Name: 'FECbus 主控演示',
-    Role: FecbusSessionRole.SessionRoleMaster,
-    Config: config,
-    Status: 'stopped',
-    RxBytes: 0,
-    TxBytes: 0,
-    SlaveRunning: false,
-    SourceAddress: 1,
-    TargetAddress: 2,
-    SlaveUnits: [],
-    StartedAt: '',
-    StoppedAt: '',
-    LastError: '',
-  }]
-  state.portForm = {
-    ...state.portForm,
-    sessionId: `next-${id}`,
-    port: portName,
-    name: 'FECbus 主控演示',
-    role: 'master',
-  }
-  state.sendForm = {
-    ...state.sendForm,
-    targetAddress: 2,
-    sourceAddress: 1,
-    priority: 2,
-    messageNumber: 7,
-    functionCode: FunctionCode.FunctionQueryProtocolVersion,
-    payloadHex: '',
-    expectAnswer: true,
-  }
-  state.slaveForm = {
-    address: 2,
-    statusCode: StatusCode.StatusReceivedOK,
-    autoStatusAnswer: true,
-    acceptBroadcast: true,
-  }
-  state.slaveUnits = [state.slaveForm]
-  state.customFunctions = [{
-    Code: 46 as FunctionCode,
-    Name: '用户自定义演示',
-    Description: '演示用户自定义功能码和数据段字段。',
-    Direction: 'custom',
-    Answer: true,
-    Fields: [{ Key: 'value', Label: '演示值', Offset: 1, Length: 2, Type: 'uint16', Endian: 'little', Enum: null, Meaning: '' }],
-  }]
-  state.frameFilters = {
-    [id]: { direction: '', search: '' },
-  }
-  state.framePages = {
-    [id]: {
-      Frames: [{
-        Seq: 1,
-        SessionID: id,
-        Direction: 'tx',
-        Frame: {
-          Type: FrameType.FrameTypeRequest,
-          TargetAddress: 2,
-          Priority: 2,
-          SourceAddress: 1,
-          MessageNumber: 7,
-          GroupNumber: 0,
-          Data: 'LA==',
-          Raw: null,
-          CRCOK: true,
-          Timestamp: '',
-        },
-        Hex: '7e 00 02 02 01 07 00 01 2c 7d 9f 7e',
-        Error: '',
-        Timestamp: '',
-        Annotated: fecbusAnnotation(),
-      }],
-      Offset: 0,
-      Limit: 200,
-      Total: 1,
-      EOF: true,
-    },
-  }
-  return state
-}
-
 function serialGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
-  const graphId = `graph-demo-${suffix}`
   const selectedNodeId = `graph-receiver-${suffix}`
   const nodes: SerialGraphNode[] = [
-    {
-      id: `graph-sender-${suffix}`,
-      type: 'serial.sender',
-      position: { x: 32, y: 32 },
-      config: {
-        mode: 'ascii',
-        encoding: 'utf-8',
-        payload: `MockTrue graph ${suffix}\r\n`,
-        autoSend: true,
-        intervalMs: 1000,
-      },
-    },
-    {
-      id: `graph-vport-${suffix}`,
-      type: 'serial.virtual',
-      position: { x: 264, y: 32 },
-      config: {
-        portName,
-        baudRate: 115200,
-        dataBits: 8,
-        stopBits: '1',
-        parity: 'none',
-        flowMode: 'none',
-        readBufKB: 32,
-      },
-    },
-    {
-      id: `graph-tap-${suffix}`,
-      type: 'serial.tap',
-      position: { x: 496, y: 32 },
-      config: {},
-    },
-    {
-      id: selectedNodeId,
-      type: 'serial.receiver',
-      position: { x: 752, y: 32 },
-      config: { viewMode: 'hexClassic', autoScroll: true },
-    },
-    {
-      id: `graph-modbus-${suffix}`,
-      type: 'serial.modbus.master',
-      position: { x: 752, y: 168 },
-      config: { mode: 'rtu', unitIds: '1,2', functionCode: 3 },
-    },
-    {
-      id: `graph-monitor-${suffix}`,
-      type: 'serial.monitor',
-      position: { x: 752, y: 304 },
-      config: { mode: 'auto-virtual', displayMode: 'hex' },
-    },
+    graphNode(suffix, 'sender', 'serial.sender', 32, 32, senderConfig(`MockTrue graph ${suffix}\r\n`)),
+    graphNode(suffix, 'vport', 'serial.virtual', 264, 32, virtualConfig(portName)),
+    graphNode(suffix, 'tap', 'serial.tap', 496, 32),
+    graphNode(suffix, 'receiver', 'serial.receiver', 752, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'modbus', 'serial.modbus.master', 752, 168, modbusMasterConfig()),
+    graphNode(suffix, 'monitor', 'serial.monitor', 752, 304, monitorConfig()),
   ]
 
+  return graphState(suffix, '串口拓扑演示', nodes, [
+    graphEdge(suffix, 'sender-vport', `graph-sender-${suffix}`, 'out', `graph-vport-${suffix}`, 'tx'),
+    graphEdge(suffix, 'vport-tap', `graph-vport-${suffix}`, 'rx', `graph-tap-${suffix}`, 'in'),
+    graphEdge(suffix, 'tap-receiver', `graph-tap-${suffix}`, 'out', selectedNodeId, 'in'),
+    graphEdge(suffix, 'tap-modbus', `graph-tap-${suffix}`, 'out', `graph-modbus-${suffix}`, 'rx'),
+    graphEdge(suffix, 'tap-monitor', `graph-tap-${suffix}`, 'out', `graph-monitor-${suffix}`, 'in'),
+  ], selectedNodeId)
+}
+
+function serialOpenGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-open-receiver-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'open-sender', 'serial.sender', 32, 32, senderConfig(`open demo ${suffix}\r\n`)),
+    graphNode(suffix, 'open-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'open-receiver', 'serial.receiver', 528, 32, receiverConfig()),
+  ]
+
+  return graphState(suffix, '串口收发演示', nodes, [
+    graphEdge(suffix, 'open-sender-vport', `graph-open-sender-${suffix}`, 'out', `graph-open-vport-${suffix}`, 'tx'),
+    graphEdge(suffix, 'open-vport-receiver', `graph-open-vport-${suffix}`, 'rx', selectedNodeId, 'in'),
+  ], selectedNodeId)
+}
+
+function virtualPortGraphState(suffix: string, portNames: string[]): SerialGraphWorkspaceState {
+  const nodes: SerialGraphNode[] = []
+  const edges: SerialGraphEdge[] = []
+  portNames.forEach((portName, index) => {
+    const y = 32 + index * 136
+    const key = `vport-${index + 1}`
+    const senderId = `graph-${key}-sender-${suffix}`
+    const vportId = `graph-${key}-port-${suffix}`
+    const receiverId = `graph-${key}-receiver-${suffix}`
+    nodes.push(
+      graphNode(suffix, `${key}-sender`, 'serial.sender', 32, y, senderConfig(`virtual ${index + 1} ${suffix}\r\n`)),
+      graphNode(suffix, `${key}-port`, 'serial.virtual', 280, y, virtualConfig(portName)),
+      graphNode(suffix, `${key}-receiver`, 'serial.receiver', 528, y, receiverConfig())
+    )
+    edges.push(
+      graphEdge(suffix, `${key}-sender-port`, senderId, 'out', vportId, 'tx'),
+      graphEdge(suffix, `${key}-port-receiver`, vportId, 'rx', receiverId, 'in')
+    )
+  })
+
+  return graphState(suffix, '虚拟串口演示', nodes, edges, `graph-vport-1-receiver-${suffix}`)
+}
+
+function bridgeGraphState(suffix: string, portA: string, portB: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-bridge-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'bridge-sender-a', 'serial.sender', 32, 32, senderConfig(`bridge A ${suffix}\r\n`)),
+    graphNode(suffix, 'bridge-vport-a', 'serial.virtual', 280, 32, virtualConfig(portA)),
+    graphNode(suffix, 'bridge-sender-b', 'serial.sender', 32, 200, senderConfig(`bridge B ${suffix}\r\n`)),
+    graphNode(suffix, 'bridge-vport-b', 'serial.virtual', 280, 200, virtualConfig(portB)),
+    graphNode(suffix, 'bridge', 'serial.bridge', 528, 116, { baudRate: 115200 }),
+    graphNode(suffix, 'bridge-receiver-a', 'serial.receiver', 776, 32, receiverConfig()),
+    graphNode(suffix, 'bridge-receiver-b', 'serial.receiver', 776, 200, receiverConfig()),
+  ]
+
+  return graphState(suffix, '串口桥接演示', nodes, [
+    graphEdge(suffix, 'bridge-sender-a-vport-a', `graph-bridge-sender-a-${suffix}`, 'out', `graph-bridge-vport-a-${suffix}`, 'tx'),
+    graphEdge(suffix, 'bridge-vport-a-in', `graph-bridge-vport-a-${suffix}`, 'rx', selectedNodeId, 'a-in'),
+    graphEdge(suffix, 'bridge-b-out-receiver', selectedNodeId, 'b-out', `graph-bridge-receiver-b-${suffix}`, 'in'),
+    graphEdge(suffix, 'bridge-sender-b-vport-b', `graph-bridge-sender-b-${suffix}`, 'out', `graph-bridge-vport-b-${suffix}`, 'tx'),
+    graphEdge(suffix, 'bridge-vport-b-in', `graph-bridge-vport-b-${suffix}`, 'rx', selectedNodeId, 'b-in'),
+    graphEdge(suffix, 'bridge-a-out-receiver', selectedNodeId, 'a-out', `graph-bridge-receiver-a-${suffix}`, 'in'),
+  ], selectedNodeId)
+}
+
+function monitorGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-monitor-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'monitor-sender', 'serial.sender', 32, 32, senderConfig(`monitor demo ${suffix}\r\n`)),
+    graphNode(suffix, 'monitor-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'monitor-tap', 'serial.tap', 528, 32),
+    graphNode(suffix, 'monitor-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'monitor', 'serial.monitor', 776, 168, monitorConfig()),
+  ]
+
+  return graphState(suffix, '串口监控演示', nodes, [
+    graphEdge(suffix, 'monitor-sender-vport', `graph-monitor-sender-${suffix}`, 'out', `graph-monitor-vport-${suffix}`, 'tx'),
+    graphEdge(suffix, 'monitor-vport-tap', `graph-monitor-vport-${suffix}`, 'rx', `graph-monitor-tap-${suffix}`, 'in'),
+    graphEdge(suffix, 'monitor-tap-receiver', `graph-monitor-tap-${suffix}`, 'out', `graph-monitor-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'monitor-tap-monitor', `graph-monitor-tap-${suffix}`, 'out', selectedNodeId, 'in'),
+  ], selectedNodeId)
+}
+
+function modbusGraphState(suffix: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-modbus-master-${suffix}`
+  const slaveId = `graph-modbus-slave-${suffix}`
+  const tapId = `graph-modbus-response-tap-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'modbus-master', 'serial.modbus.master', 32, 32, modbusMasterConfig()),
+    graphNode(suffix, 'modbus-slave', 'serial.modbus.slave', 280, 32, modbusSlaveConfig()),
+    graphNode(suffix, 'modbus-response-tap', 'serial.tap', 528, 32),
+    graphNode(suffix, 'modbus-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'modbus-monitor', 'serial.monitor', 776, 168, monitorConfig()),
+  ]
+
+  return graphState(suffix, 'Modbus 调试演示', nodes, [
+    graphEdge(suffix, 'modbus-master-slave', selectedNodeId, 'tx', slaveId, 'rx'),
+    graphEdge(suffix, 'modbus-slave-tap', slaveId, 'tx', tapId, 'in'),
+    graphEdge(suffix, 'modbus-tap-receiver', tapId, 'out', `graph-modbus-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'modbus-tap-monitor', tapId, 'out', `graph-modbus-monitor-${suffix}`, 'in'),
+  ], selectedNodeId)
+}
+
+function fecbusGraphState(suffix: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-fecbus-master-${suffix}`
+  const slaveId = `graph-fecbus-slave-${suffix}`
+  const tapId = `graph-fecbus-response-tap-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'fecbus-master', 'serial.fecbus.master', 32, 32, fecbusMasterConfig()),
+    graphNode(suffix, 'fecbus-slave', 'serial.fecbus.slave', 280, 32, fecbusSlaveConfig()),
+    graphNode(suffix, 'fecbus-response-tap', 'serial.tap', 528, 32),
+    graphNode(suffix, 'fecbus-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'fecbus-monitor', 'serial.monitor', 776, 168, monitorConfig()),
+  ]
+
+  return graphState(suffix, 'FECbus 调试演示', nodes, [
+    graphEdge(suffix, 'fecbus-master-slave', selectedNodeId, 'tx', slaveId, 'rx'),
+    graphEdge(suffix, 'fecbus-slave-tap', slaveId, 'tx', tapId, 'in'),
+    graphEdge(suffix, 'fecbus-tap-receiver', tapId, 'out', `graph-fecbus-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'fecbus-tap-monitor', tapId, 'out', `graph-fecbus-monitor-${suffix}`, 'in'),
+  ], selectedNodeId)
+}
+
+function fullWorkspaceGraphState(
+  suffix: string,
+  terminalPort: string,
+  bridgePortA: string,
+  bridgePortB: string
+): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-full-receiver-${suffix}`
+  const modbusMasterId = `graph-full-modbus-master-${suffix}`
+  const modbusSlaveId = `graph-full-modbus-slave-${suffix}`
+  const fecbusMasterId = `graph-full-fecbus-master-${suffix}`
+  const fecbusSlaveId = `graph-full-fecbus-slave-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'full-sender', 'serial.sender', 32, 32, senderConfig(`full workspace ${suffix}\r\n`)),
+    graphNode(suffix, 'full-vport', 'serial.virtual', 280, 32, virtualConfig(terminalPort)),
+    graphNode(suffix, 'full-tap', 'serial.tap', 528, 32),
+    graphNode(suffix, 'full-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'full-monitor', 'serial.monitor', 776, 168, monitorConfig()),
+
+    graphNode(suffix, 'full-bridge-sender-a', 'serial.sender', 32, 344, senderConfig(`full bridge A ${suffix}\r\n`)),
+    graphNode(suffix, 'full-bridge-vport-a', 'serial.virtual', 280, 344, virtualConfig(bridgePortA)),
+    graphNode(suffix, 'full-bridge-sender-b', 'serial.sender', 32, 512, senderConfig(`full bridge B ${suffix}\r\n`)),
+    graphNode(suffix, 'full-bridge-vport-b', 'serial.virtual', 280, 512, virtualConfig(bridgePortB)),
+    graphNode(suffix, 'full-bridge', 'serial.bridge', 528, 428, { baudRate: 115200 }),
+    graphNode(suffix, 'full-bridge-receiver-a', 'serial.receiver', 776, 344, receiverConfig()),
+    graphNode(suffix, 'full-bridge-receiver-b', 'serial.receiver', 776, 512, receiverConfig()),
+
+    graphNode(suffix, 'full-modbus-master', 'serial.modbus.master', 1040, 32, modbusMasterConfig()),
+    graphNode(suffix, 'full-modbus-slave', 'serial.modbus.slave', 1288, 32, modbusSlaveConfig()),
+    graphNode(suffix, 'full-modbus-tap', 'serial.tap', 1536, 32),
+    graphNode(suffix, 'full-modbus-receiver', 'serial.receiver', 1784, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'full-modbus-monitor', 'serial.monitor', 1784, 168, monitorConfig()),
+
+    graphNode(suffix, 'full-fecbus-master', 'serial.fecbus.master', 1040, 344, fecbusMasterConfig()),
+    graphNode(suffix, 'full-fecbus-slave', 'serial.fecbus.slave', 1288, 344, fecbusSlaveConfig()),
+    graphNode(suffix, 'full-fecbus-tap', 'serial.tap', 1536, 344),
+    graphNode(suffix, 'full-fecbus-receiver', 'serial.receiver', 1784, 344, receiverConfig('hexClassic')),
+  ]
+
+  return graphState(suffix, '完整工作区演示', nodes, [
+    graphEdge(suffix, 'full-sender-vport', `graph-full-sender-${suffix}`, 'out', `graph-full-vport-${suffix}`, 'tx'),
+    graphEdge(suffix, 'full-vport-tap', `graph-full-vport-${suffix}`, 'rx', `graph-full-tap-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-tap-receiver', `graph-full-tap-${suffix}`, 'out', selectedNodeId, 'in'),
+    graphEdge(suffix, 'full-tap-monitor', `graph-full-tap-${suffix}`, 'out', `graph-full-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-bridge-sender-a-vport-a', `graph-full-bridge-sender-a-${suffix}`, 'out', `graph-full-bridge-vport-a-${suffix}`, 'tx'),
+    graphEdge(suffix, 'full-bridge-vport-a-in', `graph-full-bridge-vport-a-${suffix}`, 'rx', `graph-full-bridge-${suffix}`, 'a-in'),
+    graphEdge(suffix, 'full-bridge-b-out-receiver', `graph-full-bridge-${suffix}`, 'b-out', `graph-full-bridge-receiver-b-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-bridge-sender-b-vport-b', `graph-full-bridge-sender-b-${suffix}`, 'out', `graph-full-bridge-vport-b-${suffix}`, 'tx'),
+    graphEdge(suffix, 'full-bridge-vport-b-in', `graph-full-bridge-vport-b-${suffix}`, 'rx', `graph-full-bridge-${suffix}`, 'b-in'),
+    graphEdge(suffix, 'full-bridge-a-out-receiver', `graph-full-bridge-${suffix}`, 'a-out', `graph-full-bridge-receiver-a-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-modbus-master-slave', modbusMasterId, 'tx', modbusSlaveId, 'rx'),
+    graphEdge(suffix, 'full-modbus-slave-tap', modbusSlaveId, 'tx', `graph-full-modbus-tap-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-modbus-tap-receiver', `graph-full-modbus-tap-${suffix}`, 'out', `graph-full-modbus-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-modbus-tap-monitor', `graph-full-modbus-tap-${suffix}`, 'out', `graph-full-modbus-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-fecbus-master-slave', fecbusMasterId, 'tx', fecbusSlaveId, 'rx'),
+    graphEdge(suffix, 'full-fecbus-slave-tap', fecbusSlaveId, 'tx', `graph-full-fecbus-tap-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-fecbus-tap-receiver', `graph-full-fecbus-tap-${suffix}`, 'out', `graph-full-fecbus-receiver-${suffix}`, 'in'),
+  ], selectedNodeId)
+}
+
+function graphState(
+  suffix: string,
+  name: string,
+  nodes: SerialGraphNode[],
+  edges: SerialGraphEdge[],
+  selectedNodeId: string
+): SerialGraphWorkspaceState {
+  const graphId = `graph-demo-${suffix}`
   return {
     graphs: [{
       id: graphId,
-      name: '串口拓扑演示',
+      name,
       nodes,
-      edges: [
-        {
-          id: `graph-edge-sender-vport-${suffix}`,
-          source: `graph-sender-${suffix}`,
-          sourceHandle: 'out',
-          target: `graph-vport-${suffix}`,
-          targetHandle: 'tx',
-        },
-        {
-          id: `graph-edge-vport-tap-${suffix}`,
-          source: `graph-vport-${suffix}`,
-          sourceHandle: 'rx',
-          target: `graph-tap-${suffix}`,
-          targetHandle: 'in',
-        },
-        {
-          id: `graph-edge-tap-receiver-${suffix}`,
-          source: `graph-tap-${suffix}`,
-          sourceHandle: 'out',
-          target: selectedNodeId,
-          targetHandle: 'in',
-        },
-        {
-          id: `graph-edge-tap-modbus-${suffix}`,
-          source: `graph-tap-${suffix}`,
-          sourceHandle: 'out',
-          target: `graph-modbus-${suffix}`,
-          targetHandle: 'rx',
-        },
-        {
-          id: `graph-edge-tap-monitor-${suffix}`,
-          source: `graph-tap-${suffix}`,
-          sourceHandle: 'out',
-          target: `graph-monitor-${suffix}`,
-          targetHandle: 'in',
-        },
-      ],
+      edges,
       selectedNodeId,
       selectedEdgeId: null,
       nodeTabs: nodes.map(node => ({ nodeId: node.id, title: nodeTabTitle(node) })),
@@ -815,41 +659,108 @@ function serialGraphState(suffix: string, portName: string): SerialGraphWorkspac
   }
 }
 
-function fecbusAnnotation() {
+function graphNode(
+  suffix: string,
+  key: string,
+  type: string,
+  x: number,
+  y: number,
+  config: Record<string, unknown> = {}
+): SerialGraphNode {
   return {
-    Segments: [
-      { Key: 'frame_head', Label: '帧头', Start: 0, End: 1, Hex: '7e', Value: 0x7e, ValueText: '126', Meaning: '0x7E' },
-      { Key: 'function', Label: '功能码', Start: 8, End: 9, Hex: '2c', Value: 44, ValueText: '44', Meaning: '查 FECbus 协议版本号' },
-    ],
-    DataFields: [{
-      Key: 'function',
-      Label: '功能码',
-      Start: 8,
-      End: 9,
-      Hex: '2c',
-      Value: 44,
-      ValueText: '查 FECbus 协议版本号',
-      Meaning: '查 FECbus 协议版本号',
-    }],
-    Function: {
-      Code: FunctionCode.FunctionQueryProtocolVersion,
-      Hex: '2CH',
-      Name: '查 FECbus 协议版本号',
-      Description: '',
-      Direction: 'controller_to_device',
-      Answer: true,
-      Custom: false,
-      Reserved: false,
-    },
-    GroupKey: '',
-    GroupColorIndex: -1,
-    Summary: '查 FECbus 协议版本号',
-    Warnings: [],
+    id: `graph-${key}-${suffix}`,
+    type,
+    position: { x, y },
+    config,
   }
 }
 
-function toPortPath(portName: string): string {
-  return `/tmp/${portName}`
+function graphEdge(
+  suffix: string,
+  key: string,
+  source: string,
+  sourceHandle: string,
+  target: string,
+  targetHandle: string
+): SerialGraphEdge {
+  return {
+    id: `graph-edge-${key}-${suffix}`,
+    source,
+    sourceHandle,
+    target,
+    targetHandle,
+  }
+}
+
+function senderConfig(payload: string, intervalMs = 1000): Record<string, unknown> {
+  return {
+    mode: 'ascii',
+    encoding: 'utf-8',
+    payload,
+    autoSend: true,
+    intervalMs,
+  }
+}
+
+function virtualConfig(portName: string): Record<string, unknown> {
+  return {
+    portName,
+    baudRate: 115200,
+    dataBits: 8,
+    stopBits: '1',
+    parity: 'none',
+    flowMode: 'none',
+    readBufKB: 32,
+  }
+}
+
+function receiverConfig(viewMode = 'ascii'): Record<string, unknown> {
+  return { viewMode, autoScroll: true }
+}
+
+function monitorConfig(): Record<string, unknown> {
+  return { mode: 'auto-virtual', displayMode: 'hex' }
+}
+
+function modbusMasterConfig(): Record<string, unknown> {
+  return {
+    mode: 'rtu',
+    unitIds: '1,2',
+    addressMode: 'zero-based',
+    functionCode: 3,
+    address: 0,
+    quantity: 2,
+    value: 0,
+  }
+}
+
+function modbusSlaveConfig(): Record<string, unknown> {
+  return {
+    mode: 'rtu',
+    unitIds: '1,2',
+    addressMode: 'zero-based',
+  }
+}
+
+function fecbusMasterConfig(): Record<string, unknown> {
+  return {
+    frameType: FrameType.FrameTypeRequest,
+    sourceAddress: 1,
+    targetAddress: 2,
+    priority: 2,
+    messageNumber: 7,
+    groupNumber: 0,
+    functionCode: FunctionCode.FunctionQueryProtocolVersion,
+    dataHex: '',
+  }
+}
+
+function fecbusSlaveConfig(): Record<string, unknown> {
+  return {
+    address: 2,
+    defaultStatus: StatusCode.StatusReceivedOK,
+    autoStatusAnswer: true,
+  }
 }
 
 function nextDemoSuffix(): string {

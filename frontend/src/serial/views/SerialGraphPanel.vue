@@ -291,7 +291,7 @@ function stopRuntimePolling() {
 }
 
 async function pollSelectedRuntimeDetails() {
-  if (!runtimeRunning.value || !selectedNode.value || runtimePollInFlight.value) return
+  if (!runtimeRunning.value || runtimePollInFlight.value) return
   const graphId = panelGraphDocumentId()
   if (!graphId) return
 

@@ -188,6 +188,22 @@ describe('workspaceFileStore', () => {
     expect(store.isDirty).toBe(false)
   })
 
+  it('updates the selected demo only for known demo ids', () => {
+    const store = useWorkspaceFileStore()
+
+    store.setSelectedDemo('bridge-demo')
+    expect(store.selectedDemoId).toBe('bridge-demo')
+
+    store.setSelectedDemo(null)
+    expect(store.selectedDemoId).toBe('bridge-demo')
+
+    store.setSelectedDemo('missing-demo')
+    expect(store.selectedDemoId).toBe('bridge-demo')
+
+    store.setSelectedDemo('modbus-demo')
+    expect(store.selectedDemoId).toBe('modbus-demo')
+  })
+
   it('loads an example workspace as a normal editable workspace', async () => {
     const store = useWorkspaceFileStore()
 
@@ -197,10 +213,22 @@ describe('workspaceFileStore', () => {
     expect(sessionMock.restoreWorkspaceSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'mocktrue.workspace.v1',
       serial: expect.objectContaining({
-        virtualPorts: expect.arrayContaining([expect.objectContaining({ Port: expect.stringContaining('mocktrue-demo-monitor') })]),
+        virtualPorts: [],
+        bridges: [],
         handles: [],
         buffers: {},
         monitors: expect.objectContaining({ sessions: [], frames: {} }),
+        graph: expect.objectContaining({
+          graphs: expect.arrayContaining([expect.objectContaining({
+            nodes: expect.arrayContaining([
+              expect.objectContaining({
+                type: 'serial.virtual',
+                config: expect.objectContaining({ portName: expect.stringContaining('mocktrue-demo-monitor') }),
+              }),
+              expect.objectContaining({ type: 'serial.monitor' }),
+            ]),
+          })]),
+        }),
         workspace: expect.objectContaining({
           selectedOperation: 'graph',
           editorLayout: expect.objectContaining({

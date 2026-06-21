@@ -135,6 +135,28 @@ describe('SerialGraphPanel', () => {
     expect(second.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('接收器')
   })
 
+  it('updates rendered graph content when the tab graphId prop changes', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const secondGraph = store.createGraph('辅助拓扑')
+    const receiver = store.addNode('serial.receiver')
+    expect(sender.id).toBe('node-1')
+    expect(receiver.id).toBe('node-1')
+
+    const wrapper = mount(SerialGraphPanel, {
+      props: { graphId: 'graph-1' },
+    })
+    expect((wrapper.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe('graph-1')
+    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('发送器')
+
+    await wrapper.setProps({ graphId: secondGraph.id })
+    await nextTick()
+
+    expect((wrapper.find('[data-testid="serial-graph-switcher"]').element as HTMLSelectElement).value).toBe(secondGraph.id)
+    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).toContain('接收器')
+    expect(wrapper.find('[data-testid="serial-graph-node-node-1"]').text()).not.toContain('发送器')
+  })
+
   it('starts a scoped graph panel runtime without switching the active graph', async () => {
     const store = useSerialGraphStore()
     store.addNode('serial.sender')
@@ -352,6 +374,42 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find('[data-testid="serial-graph-node-buffer"]').text()).toContain('hello')
 
     wrapper.unmount()
+  })
+
+  it('keeps node card counters polling when no node is selected', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = useSerialGraphStore()
+      const sender = store.addNode('serial.sender')
+      const receiver = store.addNode('serial.receiver')
+      store.connect(sender.id, 'out', receiver.id, 'in')
+      const wrapper = mount(SerialGraphPanel)
+
+      await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+      await flushPromises()
+      bindings.GetSerialGraphStatus.mockClear()
+      bindings.GetSerialGraphStatus.mockResolvedValue({
+        ID: 'graph-1',
+        Status: 'running',
+        Error: '',
+        Nodes: [
+          { ID: sender.id, Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 25, FrameCount: 0, ResourceID: '', Error: '' },
+          { ID: receiver.id, Type: 'serial.receiver', Status: 'running', RxBytes: 25, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
+        ],
+      })
+      store.selectNode(null)
+      await nextTick()
+
+      await vi.advanceTimersByTimeAsync(250)
+      await flushPromises()
+
+      expect(bindings.GetSerialGraphStatus).toHaveBeenCalledWith('graph-1')
+      expect(wrapper.find(`[data-testid="serial-graph-node-${receiver.id}"]`).text()).toContain('RX 25')
+
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

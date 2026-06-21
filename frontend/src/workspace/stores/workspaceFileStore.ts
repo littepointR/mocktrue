@@ -17,11 +17,13 @@ import { createDemoWorkspaceSnapshot, listDemoWorkspaces } from '../demoWorkspac
 type WorkspaceSourceKind = 'empty' | 'file'
 
 export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
+  const demos = listDemoWorkspaces()
   const currentPath = ref('')
   const savedSnapshot = ref('')
   const currentSnapshot = ref('')
   const lastError = ref<string | null>(null)
   const sourceKind = ref<WorkspaceSourceKind>('empty')
+  const selectedDemoId = ref(demos[0]?.id ?? '')
 
   const isDirty = computed(() => currentSnapshot.value !== savedSnapshot.value)
   const displayPath = computed(() => currentPath.value)
@@ -47,6 +49,13 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
 
   function setError(message: string | null) {
     lastError.value = message
+  }
+
+  function setSelectedDemo(id: unknown) {
+    const nextId = typeof id === 'string' ? id : ''
+    if (demos.some(demo => demo.id === nextId)) {
+      selectedDemoId.value = nextId
+    }
   }
 
   async function save(path?: string): Promise<string> {
@@ -178,6 +187,8 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     markDirty,
     setPath,
     setError,
+    selectedDemoId,
+    setSelectedDemo,
     save,
     selectOpenPath,
     saveAs,
@@ -186,6 +197,6 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     exportCopy,
     loadLast,
     loadDemo,
-    listDemos: listDemoWorkspaces,
+    listDemos: () => demos.map(demo => ({ ...demo })),
   }
 })

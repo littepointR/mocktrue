@@ -12,7 +12,7 @@ const exampleOptions = workspaceFile.listDemos().map(demo => ({
   label: demo.title,
   value: demo.id,
 }))
-const selectedExampleId = ref(exampleOptions[0]?.value ?? '')
+const selectedExampleId = computed(() => workspaceFile.selectedDemoId)
 
 const themeOptions = [
   { label: '深色', value: 'dark' },
@@ -59,6 +59,10 @@ async function importWorkspace() {
 
 async function exportWorkspaceCopy() {
   await runWorkspaceAction('export', () => workspaceFile.exportCopy())
+}
+
+function updateSelectedExample(value: string | number | null) {
+  workspaceFile.setSelectedDemo(value)
 }
 
 async function loadExampleWorkspace() {
@@ -135,7 +139,12 @@ async function loadExampleWorkspace() {
       </NFormItem>
       <NFormItem label="示例配置">
         <NInputGroup>
-          <NSelect v-model:value="selectedExampleId" :options="exampleOptions" />
+          <NSelect
+            class="settings-panel__demo-select"
+            :value="selectedExampleId"
+            :options="exampleOptions"
+            @update:value="updateSelectedExample"
+          />
           <NButton
             data-testid="load-demo"
             size="small"
@@ -175,6 +184,10 @@ async function loadExampleWorkspace() {
 .settings-panel__form {
   display: grid;
   gap: 4px;
+}
+.settings-panel__demo-select {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .settings-panel__hint {
   margin: 8px 0 0;

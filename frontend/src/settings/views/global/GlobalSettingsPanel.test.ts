@@ -89,6 +89,33 @@ describe('GlobalSettingsPanel workspace file actions', () => {
     expect(loadDemo).toHaveBeenCalledWith('monitor-demo')
   })
 
+  it('updates the selected example when the dropdown changes', async () => {
+    const workspace = useWorkspaceFileStore()
+    const wrapper = mount(GlobalSettingsPanel)
+    const exampleSelect = wrapper.findAll('select')[1]
+
+    await exampleSelect.setValue('modbus-demo')
+    expect(workspace.selectedDemoId).toBe('modbus-demo')
+
+    await exampleSelect.setValue('fecbus-demo')
+    expect(workspace.selectedDemoId).toBe('fecbus-demo')
+  })
+
+  it('keeps the selected example after switching away from settings', async () => {
+    const workspace = useWorkspaceFileStore()
+    const loadDemo = vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ errors: [], handleMap: {} })
+
+    const first = mount(GlobalSettingsPanel)
+    await first.findAll('select')[1].setValue('bridge-demo')
+    first.unmount()
+
+    const second = mount(GlobalSettingsPanel)
+    await second.findAll('button').find(button => button.text() === '加载示例')?.trigger('click')
+
+    expect(workspace.selectedDemoId).toBe('bridge-demo')
+    expect(loadDemo).toHaveBeenCalledWith('bridge-demo')
+  })
+
   it('switches to the serial content area after loading a demo workspace', async () => {
     const registry = useRegistry()
     registry.register({ id: 'serial', activity: { icon: 'serial', title: '串口调试' }, views: [] })

@@ -12,6 +12,7 @@ import { defaultModbusWorkspaceState, useModbusStore } from '../serial/stores/mo
 import { defaultFecbusWorkspaceState, useFecbusStore } from '../serial/stores/fecbusStore'
 import { useSerialGraphStore } from '../serial/stores/graphStore'
 import { defaultSerialGraphState, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
+import { createDemoWorkspaceSnapshot } from './demoWorkspaces'
 
 const serialServiceMock = vi.hoisted(() => ({
   openPort: vi.fn(async () => ({
@@ -221,6 +222,38 @@ describe('workspace session snapshot', () => {
 
     expect(result.errors).toEqual([])
     expect(useSerialGraphStore().exportState()).toEqual(defaultSerialGraphState())
+  })
+
+  it('replaces the active topology when loading different demo snapshots sequentially', async () => {
+    const monitorSnapshot = createDemoWorkspaceSnapshot('monitor-demo')
+    const bridgeSnapshot = createDemoWorkspaceSnapshot('bridge-demo')
+    expect(monitorSnapshot).toBeDefined()
+    expect(bridgeSnapshot).toBeDefined()
+
+    await restoreWorkspaceSnapshot(monitorSnapshot!)
+    const monitorGraph = useSerialGraphStore().activeGraph
+    expect(monitorGraph?.name).toBe('串口监控演示')
+    expect(monitorGraph?.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
+      'serial.tap',
+      'serial.monitor',
+    ]))
+    expect(monitorGraph?.nodes.map(node => node.type)).not.toContain('serial.bridge')
+
+    await restoreWorkspaceSnapshot(bridgeSnapshot!)
+    const bridgeGraph = useSerialGraphStore().activeGraph
+    expect(bridgeGraph?.name).toBe('串口桥接演示')
+    expect(bridgeGraph?.id).not.toBe(monitorGraph?.id)
+    expect(bridgeGraph?.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
+      'serial.bridge',
+    ]))
+    expect(bridgeGraph?.nodes.map(node => node.type)).not.toContain('serial.monitor')
+
+    const workspace = useSerialWorkspaceStore()
+    expect(workspace.editorLayout.type).toBe('group')
+    if (workspace.editorLayout.type === 'group') {
+      expect(workspace.editorLayout.tabs).toEqual([`graph:${bridgeGraph?.id}`])
+      expect(workspace.activeByGroup[workspace.editorLayout.id]).toBe(`graph:${bridgeGraph?.id}`)
+    }
   })
 })
 

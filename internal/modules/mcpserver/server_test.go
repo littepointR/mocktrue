@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -554,6 +555,7 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		t.Fatalf("provider count = %d, want at least 10", len(providers))
 	}
 	providerTypes := make(map[string]bool, len(providers))
+	providerDefaults := make(map[string]map[string]any, len(providers))
 	for _, raw := range providers {
 		provider := raw.(map[string]any)
 		if _, ok := provider["inputs"].([]any); !ok {
@@ -562,11 +564,40 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		if _, ok := provider["outputs"].([]any); !ok {
 			t.Fatalf("provider %s outputs = %#v, want array", provider["type"], provider["outputs"])
 		}
-		providerTypes[provider["type"].(string)] = true
+		providerType := provider["type"].(string)
+		providerTypes[providerType] = true
+		providerDefaults[providerType] = provider["default_config"].(map[string]any)
 	}
 	for _, want := range []string{"serial.physical", "serial.virtual", "serial.tap", "serial.modbus.master", "serial.fecbus.slave"} {
 		if !providerTypes[want] {
 			t.Fatalf("catalog missing %s in %#v", want, providerTypes)
+		}
+	}
+	if len(providerDefaults["serial.bridge"]) != 0 {
+		t.Fatalf("serial.bridge default_config = %#v, want empty", providerDefaults["serial.bridge"])
+	}
+	if _, ok := providerDefaults["serial.modbus.slave"]["addressMode"]; ok {
+		t.Fatalf("serial.modbus.slave default_config = %#v, want no addressMode", providerDefaults["serial.modbus.slave"])
+	}
+	if got := providerDefaults["serial.modbus.slave"]["unitIds"]; got != "1" {
+		t.Fatalf("serial.modbus.slave unitIds default = %#v, want 1", got)
+	}
+	if got := providerDefaults["serial.sender"]; !reflect.DeepEqual(got, map[string]any{
+		"mode":       "ascii",
+		"encoding":   "utf-8",
+		"payload":    "",
+		"autoSend":   false,
+		"intervalMs": float64(1000),
+	}) {
+		t.Fatalf("serial.sender default_config = %#v, want frontend-compatible defaults", got)
+	}
+	for _, raw := range providers {
+		provider := raw.(map[string]any)
+		if provider["type"] != "serial.monitor" {
+			continue
+		}
+		if outputs := provider["outputs"].([]any); len(outputs) != 0 {
+			t.Fatalf("serial.monitor outputs = %#v, want no non-emitting graph outputs", outputs)
 		}
 	}
 
@@ -749,7 +780,7 @@ func TestSerialGraphValidateRejectsInvalidTopologyRules(t *testing.T) {
 			wantError: "provider not found",
 		},
 		{
-			name: "incompatible port kinds",
+			name: "monitor has no emitting graph output",
 			arguments: `{
 				"nodes":[
 					{"id":"monitor","type":"serial.monitor","position":{"x":0,"y":0},"config":{}},
@@ -757,7 +788,7 @@ func TestSerialGraphValidateRejectsInvalidTopologyRules(t *testing.T) {
 				],
 				"edges":[{"id":"edge-1","source":"monitor","source_handle":"frames","target":"receiver","target_handle":"in"}]
 			}`,
-			wantError: "incompatible port kinds",
+			wantError: "output port not found",
 		},
 		{
 			name: "non tap fan out",

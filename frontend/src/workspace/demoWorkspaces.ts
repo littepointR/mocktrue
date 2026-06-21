@@ -133,7 +133,8 @@ function createMonitorDemo(): WorkspaceSnapshot {
 
 function createModbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const graph = modbusGraphState(suffix)
+  const requestPort = `mocktrue-demo-modbus-${suffix}`
+  const graph = modbusGraphState(suffix, requestPort)
 
   return snapshot({
     graph,
@@ -143,7 +144,8 @@ function createModbusDemo(): WorkspaceSnapshot {
 
 function createFecbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const graph = fecbusGraphState(suffix)
+  const requestPort = `mocktrue-demo-fecbus-${suffix}`
+  const graph = fecbusGraphState(suffix, requestPort)
 
   return snapshot({
     graph,
@@ -167,7 +169,9 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const terminalPort = `mocktrue-demo-terminal-${suffix}`
   const bridgePortA = `mocktrue-demo-full-a-${suffix}`
   const bridgePortB = `mocktrue-demo-full-b-${suffix}`
-  const graph = fullWorkspaceGraphState(suffix, terminalPort, bridgePortA, bridgePortB)
+  const modbusPort = `mocktrue-demo-full-modbus-${suffix}`
+  const fecbusPort = `mocktrue-demo-full-fecbus-${suffix}`
+  const graph = fullWorkspaceGraphState(suffix, terminalPort, bridgePortA, bridgePortB, modbusPort, fecbusPort)
 
   return snapshot({
     settings: {
@@ -504,7 +508,7 @@ function bridgeGraphState(suffix: string, portA: string, portB: string): SerialG
     graphNode(suffix, 'bridge-vport-a', 'serial.virtual', 280, 32, virtualConfig(portA)),
     graphNode(suffix, 'bridge-sender-b', 'serial.sender', 32, 200, senderConfig(`bridge B ${suffix}\r\n`)),
     graphNode(suffix, 'bridge-vport-b', 'serial.virtual', 280, 200, virtualConfig(portB)),
-    graphNode(suffix, 'bridge', 'serial.bridge', 528, 116, { baudRate: 115200 }),
+    graphNode(suffix, 'bridge', 'serial.bridge', 528, 116),
     graphNode(suffix, 'bridge-receiver-a', 'serial.receiver', 776, 32, receiverConfig()),
     graphNode(suffix, 'bridge-receiver-b', 'serial.receiver', 776, 200, receiverConfig()),
   ]
@@ -537,40 +541,46 @@ function monitorGraphState(suffix: string, portName: string): SerialGraphWorkspa
   ], selectedNodeId)
 }
 
-function modbusGraphState(suffix: string): SerialGraphWorkspaceState {
+function modbusGraphState(suffix: string, requestPortName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-modbus-master-${suffix}`
+  const requestPortId = `graph-modbus-vport-${suffix}`
   const slaveId = `graph-modbus-slave-${suffix}`
   const tapId = `graph-modbus-response-tap-${suffix}`
   const nodes = [
-    graphNode(suffix, 'modbus-master', 'serial.modbus.master', 32, 32, modbusMasterConfig()),
-    graphNode(suffix, 'modbus-slave', 'serial.modbus.slave', 280, 32, modbusSlaveConfig()),
-    graphNode(suffix, 'modbus-response-tap', 'serial.tap', 528, 32),
-    graphNode(suffix, 'modbus-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
-    graphNode(suffix, 'modbus-monitor', 'serial.monitor', 776, 168, monitorConfig()),
+    graphNode(suffix, 'modbus-master', 'serial.modbus.master', 32, 32, modbusMasterConfig({ autoSend: true })),
+    graphNode(suffix, 'modbus-vport', 'serial.virtual', 280, 32, virtualConfig(requestPortName)),
+    graphNode(suffix, 'modbus-slave', 'serial.modbus.slave', 528, 32, modbusSlaveConfig()),
+    graphNode(suffix, 'modbus-response-tap', 'serial.tap', 776, 32),
+    graphNode(suffix, 'modbus-receiver', 'serial.receiver', 1024, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'modbus-monitor', 'serial.monitor', 1024, 168, monitorConfig()),
   ]
 
   return graphState(suffix, 'Modbus 调试演示', nodes, [
-    graphEdge(suffix, 'modbus-master-slave', selectedNodeId, 'tx', slaveId, 'rx'),
+    graphEdge(suffix, 'modbus-master-vport', selectedNodeId, 'tx', requestPortId, 'tx'),
+    graphEdge(suffix, 'modbus-vport-slave', requestPortId, 'rx', slaveId, 'rx'),
     graphEdge(suffix, 'modbus-slave-tap', slaveId, 'tx', tapId, 'in'),
     graphEdge(suffix, 'modbus-tap-receiver', tapId, 'out', `graph-modbus-receiver-${suffix}`, 'in'),
     graphEdge(suffix, 'modbus-tap-monitor', tapId, 'out', `graph-modbus-monitor-${suffix}`, 'in'),
   ], selectedNodeId)
 }
 
-function fecbusGraphState(suffix: string): SerialGraphWorkspaceState {
+function fecbusGraphState(suffix: string, requestPortName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-fecbus-master-${suffix}`
+  const requestPortId = `graph-fecbus-vport-${suffix}`
   const slaveId = `graph-fecbus-slave-${suffix}`
   const tapId = `graph-fecbus-response-tap-${suffix}`
   const nodes = [
-    graphNode(suffix, 'fecbus-master', 'serial.fecbus.master', 32, 32, fecbusMasterConfig()),
-    graphNode(suffix, 'fecbus-slave', 'serial.fecbus.slave', 280, 32, fecbusSlaveConfig()),
-    graphNode(suffix, 'fecbus-response-tap', 'serial.tap', 528, 32),
-    graphNode(suffix, 'fecbus-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
-    graphNode(suffix, 'fecbus-monitor', 'serial.monitor', 776, 168, monitorConfig()),
+    graphNode(suffix, 'fecbus-master', 'serial.fecbus.master', 32, 32, fecbusMasterConfig({ autoSend: true })),
+    graphNode(suffix, 'fecbus-vport', 'serial.virtual', 280, 32, virtualConfig(requestPortName)),
+    graphNode(suffix, 'fecbus-slave', 'serial.fecbus.slave', 528, 32, fecbusSlaveConfig()),
+    graphNode(suffix, 'fecbus-response-tap', 'serial.tap', 776, 32),
+    graphNode(suffix, 'fecbus-receiver', 'serial.receiver', 1024, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'fecbus-monitor', 'serial.monitor', 1024, 168, monitorConfig()),
   ]
 
   return graphState(suffix, 'FECbus 调试演示', nodes, [
-    graphEdge(suffix, 'fecbus-master-slave', selectedNodeId, 'tx', slaveId, 'rx'),
+    graphEdge(suffix, 'fecbus-master-vport', selectedNodeId, 'tx', requestPortId, 'tx'),
+    graphEdge(suffix, 'fecbus-vport-slave', requestPortId, 'rx', slaveId, 'rx'),
     graphEdge(suffix, 'fecbus-slave-tap', slaveId, 'tx', tapId, 'in'),
     graphEdge(suffix, 'fecbus-tap-receiver', tapId, 'out', `graph-fecbus-receiver-${suffix}`, 'in'),
     graphEdge(suffix, 'fecbus-tap-monitor', tapId, 'out', `graph-fecbus-monitor-${suffix}`, 'in'),
@@ -581,12 +591,16 @@ function fullWorkspaceGraphState(
   suffix: string,
   terminalPort: string,
   bridgePortA: string,
-  bridgePortB: string
+  bridgePortB: string,
+  modbusPort: string,
+  fecbusPort: string
 ): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-full-receiver-${suffix}`
   const modbusMasterId = `graph-full-modbus-master-${suffix}`
+  const modbusPortId = `graph-full-modbus-vport-${suffix}`
   const modbusSlaveId = `graph-full-modbus-slave-${suffix}`
   const fecbusMasterId = `graph-full-fecbus-master-${suffix}`
+  const fecbusPortId = `graph-full-fecbus-vport-${suffix}`
   const fecbusSlaveId = `graph-full-fecbus-slave-${suffix}`
   const nodes = [
     graphNode(suffix, 'full-sender', 'serial.sender', 32, 32, senderConfig(`full workspace ${suffix}\r\n`)),
@@ -599,20 +613,22 @@ function fullWorkspaceGraphState(
     graphNode(suffix, 'full-bridge-vport-a', 'serial.virtual', 280, 344, virtualConfig(bridgePortA)),
     graphNode(suffix, 'full-bridge-sender-b', 'serial.sender', 32, 512, senderConfig(`full bridge B ${suffix}\r\n`)),
     graphNode(suffix, 'full-bridge-vport-b', 'serial.virtual', 280, 512, virtualConfig(bridgePortB)),
-    graphNode(suffix, 'full-bridge', 'serial.bridge', 528, 428, { baudRate: 115200 }),
+    graphNode(suffix, 'full-bridge', 'serial.bridge', 528, 428),
     graphNode(suffix, 'full-bridge-receiver-a', 'serial.receiver', 776, 344, receiverConfig()),
     graphNode(suffix, 'full-bridge-receiver-b', 'serial.receiver', 776, 512, receiverConfig()),
 
-    graphNode(suffix, 'full-modbus-master', 'serial.modbus.master', 1040, 32, modbusMasterConfig()),
-    graphNode(suffix, 'full-modbus-slave', 'serial.modbus.slave', 1288, 32, modbusSlaveConfig()),
-    graphNode(suffix, 'full-modbus-tap', 'serial.tap', 1536, 32),
-    graphNode(suffix, 'full-modbus-receiver', 'serial.receiver', 1784, 32, receiverConfig('hexClassic')),
-    graphNode(suffix, 'full-modbus-monitor', 'serial.monitor', 1784, 168, monitorConfig()),
+    graphNode(suffix, 'full-modbus-master', 'serial.modbus.master', 1040, 32, modbusMasterConfig({ autoSend: true })),
+    graphNode(suffix, 'full-modbus-vport', 'serial.virtual', 1288, 32, virtualConfig(modbusPort)),
+    graphNode(suffix, 'full-modbus-slave', 'serial.modbus.slave', 1536, 32, modbusSlaveConfig()),
+    graphNode(suffix, 'full-modbus-tap', 'serial.tap', 1784, 32),
+    graphNode(suffix, 'full-modbus-receiver', 'serial.receiver', 2032, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'full-modbus-monitor', 'serial.monitor', 2032, 168, monitorConfig()),
 
-    graphNode(suffix, 'full-fecbus-master', 'serial.fecbus.master', 1040, 344, fecbusMasterConfig()),
-    graphNode(suffix, 'full-fecbus-slave', 'serial.fecbus.slave', 1288, 344, fecbusSlaveConfig()),
-    graphNode(suffix, 'full-fecbus-tap', 'serial.tap', 1536, 344),
-    graphNode(suffix, 'full-fecbus-receiver', 'serial.receiver', 1784, 344, receiverConfig('hexClassic')),
+    graphNode(suffix, 'full-fecbus-master', 'serial.fecbus.master', 1040, 344, fecbusMasterConfig({ autoSend: true })),
+    graphNode(suffix, 'full-fecbus-vport', 'serial.virtual', 1288, 344, virtualConfig(fecbusPort)),
+    graphNode(suffix, 'full-fecbus-slave', 'serial.fecbus.slave', 1536, 344, fecbusSlaveConfig()),
+    graphNode(suffix, 'full-fecbus-tap', 'serial.tap', 1784, 344),
+    graphNode(suffix, 'full-fecbus-receiver', 'serial.receiver', 2032, 344, receiverConfig('hexClassic')),
   ]
 
   return graphState(suffix, '完整工作区演示', nodes, [
@@ -626,11 +642,13 @@ function fullWorkspaceGraphState(
     graphEdge(suffix, 'full-bridge-sender-b-vport-b', `graph-full-bridge-sender-b-${suffix}`, 'out', `graph-full-bridge-vport-b-${suffix}`, 'tx'),
     graphEdge(suffix, 'full-bridge-vport-b-in', `graph-full-bridge-vport-b-${suffix}`, 'rx', `graph-full-bridge-${suffix}`, 'b-in'),
     graphEdge(suffix, 'full-bridge-a-out-receiver', `graph-full-bridge-${suffix}`, 'a-out', `graph-full-bridge-receiver-a-${suffix}`, 'in'),
-    graphEdge(suffix, 'full-modbus-master-slave', modbusMasterId, 'tx', modbusSlaveId, 'rx'),
+    graphEdge(suffix, 'full-modbus-master-vport', modbusMasterId, 'tx', modbusPortId, 'tx'),
+    graphEdge(suffix, 'full-modbus-vport-slave', modbusPortId, 'rx', modbusSlaveId, 'rx'),
     graphEdge(suffix, 'full-modbus-slave-tap', modbusSlaveId, 'tx', `graph-full-modbus-tap-${suffix}`, 'in'),
     graphEdge(suffix, 'full-modbus-tap-receiver', `graph-full-modbus-tap-${suffix}`, 'out', `graph-full-modbus-receiver-${suffix}`, 'in'),
     graphEdge(suffix, 'full-modbus-tap-monitor', `graph-full-modbus-tap-${suffix}`, 'out', `graph-full-modbus-monitor-${suffix}`, 'in'),
-    graphEdge(suffix, 'full-fecbus-master-slave', fecbusMasterId, 'tx', fecbusSlaveId, 'rx'),
+    graphEdge(suffix, 'full-fecbus-master-vport', fecbusMasterId, 'tx', fecbusPortId, 'tx'),
+    graphEdge(suffix, 'full-fecbus-vport-slave', fecbusPortId, 'rx', fecbusSlaveId, 'rx'),
     graphEdge(suffix, 'full-fecbus-slave-tap', fecbusSlaveId, 'tx', `graph-full-fecbus-tap-${suffix}`, 'in'),
     graphEdge(suffix, 'full-fecbus-tap-receiver', `graph-full-fecbus-tap-${suffix}`, 'out', `graph-full-fecbus-receiver-${suffix}`, 'in'),
   ], selectedNodeId)
@@ -719,11 +737,11 @@ function receiverConfig(viewMode = 'ascii'): Record<string, unknown> {
 }
 
 function monitorConfig(): Record<string, unknown> {
-  return { mode: 'auto-virtual', displayMode: 'hex' }
+  return { displayMode: 'hex' }
 }
 
-function modbusMasterConfig(): Record<string, unknown> {
-  return {
+function modbusMasterConfig(options: { autoSend?: boolean } = {}): Record<string, unknown> {
+  const config: Record<string, unknown> = {
     mode: 'rtu',
     unitIds: '1,2',
     addressMode: 'zero-based',
@@ -732,18 +750,22 @@ function modbusMasterConfig(): Record<string, unknown> {
     quantity: 2,
     value: 0,
   }
+  if (options.autoSend) {
+    config.autoSend = true
+    config.intervalMs = 1000
+  }
+  return config
 }
 
 function modbusSlaveConfig(): Record<string, unknown> {
   return {
     mode: 'rtu',
     unitIds: '1,2',
-    addressMode: 'zero-based',
   }
 }
 
-function fecbusMasterConfig(): Record<string, unknown> {
-  return {
+function fecbusMasterConfig(options: { autoSend?: boolean } = {}): Record<string, unknown> {
+  const config: Record<string, unknown> = {
     frameType: FrameType.FrameTypeRequest,
     sourceAddress: 1,
     targetAddress: 2,
@@ -753,6 +775,11 @@ function fecbusMasterConfig(): Record<string, unknown> {
     functionCode: FunctionCode.FunctionQueryProtocolVersion,
     dataHex: '',
   }
+  if (options.autoSend) {
+    config.autoSend = true
+    config.intervalMs = 1000
+  }
+  return config
 }
 
 function fecbusSlaveConfig(): Record<string, unknown> {

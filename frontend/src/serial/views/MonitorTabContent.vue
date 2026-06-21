@@ -167,27 +167,29 @@ async function clearFrames() {
       </div>
     </div>
 
-    <div class="monitor-tab__body">
-      <ResizableTable :columns="frameColumns" table-class="monitor-table" :min-width="860">
-        <tr
-          v-for="frame in frames"
-          :key="frame.Seq"
-          :class="{ 'is-selected': selectedFrame?.Seq === frame.Seq }"
-          @click="selectedSeq = frame.Seq"
-        >
-          <td>{{ frame.Seq }}</td>
-          <td>{{ frameTime(frame.Timestamp) }}</td>
-          <td>{{ directionLabel(frame.Direction) }}</td>
-          <td>{{ frame.Port }}</td>
-          <td>{{ frame.Length }}</td>
-          <td><code>{{ frameDisplay(frame) }}</code></td>
-        </tr>
-      </ResizableTable>
-    </div>
+    <div class="monitor-tab__receive-container" data-testid="monitor-receive-container">
+      <div class="monitor-tab__body" data-testid="monitor-frame-list">
+        <ResizableTable :columns="frameColumns" table-class="monitor-table" :min-width="860">
+          <tr
+            v-for="frame in frames"
+            :key="frame.Seq"
+            :class="{ 'is-selected': selectedFrame?.Seq === frame.Seq }"
+            @click="selectedSeq = frame.Seq"
+          >
+            <td>{{ frame.Seq }}</td>
+            <td>{{ frameTime(frame.Timestamp) }}</td>
+            <td>{{ directionLabel(frame.Direction) }}</td>
+            <td>{{ frame.Port }}</td>
+            <td>{{ frame.Length }}</td>
+            <td><code>{{ frameDisplay(frame) }}</code></td>
+          </tr>
+        </ResizableTable>
+      </div>
 
-    <div v-if="selectedFrame" class="monitor-detail">
-      <div><strong>HEX</strong><code>{{ selectedFrame.DisplayHex }}</code></div>
-      <div><strong>文本</strong><code>{{ selectedFrame.DisplayText }}</code></div>
+      <div v-if="selectedFrame" class="monitor-detail" data-testid="monitor-frame-detail">
+        <div><strong>HEX</strong><code>{{ selectedFrame.DisplayHex }}</code></div>
+        <div><strong>文本</strong><code>{{ selectedFrame.DisplayText }}</code></div>
+      </div>
     </div>
   </div>
 </template>
@@ -258,8 +260,15 @@ async function clearFrames() {
   background: #0e639c;
   color: #ffffff;
 }
+.monitor-tab__receive-container {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
 .monitor-tab__body {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   overflow: auto;
 }
@@ -299,8 +308,9 @@ async function clearFrames() {
 }
 .monitor-detail {
   display: grid;
-  flex: 0 0 92px;
+  flex: 0 0 auto;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-height: 120px;
   gap: 8px;
   padding: 8px 10px;
   overflow: auto;

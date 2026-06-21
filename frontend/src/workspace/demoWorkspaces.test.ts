@@ -8,8 +8,8 @@ const expectedDemoNodeTypes: Record<string, string[]> = {
   'virtual-port-demo': ['serial.sender', 'serial.virtual', 'serial.receiver'],
   'bridge-demo': ['serial.sender', 'serial.virtual', 'serial.bridge', 'serial.receiver'],
   'monitor-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.receiver', 'serial.monitor'],
-  'modbus-demo': ['serial.modbus.master', 'serial.modbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
-  'fecbus-demo': ['serial.fecbus.master', 'serial.fecbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
+  'modbus-demo': ['serial.virtual', 'serial.modbus.master', 'serial.modbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
+  'fecbus-demo': ['serial.virtual', 'serial.fecbus.master', 'serial.fecbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
   'serial-graph-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.receiver', 'serial.modbus.master', 'serial.monitor'],
   'full-workspace-demo': [
     'serial.sender',
@@ -152,9 +152,10 @@ describe('demoWorkspaces', () => {
       const slave = graph.nodes.find(node => node.type === 'serial.modbus.slave')
 
       expect(snapshot?.serial.modbus.sessions).toHaveLength(0)
-      expect(master?.config).toEqual(expect.objectContaining({ mode: 'rtu', unitIds: '1,2', functionCode: 3 }))
+      expect(master?.config).toEqual(expect.objectContaining({ mode: 'rtu', unitIds: '1,2', functionCode: 3, autoSend: true }))
       expect(slave?.config).toEqual(expect.objectContaining({ mode: 'rtu', unitIds: '1,2' }))
-      expect(graph.edges.some(edge => edge.source === master?.id && edge.target === slave?.id)).toBe(true)
+      expect(protocolRequestVirtualPort(graph, master?.id, slave?.id)).toBeTruthy()
+      expect(graph.edges.some(edge => edge.source === master?.id && edge.target === slave?.id)).toBe(false)
     }
 
     for (const id of ['fecbus-demo', 'full-workspace-demo']) {
@@ -164,9 +165,10 @@ describe('demoWorkspaces', () => {
       const slave = graph.nodes.find(node => node.type === 'serial.fecbus.slave')
 
       expect(snapshot?.serial.fecbus.sessions).toHaveLength(0)
-      expect(master?.config).toEqual(expect.objectContaining({ sourceAddress: 1, targetAddress: 2, functionCode: 44 }))
+      expect(master?.config).toEqual(expect.objectContaining({ sourceAddress: 1, targetAddress: 2, functionCode: 44, autoSend: true }))
       expect(slave?.config).toEqual(expect.objectContaining({ address: 2, autoStatusAnswer: true }))
-      expect(graph.edges.some(edge => edge.source === master?.id && edge.target === slave?.id)).toBe(true)
+      expect(protocolRequestVirtualPort(graph, master?.id, slave?.id)).toBeTruthy()
+      expect(graph.edges.some(edge => edge.source === master?.id && edge.target === slave?.id)).toBe(false)
     }
   })
 
@@ -185,6 +187,77 @@ describe('demoWorkspaces', () => {
       expect(graph.activeNodeTabId, demo.id).toBeTruthy()
       expect(graph.selectedNodeId, demo.id).toBe(graph.activeNodeTabId)
       expect(graph.edges.length, demo.id).toBeGreaterThan(0)
+    }
+  })
+
+  it('does not include legacy serial monitor mode in demo graph configs', () => {
+    for (const demo of listDemoWorkspaces()) {
+      const snapshot = createDemoWorkspaceSnapshot(demo.id)
+      const graph = activeGraph(snapshot?.serial.graph)
+      const monitors = graph.nodes.filter(node => node.type === 'serial.monitor')
+
+      for (const monitor of monitors) {
+        expect(monitor.config, `${demo.id} ${monitor.id}`).toEqual(expect.not.objectContaining({ mode: expect.anything() }))
+        expect(monitor.config, `${demo.id} ${monitor.id}`).toEqual(expect.objectContaining({ displayMode: 'hex' }))
+      }
+    }
+  })
+
+  it('does not include topology config fields that runtime nodes ignore', () => {
+    for (const demo of listDemoWorkspaces()) {
+      const snapshot = createDemoWorkspaceSnapshot(demo.id)
+      const graph = activeGraph(snapshot?.serial.graph)
+
+      for (const bridge of graph.nodes.filter(node => node.type === 'serial.bridge')) {
+        expect(bridge.config, `${demo.id} ${bridge.id}`).toEqual(expect.not.objectContaining({ baudRate: expect.anything() }))
+      }
+      for (const slave of graph.nodes.filter(node => node.type === 'serial.modbus.slave')) {
+        expect(slave.config, `${demo.id} ${slave.id}`).toEqual(expect.not.objectContaining({ addressMode: expect.anything() }))
+      }
+    }
+  })
+
+  it('gives every demo a looping virtual serial data path on startup', () => {
+    for (const demo of listDemoWorkspaces()) {
+      const snapshot = createDemoWorkspaceSnapshot(demo.id)
+      const graph = activeGraph(snapshot?.serial.graph)
+      const autoNodes = graph.nodes.filter(node => (
+        (node.type === 'serial.sender' || node.type === 'serial.modbus.master' || node.type === 'serial.fecbus.master')
+        && node.config.autoSend === true
+        && Number(node.config.intervalMs) >= 10
+        && (node.type !== 'serial.sender' || String(node.config.payload ?? '').length > 0)
+      ))
+      const virtualPorts = graph.nodes.filter(node => (
+        node.type === 'serial.virtual'
+        && String(node.config.portName ?? '').trim().length > 0
+      ))
+      const receivers = graph.nodes.filter(node => node.type === 'serial.receiver')
+      const hasLoopingVirtualPath = autoNodes.some(sender => (
+        virtualPorts.some(virtualPort => (
+          graph.edges.some(edge => (
+            edge.source === sender.id
+            && edge.sourceHandle === outputHandleForNode(sender.type)
+            && edge.target === virtualPort.id
+            && edge.targetHandle === 'tx'
+          ))
+          && reachesReceiverFromOutput(graph, virtualPort.id, 'rx')
+        ))
+      ))
+
+      expect(autoNodes.length, `${demo.id} auto nodes`).toBeGreaterThan(0)
+      expect(virtualPorts.length, `${demo.id} virtual ports`).toBeGreaterThan(0)
+      expect(receivers.length, `${demo.id} receivers`).toBeGreaterThan(0)
+      expect(hasLoopingVirtualPath, `${demo.id} auto node -> virtual -> receiver path`).toBe(true)
+    }
+  })
+
+  it('does not add isolated protocol loop branches to make demos look active', () => {
+    for (const id of ['modbus-demo', 'fecbus-demo']) {
+      const snapshot = createDemoWorkspaceSnapshot(id)
+      const graph = activeGraph(snapshot?.serial.graph)
+      const loopNodes = graph.nodes.filter(node => node.id.includes('-loop-'))
+
+      expect(loopNodes, id).toEqual([])
     }
   })
 
@@ -239,4 +312,78 @@ function activeGraph(state: SerialGraphWorkspaceState | undefined) {
   const graph = state?.graphs.find(item => item.id === state.activeGraphId)
   expect(graph).toBeDefined()
   return graph!
+}
+
+function protocolRequestVirtualPort(
+  graph: SerialGraphWorkspaceState['graphs'][number],
+  masterId: string | undefined,
+  slaveId: string | undefined
+) {
+  const masterToVirtual = graph.edges.find(edge => (
+    edge.source === masterId
+    && edge.sourceHandle === 'tx'
+    && edge.targetHandle === 'tx'
+    && graph.nodes.some(node => node.id === edge.target && node.type === 'serial.virtual')
+  ))
+  if (!masterToVirtual) return null
+  const virtualToSlave = graph.edges.find(edge => (
+    edge.source === masterToVirtual.target
+    && edge.sourceHandle === 'rx'
+    && edge.target === slaveId
+    && edge.targetHandle === 'rx'
+  ))
+  return virtualToSlave ? masterToVirtual.target : null
+}
+
+function reachesReceiverFromOutput(
+  graph: SerialGraphWorkspaceState['graphs'][number],
+  nodeId: string,
+  outputHandle: string
+): boolean {
+  const queue = [{ nodeId, outputHandle }]
+  const visited = new Set<string>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const visitKey = `${current.nodeId}:${current.outputHandle}`
+    if (visited.has(visitKey)) continue
+    visited.add(visitKey)
+
+    for (const edge of graph.edges.filter(item => item.source === current.nodeId && item.sourceHandle === current.outputHandle)) {
+      const target = graph.nodes.find(node => node.id === edge.target)
+      if (!target) continue
+      if (target.type === 'serial.receiver' && edge.targetHandle === 'in') {
+        return true
+      }
+      for (const nextOutput of outputsAfterInput(target.type, edge.targetHandle)) {
+        queue.push({ nodeId: target.id, outputHandle: nextOutput })
+      }
+    }
+  }
+
+  return false
+}
+
+function outputsAfterInput(nodeType: string, inputHandle: string): string[] {
+  if (nodeType === 'serial.virtual' && inputHandle === 'tx') {
+    return ['rx']
+  }
+  if ((nodeType === 'serial.tap' || nodeType === 'serial.tee') && inputHandle === 'in') {
+    return ['out']
+  }
+  if (nodeType === 'serial.bridge') {
+    if (inputHandle === 'a-in') return ['b-out']
+    if (inputHandle === 'b-in') return ['a-out']
+  }
+  if ((nodeType === 'serial.modbus.slave' || nodeType === 'serial.fecbus.slave') && inputHandle === 'rx') {
+    return ['tx']
+  }
+  return []
+}
+
+function outputHandleForNode(nodeType: string): string {
+  if (nodeType === 'serial.modbus.master' || nodeType === 'serial.fecbus.master') {
+    return 'tx'
+  }
+  return 'out'
 }

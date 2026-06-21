@@ -130,7 +130,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
       { id: 'a-out', label: '发送 A', kind: 'bytes', direction: 'output' },
       { id: 'b-out', label: '发送 B', kind: 'bytes', direction: 'output' },
     ],
-    defaultConfig: { baudRate: 115200 },
+    defaultConfig: {},
   },
   {
     type: 'serial.monitor',
@@ -138,11 +138,8 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     category: '工具',
     description: '监听一路串口字节流并生成监控帧。',
     inputs: [bytesIn],
-    outputs: [
-      { id: 'frames', label: '监控帧', kind: 'frame', direction: 'output', multiple: true },
-      { id: 'status', label: '状态', kind: 'status', direction: 'output', multiple: true },
-    ],
-    defaultConfig: { mode: 'auto-virtual', displayMode: 'hex' },
+    outputs: [],
+    defaultConfig: { displayMode: 'hex' },
   },
   {
     type: 'serial.tap',
@@ -198,7 +195,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
       { id: 'rx', label: '接收', kind: 'bytes', direction: 'input' },
     ],
     outputs: [{ id: 'tx', label: '发送', kind: 'bytes', direction: 'output' }],
-    defaultConfig: { mode: 'rtu', unitIds: '1', addressMode: 'zero-based' },
+    defaultConfig: { mode: 'rtu', unitIds: '1' },
   },
   {
     type: 'serial.fecbus.master',
@@ -274,7 +271,7 @@ export function cloneSerialGraphDocument(graph: Partial<SerialGraphDocument> & S
     ...node,
     name: node.name ?? providerByType(node.type)?.title ?? node.type,
     position: { ...node.position },
-    config: { ...node.config },
+    config: sanitizeNodeConfig(node.type, node.config),
   }))
   const nodeIds = new Set(nodes.map(node => node.id))
   const nodeTabs = (graph.nodeTabs ?? [])
@@ -422,6 +419,20 @@ function validateResourceOwners(state: SerialGraphTopologyState): string[] {
 
 function compatibleKinds(source: SerialGraphPortKind, target: SerialGraphPortKind): boolean {
   return source === target
+}
+
+function sanitizeNodeConfig(type: string, config: Record<string, unknown> = {}): Record<string, unknown> {
+  const next = { ...config }
+  if (type === 'serial.monitor') {
+    delete next.mode
+  }
+  if (type === 'serial.bridge') {
+    delete next.baudRate
+  }
+  if (type === 'serial.modbus.slave') {
+    delete next.addressMode
+  }
+  return next
 }
 
 function wouldCreateDirectedCycle(

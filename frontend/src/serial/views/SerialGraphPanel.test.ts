@@ -424,6 +424,133 @@ describe('SerialGraphPanel', () => {
     expect(typeof store.nodes.find(node => node.id === receiver.id)?.config.autoScroll).toBe('boolean')
   })
 
+  it('uses actual receiver viewMode options and writes the selected mode to node config', async () => {
+    const store = useSerialGraphStore()
+    const receiver = store.addNode('serial.receiver')
+    const wrapper = mount(SerialGraphPanel)
+
+    const viewModeSelect = wrapper.find('[data-testid="serial-graph-config-viewMode"]')
+    expect(viewModeSelect.exists()).toBe(true)
+    expect(viewModeSelect.findAll('option').map(option => ({
+      value: option.attributes('value'),
+      text: option.text(),
+    }))).toEqual([
+      { value: 'ascii', text: 'ASCII' },
+      { value: 'hexClassic', text: 'HEX 经典' },
+      { value: 'hexTable', text: 'HEX 表格' },
+    ])
+
+    await viewModeSelect.setValue('hexClassic')
+
+    expect(store.nodes.find(node => node.id === receiver.id)?.config.viewMode).toBe('hexClassic')
+
+    await viewModeSelect.setValue('hexTable')
+
+    expect(store.nodes.find(node => node.id === receiver.id)?.config.viewMode).toBe('hexTable')
+  })
+
+  it('renders receiver buffer according to the selected viewMode', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.selectNode(receiver.id)
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
+      Offset: 0,
+      Data: btoa(String.fromCharCode(0x41, 0x00, 0xff)),
+      Total: 3,
+      EOF: true,
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+
+    const buffer = () => wrapper.find('[data-testid="serial-graph-content-node-buffer"]').element.textContent ?? ''
+    expect(buffer()).toContain('A')
+    expect(buffer()).not.toContain('41 00 ff')
+
+    await wrapper.find('[data-testid="serial-graph-config-viewMode"]').setValue('hexClassic')
+    await nextTick()
+
+    expect(buffer()).toContain('00000000')
+    expect(buffer()).toContain('41 00 ff')
+    expect(buffer()).toContain('A..')
+
+    await wrapper.find('[data-testid="serial-graph-config-viewMode"]').setValue('hexTable')
+    await nextTick()
+
+    expect(buffer()).toContain('Offset')
+    expect(buffer()).toContain('HEX')
+    expect(buffer()).toContain('ASCII')
+    expect(buffer()).toContain('41 00 ff')
+    expect(buffer()).toContain('A..')
+
+    wrapper.unmount()
+  })
+
+  it('shows mode options that match the selected node type', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const master = store.addNode('serial.modbus.master')
+    const wrapper = mount(SerialGraphPanel)
+
+    store.selectNode(sender.id)
+    await nextTick()
+
+    const senderMode = wrapper.find('[data-testid="serial-graph-config-mode"]')
+    expect(senderMode.findAll('option').map(option => option.attributes('value'))).toEqual(['ascii', 'hex'])
+
+    store.selectNode(master.id)
+    await nextTick()
+
+    const modbusMode = wrapper.find('[data-testid="serial-graph-config-mode"]')
+    expect(modbusMode.findAll('option').map(option => option.attributes('value'))).toEqual(['rtu', 'ascii'])
+
+    wrapper.unmount()
+  })
+
+  it('auto-scrolls receiver buffers only when autoScroll is enabled', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.selectNode(receiver.id)
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+
+    const buffer = wrapper.find<HTMLElement>('[data-testid="serial-graph-content-node-buffer"]').element
+    Object.defineProperty(buffer, 'scrollHeight', { value: 480, configurable: true })
+    Object.defineProperty(buffer, 'scrollTop', { value: 0, writable: true, configurable: true })
+
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(buffer.scrollTop).toBe(480)
+
+    await wrapper.find('[data-testid="serial-graph-config-autoScroll"]').setValue(false)
+    buffer.scrollTop = 0
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
+      Offset: 0,
+      Data: btoa('next'),
+      Total: 4,
+      EOF: true,
+    })
+
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(buffer.scrollTop).toBe(0)
+
+    wrapper.unmount()
+  })
+
   it('pans the canvas by dragging the empty background with the left mouse button', async () => {
     const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
     const canvas = wrapper.find<HTMLElement>('[data-testid="serial-graph-canvas"]')
@@ -495,6 +622,87 @@ describe('SerialGraphPanel', () => {
       NodeID: receiver.id,
     }))
     expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()).toContain('hello')
+
+    wrapper.unmount()
+  })
+
+  it('renders monitor node frames inside a fixed content container', async () => {
+    const store = useSerialGraphStore()
+    const monitor = store.addNode('serial.monitor')
+    store.selectNode(monitor.id)
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(store.nodes.find(node => node.id === monitor.id)?.config).toEqual({ displayMode: 'hex' })
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').trigger('click')
+    await flushPromises()
+
+    const frameContainer = wrapper.find('[data-testid="serial-graph-content-node-frame-container"]')
+    expect(frameContainer.exists()).toBe(true)
+    expect(frameContainer.classes()).toContain('serial-graph__frames-container')
+    expect(frameContainer.find('[data-testid="serial-graph-content-node-frames"]').exists()).toBe(true)
+    expect(frameContainer.find('[data-testid="serial-graph-content-node-frames"]').text()).toContain('68 65 6c 6c 6f')
+    expect(wrapper.find('.serial-graph__node-content > .serial-graph__frames').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-config-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-config-displayMode"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('renders monitor frames using the selected displayMode', async () => {
+    const store = useSerialGraphStore()
+    const monitor = store.addNode('serial.monitor')
+    store.selectNode(monitor.id)
+    bindings.QuerySerialGraphNodeFrames.mockResolvedValue({
+      Frames: [{
+        Seq: 1,
+        Direction: '接收',
+        Length: 1,
+        DisplayText: 'A',
+        DisplayHex: '41',
+        DisplayDec: '65',
+        DisplayOct: '101',
+        DisplayBin: '01000001',
+      }],
+      Total: 1,
+      NextOffset: 1,
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').trigger('click')
+    await flushPromises()
+
+    const displayMode = wrapper.find('[data-testid="serial-graph-config-displayMode"]')
+    expect(displayMode.findAll('option').map(option => ({
+      value: option.attributes('value'),
+      text: option.text(),
+    }))).toEqual([
+      { value: 'text', text: 'text' },
+      { value: 'hex', text: 'hex' },
+      { value: 'dec', text: 'dec' },
+      { value: 'oct', text: 'oct' },
+      { value: 'bin', text: 'bin' },
+    ])
+
+    const tableText = () => wrapper.find('[data-testid="serial-graph-content-node-frames"]').text()
+    expect(tableText()).toContain('41')
+    expect(tableText()).not.toContain('65')
+
+    await displayMode.setValue('dec')
+    await nextTick()
+
+    expect(tableText()).toContain('65')
+    expect(tableText()).not.toContain('41')
+
+    await displayMode.setValue('bin')
+    await nextTick()
+
+    expect(tableText()).toContain('01000001')
+    expect(tableText()).not.toContain('65')
 
     wrapper.unmount()
   })

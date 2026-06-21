@@ -511,10 +511,10 @@ func (r *serialGraphRuntime) startAutoSenders() error {
 
 	senders := []autoSender{}
 	for _, node := range r.sortedNodes() {
-		if node.spec.Type != "serial.sender" || !graphBoolConfig(node.spec.Config, "autoSend", false) {
+		if !graphBoolConfig(node.spec.Config, "autoSend", false) {
 			continue
 		}
-		data, err := graphAutoSenderData(node.spec.Config)
+		data, err := graphAutoNodeData(node)
 		if err != nil {
 			node.setStatus(SerialGraphStatusError, err.Error())
 			return errors.Wrap(errors.CodeInvalid, "auto sender "+node.spec.ID, err)
@@ -1002,7 +1002,6 @@ func (n *serialGraphRuntimeNode) appendFrame(data []byte) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.frameSeq += 1
-	hexText := formatHexBytes(data)
 	frame := monitor.Frame{
 		Seq:         n.frameSeq,
 		Timestamp:   time.Now(),
@@ -1011,7 +1010,10 @@ func (n *serialGraphRuntimeNode) appendFrame(data []byte) {
 		Length:      len(data),
 		Data:        append([]byte(nil), data...),
 		DisplayText: string(data),
-		DisplayHex:  hexText,
+		DisplayHex:  formatGraphFrameBytes(data, "%02x"),
+		DisplayDec:  formatGraphFrameBytes(data, "%d"),
+		DisplayOct:  formatGraphFrameBytes(data, "%03o"),
+		DisplayBin:  formatGraphFrameBytes(data, "%08b"),
 		Encoding:    graphStringConfig(n.spec.Config, "encoding"),
 	}
 	n.frames = append(n.frames, frame)
@@ -1020,6 +1022,14 @@ func (n *serialGraphRuntimeNode) appendFrame(data []byte) {
 		n.frameBytes -= int64(len(n.frames[0].Data))
 		n.frames = n.frames[1:]
 	}
+}
+
+func formatGraphFrameBytes(data []byte, format string) string {
+	parts := make([]string, 0, len(data))
+	for _, b := range data {
+		parts = append(parts, fmt.Sprintf(format, b))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (n *serialGraphRuntimeNode) queryFrames(req SerialGraphFrameQuery) *SerialGraphFramePage {
@@ -1034,7 +1044,7 @@ func (n *serialGraphRuntimeNode) queryFrames(req SerialGraphFrameQuery) *SerialG
 			continue
 		}
 		if search != "" {
-			haystack := strings.ToLower(frame.DisplayText + " " + frame.DisplayHex)
+			haystack := strings.ToLower(frame.DisplayText + " " + frame.DisplayHex + " " + frame.DisplayDec + " " + frame.DisplayOct + " " + frame.DisplayBin)
 			if !strings.Contains(haystack, search) {
 				continue
 			}
@@ -1123,6 +1133,24 @@ func graphAutoSenderData(config map[string]any) ([]byte, error) {
 		return nil, errors.New(errors.CodeInvalid, "payload must not be empty")
 	}
 	return data, nil
+}
+
+func graphAutoNodeData(node *serialGraphRuntimeNode) ([]byte, error) {
+	switch node.spec.Type {
+	case "serial.sender":
+		return graphAutoSenderData(node.spec.Config)
+	case "serial.modbus.master", "serial.fecbus.master":
+		data, err := graphNodeSendData(node, SerialGraphSendRequest{})
+		if err != nil {
+			return nil, err
+		}
+		if len(data) == 0 {
+			return nil, errors.New(errors.CodeInvalid, "auto sender data must not be empty")
+		}
+		return data, nil
+	default:
+		return nil, errors.New(errors.CodeInvalid, "node does not support auto send: "+node.spec.Type)
+	}
 }
 
 func graphModbusMasterFrame(config map[string]any) ([]byte, error) {
@@ -1390,7 +1418,7 @@ func serialGraphRuntimeProviders() []serialGraphProviderSpec {
 		{Type: "serial.physical", Inputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "output"}}, ResourceOwner: true, ResourceKeys: []string{"portName"}},
 		{Type: "serial.virtual", Inputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "output"}}, ResourceOwner: true, ResourceKeys: []string{"portName"}},
 		{Type: "serial.bridge", Inputs: []serialGraphPortSpec{{ID: "a-in", Kind: "bytes", Direction: "input"}, {ID: "b-in", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "a-out", Kind: "bytes", Direction: "output"}, {ID: "b-out", Kind: "bytes", Direction: "output"}}},
-		{Type: "serial.monitor", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "frames", Kind: "frame", Direction: "output", Multiple: true}, {ID: "status", Kind: "status", Direction: "output", Multiple: true}}},
+		{Type: "serial.monitor", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{}},
 		{Type: "serial.tap", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
 		{Type: "serial.tee", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
 		{Type: "serial.sender", Outputs: []serialGraphPortSpec{bytesOut}},

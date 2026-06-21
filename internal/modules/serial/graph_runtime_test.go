@@ -253,6 +253,67 @@ func TestSerialGraphRuntimeMonitorCapturesBytes(t *testing.T) {
 	}
 }
 
+func TestSerialGraphRuntimeMonitorPopulatesDisplayModes(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-monitor-display",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender"},
+			{ID: "monitor", Type: "serial.monitor"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+		},
+	})
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{
+		GraphID: graph.ID,
+		NodeID:  "sender",
+		Content: "41 00 ff",
+		Mode:    "hex",
+	}); err != nil {
+		t.Fatalf("SendSerialGraphNode returned error: %v", err)
+	}
+
+	page, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{
+		GraphID: graph.ID,
+		NodeID:  "monitor",
+		Offset:  0,
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeFrames returned error: %v", err)
+	}
+	if page.Total != 1 || len(page.Frames) != 1 {
+		t.Fatalf("frame page total=%d len=%d, want 1", page.Total, len(page.Frames))
+	}
+	frame := page.Frames[0]
+	if frame.DisplayHex != "41 00 ff" || frame.DisplayDec != "65 0 255" || frame.DisplayOct != "101 000 377" || frame.DisplayBin != "01000001 00000000 11111111" {
+		t.Fatalf("frame displays = hex=%q dec=%q oct=%q bin=%q", frame.DisplayHex, frame.DisplayDec, frame.DisplayOct, frame.DisplayBin)
+	}
+}
+
+func TestSerialGraphRuntimeRejectsMonitorGraphOutputs(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	_, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
+		ID: "graph-monitor-output",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "monitor", Type: "serial.monitor"},
+			{ID: "receiver", Type: "serial.receiver"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-monitor-frame", Source: "monitor", SourceHandle: "frames", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "output port not found: serial.monitor.frames") {
+		t.Fatalf("StartSerialGraph error = %v, want monitor output port validation", err)
+	}
+}
+
 func TestSerialGraphRuntimeModbusMasterBuildsRequestFrame(t *testing.T) {
 	svc := NewService(nil)
 	defer svc.cleanup()
@@ -351,6 +412,84 @@ func TestSerialGraphRuntimeFecbusSlaveAutoResponds(t *testing.T) {
 	}
 	if frame.Type != fb.FrameTypeAnswer || frame.TargetAddress != 1 || frame.SourceAddress != 2 || frame.Function() != fb.FunctionStatusAnswer {
 		t.Fatalf("fecbus answer = %#v, want status answer from 2 to 1", frame)
+	}
+}
+
+func TestSerialGraphRuntimeModbusMasterAutoSendsThroughVirtualPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+	svc := NewService(nil)
+	defer svc.cleanup()
+	graph, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
+		ID: "graph-modbus-auto-virtual",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "master", Type: "serial.modbus.master", Config: graphModbusMasterConfig(map[string]any{"autoSend": true, "intervalMs": 10, "quantity": 2})},
+			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("mocktrue-graph-modbus-auto-vp")},
+			{ID: "slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
+			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-master-vport", Source: "master", SourceHandle: "tx", Target: "vport", TargetHandle: "tx"},
+			{ID: "edge-vport-slave", Source: "vport", SourceHandle: "rx", Target: "slave", TargetHandle: "rx"},
+			{ID: "edge-slave-receiver", Source: "slave", SourceHandle: "tx", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+	if err != nil {
+		t.Skipf("virtual serial unavailable: %v", err)
+	}
+
+	page := waitGraphBuffer(t, svc, graph.ID, "receiver", 9)
+	frame, err := mb.DecodeFrame(mb.FrameModeRTU, page.Data[:9])
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	parsed, err := mb.ParseResponse(frame.PDU)
+	if err != nil {
+		t.Fatalf("ParseResponse: %v", err)
+	}
+	if frame.UnitID != 1 || parsed.Function != mb.FunctionReadHoldingRegisters || len(parsed.Values) != 2 {
+		t.Fatalf("parsed response = %#v unit=%d, want 2 holding registers for unit 1", parsed, frame.UnitID)
+	}
+	if err := svc.StopSerialGraph(graph.ID); err != nil {
+		t.Fatalf("StopSerialGraph returned error: %v", err)
+	}
+}
+
+func TestSerialGraphRuntimeFecbusMasterAutoSendsThroughVirtualPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping socat integration test in short mode")
+	}
+	svc := NewService(nil)
+	defer svc.cleanup()
+	graph, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
+		ID: "graph-fecbus-auto-virtual",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig(map[string]any{"autoSend": true, "intervalMs": 10})},
+			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("mocktrue-graph-fecbus-auto-vp")},
+			{ID: "slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
+			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-master-vport", Source: "master", SourceHandle: "tx", Target: "vport", TargetHandle: "tx"},
+			{ID: "edge-vport-slave", Source: "vport", SourceHandle: "rx", Target: "slave", TargetHandle: "rx"},
+			{ID: "edge-slave-receiver", Source: "slave", SourceHandle: "tx", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+	if err != nil {
+		t.Skipf("virtual serial unavailable: %v", err)
+	}
+
+	page := waitGraphBuffer(t, svc, graph.ID, "receiver", 13)
+	frame, err := fb.DecodeFrame(page.Data[:13])
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	if frame.Type != fb.FrameTypeAnswer || frame.TargetAddress != 1 || frame.SourceAddress != 2 || frame.Function() != fb.FunctionStatusAnswer {
+		t.Fatalf("fecbus answer = %#v, want status answer from 2 to 1", frame)
+	}
+	if err := svc.StopSerialGraph(graph.ID); err != nil {
+		t.Fatalf("StopSerialGraph returned error: %v", err)
 	}
 }
 
@@ -866,7 +1005,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "vport-a", Type: "serial.virtual", Config: graphVirtualConfig(portName("bridge-a"))},
 			{ID: "sender-b", Type: "serial.sender", Config: graphSenderConfig()},
 			{ID: "vport-b", Type: "serial.virtual", Config: graphVirtualConfig(portName("bridge-b"))},
-			{ID: "bridge", Type: "serial.bridge", Config: map[string]any{"baudRate": 115200}},
+			{ID: "bridge", Type: "serial.bridge"},
 			{ID: "receiver-a", Type: "serial.receiver", Config: graphReceiverConfig()},
 			{ID: "receiver-b", Type: "serial.receiver", Config: graphReceiverConfig()},
 		}
@@ -909,40 +1048,44 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "modbus-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
+			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("modbus"))},
 			{ID: "slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
 			{ID: "tap", Type: "serial.tap"},
 			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
-			{ID: "edge-master-slave", Source: "master", SourceHandle: "tx", Target: "slave", TargetHandle: "rx"},
+			{ID: "edge-master-vport", Source: "master", SourceHandle: "tx", Target: "vport", TargetHandle: "tx"},
+			{ID: "edge-vport-slave", Source: "vport", SourceHandle: "rx", Target: "slave", TargetHandle: "rx"},
 			{ID: "edge-slave-tap", Source: "slave", SourceHandle: "tx", Target: "tap", TargetHandle: "in"},
 			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
 			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
 		}
 		return demoGraphStressCase{
 			Request:           request(nodes, edges),
-			StatusNodes:       []string{"master", "slave", "tap", "receiver", "monitor"},
+			StatusNodes:       []string{"master", "vport", "slave", "tap", "receiver", "monitor"},
 			ProtocolWorkloads: protocolWorkload("master", "receiver"),
 			MonitorNodes:      []string{"monitor"},
 		}
 	case "fecbus-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig()},
+			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("fecbus"))},
 			{ID: "slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
 			{ID: "tap", Type: "serial.tap"},
 			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
-			{ID: "edge-master-slave", Source: "master", SourceHandle: "tx", Target: "slave", TargetHandle: "rx"},
+			{ID: "edge-master-vport", Source: "master", SourceHandle: "tx", Target: "vport", TargetHandle: "tx"},
+			{ID: "edge-vport-slave", Source: "vport", SourceHandle: "rx", Target: "slave", TargetHandle: "rx"},
 			{ID: "edge-slave-tap", Source: "slave", SourceHandle: "tx", Target: "tap", TargetHandle: "in"},
 			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
 			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
 		}
 		return demoGraphStressCase{
 			Request:           request(nodes, edges),
-			StatusNodes:       []string{"master", "slave", "tap", "receiver", "monitor"},
+			StatusNodes:       []string{"master", "vport", "slave", "tap", "receiver", "monitor"},
 			ProtocolWorkloads: protocolWorkload("master", "receiver"),
 			MonitorNodes:      []string{"monitor"},
 		}
@@ -979,15 +1122,17 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "bridge-vport-a", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-a"))},
 			{ID: "bridge-sender-b", Type: "serial.sender", Config: graphSenderConfig()},
 			{ID: "bridge-vport-b", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-b"))},
-			{ID: "bridge", Type: "serial.bridge", Config: map[string]any{"baudRate": 115200}},
+			{ID: "bridge", Type: "serial.bridge"},
 			{ID: "bridge-receiver-a", Type: "serial.receiver", Config: graphReceiverConfig()},
 			{ID: "bridge-receiver-b", Type: "serial.receiver", Config: graphReceiverConfig()},
 			{ID: "modbus-master", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
+			{ID: "modbus-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-modbus"))},
 			{ID: "modbus-slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
 			{ID: "modbus-tap", Type: "serial.tap"},
 			{ID: "modbus-receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
 			{ID: "modbus-monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 			{ID: "fecbus-master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig()},
+			{ID: "fecbus-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-fecbus"))},
 			{ID: "fecbus-slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
 			{ID: "fecbus-tap", Type: "serial.tap"},
 			{ID: "fecbus-receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
@@ -1003,11 +1148,13 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "edge-bridge-sender-b-vport", Source: "bridge-sender-b", SourceHandle: "out", Target: "bridge-vport-b", TargetHandle: "tx"},
 			{ID: "edge-bridge-vport-b-in", Source: "bridge-vport-b", SourceHandle: "rx", Target: "bridge", TargetHandle: "b-in"},
 			{ID: "edge-bridge-a-receiver", Source: "bridge", SourceHandle: "a-out", Target: "bridge-receiver-a", TargetHandle: "in"},
-			{ID: "edge-modbus-master-slave", Source: "modbus-master", SourceHandle: "tx", Target: "modbus-slave", TargetHandle: "rx"},
+			{ID: "edge-modbus-master-vport", Source: "modbus-master", SourceHandle: "tx", Target: "modbus-vport", TargetHandle: "tx"},
+			{ID: "edge-modbus-vport-slave", Source: "modbus-vport", SourceHandle: "rx", Target: "modbus-slave", TargetHandle: "rx"},
 			{ID: "edge-modbus-slave-tap", Source: "modbus-slave", SourceHandle: "tx", Target: "modbus-tap", TargetHandle: "in"},
 			{ID: "edge-modbus-tap-receiver", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-receiver", TargetHandle: "in"},
 			{ID: "edge-modbus-tap-monitor", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-monitor", TargetHandle: "in"},
-			{ID: "edge-fecbus-master-slave", Source: "fecbus-master", SourceHandle: "tx", Target: "fecbus-slave", TargetHandle: "rx"},
+			{ID: "edge-fecbus-master-vport", Source: "fecbus-master", SourceHandle: "tx", Target: "fecbus-vport", TargetHandle: "tx"},
+			{ID: "edge-fecbus-vport-slave", Source: "fecbus-vport", SourceHandle: "rx", Target: "fecbus-slave", TargetHandle: "rx"},
 			{ID: "edge-fecbus-slave-tap", Source: "fecbus-slave", SourceHandle: "tx", Target: "fecbus-tap", TargetHandle: "in"},
 			{ID: "edge-fecbus-tap-receiver", Source: "fecbus-tap", SourceHandle: "out", Target: "fecbus-receiver", TargetHandle: "in"},
 		}
@@ -1016,8 +1163,8 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			StatusNodes: []string{
 				"main-sender", "main-vport", "main-tap", "main-receiver", "main-monitor",
 				"bridge-sender-a", "bridge-vport-a", "bridge-sender-b", "bridge-vport-b", "bridge", "bridge-receiver-a", "bridge-receiver-b",
-				"modbus-master", "modbus-slave", "modbus-tap", "modbus-receiver", "modbus-monitor",
-				"fecbus-master", "fecbus-slave", "fecbus-tap", "fecbus-receiver",
+				"modbus-master", "modbus-vport", "modbus-slave", "modbus-tap", "modbus-receiver", "modbus-monitor",
+				"fecbus-master", "fecbus-vport", "fecbus-slave", "fecbus-tap", "fecbus-receiver",
 			},
 			ByteWorkloads: byteWorkloads(
 				[2]string{"main-sender", "main-receiver"},
@@ -1122,11 +1269,11 @@ func graphReceiverConfig() map[string]any {
 }
 
 func graphMonitorConfig() map[string]any {
-	return map[string]any{"mode": "auto-virtual", "displayMode": "hex"}
+	return map[string]any{"displayMode": "hex"}
 }
 
-func graphModbusMasterConfig() map[string]any {
-	return map[string]any{
+func graphModbusMasterConfig(overrides ...map[string]any) map[string]any {
+	config := map[string]any{
 		"mode":         "rtu",
 		"unitIds":      "1,2",
 		"functionCode": int(mb.FunctionReadHoldingRegisters),
@@ -1134,14 +1281,20 @@ func graphModbusMasterConfig() map[string]any {
 		"address":      0,
 		"quantity":     125,
 	}
+	for _, override := range overrides {
+		for key, value := range override {
+			config[key] = value
+		}
+	}
+	return config
 }
 
 func graphModbusSlaveConfig() map[string]any {
-	return map[string]any{"mode": "rtu", "unitIds": "1,2", "addressMode": "zero-based"}
+	return map[string]any{"mode": "rtu", "unitIds": "1,2"}
 }
 
-func graphFecbusMasterConfig() map[string]any {
-	return map[string]any{
+func graphFecbusMasterConfig(overrides ...map[string]any) map[string]any {
+	config := map[string]any{
 		"frameType":     int(fb.FrameTypeRequest),
 		"sourceAddress": 1,
 		"targetAddress": 2,
@@ -1151,6 +1304,12 @@ func graphFecbusMasterConfig() map[string]any {
 		"functionCode":  int(fb.FunctionQueryProtocolVersion),
 		"dataHex":       "",
 	}
+	for _, override := range overrides {
+		for key, value := range override {
+			config[key] = value
+		}
+	}
+	return config
 }
 
 func graphFecbusSlaveConfig() map[string]any {

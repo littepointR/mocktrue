@@ -1166,7 +1166,7 @@ func serialGraphProviders() []serialGraphProvider {
 				{ID: "a-out", Label: "发送 A", Kind: "bytes", Direction: "output"},
 				{ID: "b-out", Label: "发送 B", Kind: "bytes", Direction: "output"},
 			},
-			DefaultConfig: map[string]any{"baudRate": 115200},
+			DefaultConfig: map[string]any{},
 		},
 		{
 			Type:        "serial.monitor",
@@ -1174,11 +1174,8 @@ func serialGraphProviders() []serialGraphProvider {
 			Category:    "工具",
 			Description: "监听一路串口字节流并生成监控帧。",
 			Inputs:      []serialGraphPortSpec{bytesIn},
-			Outputs: []serialGraphPortSpec{
-				{ID: "frames", Label: "监控帧", Kind: "frame", Direction: "output", Multiple: true},
-				{ID: "status", Label: "状态", Kind: "status", Direction: "output", Multiple: true},
-			},
-			DefaultConfig: map[string]any{"mode": "auto-virtual", "displayMode": "hex"},
+			Outputs:     []serialGraphPortSpec{},
+			DefaultConfig: map[string]any{"displayMode": "hex"},
 		},
 		{
 			Type:          "serial.tap",
@@ -1205,7 +1202,7 @@ func serialGraphProviders() []serialGraphProvider {
 			Description:   "从编辑框或发送历史输出字节流。",
 			Inputs:        []serialGraphPortSpec{},
 			Outputs:       []serialGraphPortSpec{bytesOut},
-			DefaultConfig: map[string]any{"mode": "ascii", "payload": ""},
+			DefaultConfig: map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "", "autoSend": false, "intervalMs": 1000},
 		},
 		{
 			Type:          "serial.receiver",
@@ -1232,7 +1229,7 @@ func serialGraphProviders() []serialGraphProvider {
 			Description:   "Modbus RTU/ASCII 多 Unit ID 从站数据区。",
 			Inputs:        []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "input"}},
 			Outputs:       []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "output"}},
-			DefaultConfig: map[string]any{"mode": "rtu", "unitIds": "1", "addressMode": "zero-based"},
+			DefaultConfig: map[string]any{"mode": "rtu", "unitIds": "1"},
 		},
 		{
 			Type:          "serial.fecbus.master",

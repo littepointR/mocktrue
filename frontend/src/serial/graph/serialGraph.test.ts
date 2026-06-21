@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   canConnect,
+  cloneSerialGraphState,
+  createSerialGraphNode,
   defaultSerialGraphDocument,
   defaultSerialGraphState,
   serialGraphProviders,
@@ -37,7 +39,55 @@ describe('serial graph model', () => {
     expect(state.graphs[0].edges).toEqual([])
   })
 
-  it('allows compatible byte stream connections and rejects incompatible ports', () => {
+  it('does not expose legacy serial monitor mode configuration', () => {
+    const provider = serialGraphProviders.find(item => item.type === 'serial.monitor')
+    const monitor = createSerialGraphNode('monitor', 'serial.monitor', { x: 0, y: 0 })
+
+    expect(provider?.defaultConfig).toEqual({ displayMode: 'hex' })
+    expect(provider?.outputs).toEqual([])
+    expect(monitor.config).toEqual({ displayMode: 'hex' })
+  })
+
+  it('does not expose topology config fields that are not used by runtime nodes', () => {
+    const bridge = serialGraphProviders.find(item => item.type === 'serial.bridge')
+    const modbusSlave = serialGraphProviders.find(item => item.type === 'serial.modbus.slave')
+
+    expect(bridge?.defaultConfig).toEqual({})
+    expect(modbusSlave?.defaultConfig).toEqual({ mode: 'rtu', unitIds: '1' })
+    expect(createSerialGraphNode('bridge', 'serial.bridge', { x: 0, y: 0 }).config).toEqual({})
+    expect(createSerialGraphNode('slave', 'serial.modbus.slave', { x: 0, y: 0 }).config).toEqual({
+      mode: 'rtu',
+      unitIds: '1',
+    })
+  })
+
+  it('removes legacy and unused topology config fields when restoring graph state', () => {
+    const state = cloneSerialGraphState({
+      graphs: [{
+        ...defaultSerialGraphDocument(),
+        nodes: [
+          node('monitor', 'serial.monitor', { mode: 'auto-virtual', displayMode: 'hex' }),
+          node('bridge', 'serial.bridge', { baudRate: 115200 }),
+          node('slave', 'serial.modbus.slave', { mode: 'rtu', unitIds: '1,2', addressMode: 'zero-based' }),
+          node('sender', 'serial.sender', { mode: 'ascii', payload: 'ok' }),
+        ],
+        nodeTabs: [
+          { nodeId: 'monitor', title: '串口监控' },
+          { nodeId: 'bridge', title: '串口桥接' },
+          { nodeId: 'slave', title: 'Modbus 从站' },
+          { nodeId: 'sender', title: '发送器' },
+        ],
+      }],
+      activeGraphId: 'graph-1',
+    })
+
+    expect(state.graphs[0].nodes.find(item => item.id === 'monitor')?.config).toEqual({ displayMode: 'hex' })
+    expect(state.graphs[0].nodes.find(item => item.id === 'bridge')?.config).toEqual({})
+    expect(state.graphs[0].nodes.find(item => item.id === 'slave')?.config).toEqual({ mode: 'rtu', unitIds: '1,2' })
+    expect(state.graphs[0].nodes.find(item => item.id === 'sender')?.config).toEqual({ mode: 'ascii', payload: 'ok' })
+  })
+
+  it('allows compatible byte stream connections and rejects non-emitting monitor outputs', () => {
     const state = graph([
       node('source', 'serial.sender'),
       node('sink', 'serial.receiver'),
@@ -56,7 +106,7 @@ describe('serial graph model', () => {
       sourceHandle: 'frames',
       target: 'sink',
       targetHandle: 'in',
-    }).valid).toBe(false)
+    }).errors).toEqual(expect.arrayContaining(['output port not found: serial.monitor.frames']))
   })
 
   it('rejects duplicate resource-owner ports', () => {

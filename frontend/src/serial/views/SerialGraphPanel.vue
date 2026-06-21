@@ -31,6 +31,7 @@ const edgePalette = [
 const store = useSerialGraphStore()
 const workspaceRef = ref<HTMLElement | null>(null)
 const canvasRef = ref<HTMLElement | null>(null)
+const selectedBufferRef = ref<HTMLElement | null>(null)
 const pendingOutput = ref<{ nodeId: string; handleId: string } | null>(null)
 const dragging = ref<{
   nodeId: string
@@ -93,11 +94,18 @@ const selectedStatus = computed(() => (
 const selectedBufferText = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeBufferText.get(selectedNode.value.id) ?? '' : ''
 ))
+const selectedBufferBytes = computed(() => (
+  selectedNode.value ? panelRuntime.value.nodeBuffers.get(selectedNode.value.id) ?? new Uint8Array() : new Uint8Array()
+))
+const selectedBufferViewMode = computed(() => String(selectedNode.value?.config.viewMode ?? 'ascii'))
+const selectedBufferDisplayText = computed(() => formatNodeBuffer(selectedBufferBytes.value, selectedBufferText.value, selectedBufferViewMode.value))
 const selectedFrames = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeFrames.get(selectedNode.value.id) ?? [] : []
 ))
+const selectedFrameDisplayMode = computed(() => String(selectedNode.value?.config.displayMode ?? 'hex'))
 const selectedPayload = computed(() => String(selectedNode.value?.config.payload ?? ''))
 const selectedMode = computed(() => String(selectedNode.value?.config.mode ?? 'ascii'))
+const selectedModeOptions = computed(() => modeOptionsForNode(selectedNode.value))
 const runtimeRunning = computed(() => panelRuntime.value.runtimeStatus === 'running')
 const activeGraphName = computed(() => panelGraph.value?.name ?? '')
 const showDetailsWorkbench = computed(() => (
@@ -286,6 +294,7 @@ async function refreshSelectedBuffer() {
   const graphId = panelGraphDocumentId()
   if (!graphId) return
   await store.queryNodeBufferForGraph(graphId, selectedNode.value.id)
+  await scrollSelectedBufferToBottom()
 }
 
 async function refreshSelectedFrames() {
@@ -369,6 +378,90 @@ function supportsFrames(node: SerialGraphNode): boolean {
   return node.type === 'serial.monitor'
 }
 
+function formatNodeBuffer(bytes: Uint8Array, text: string, viewMode: string): string {
+  switch (viewMode) {
+    case 'hexClassic':
+      return formatHexClassic(bytes)
+    case 'hexTable':
+      return formatHexTable(bytes)
+    default:
+      return text
+  }
+}
+
+function formatHexClassic(bytes: Uint8Array): string {
+  const rows: string[] = []
+  for (let offset = 0; offset < bytes.length; offset += 16) {
+    const chunk = bytes.slice(offset, offset + 16)
+    rows.push(`${formatOffset(offset)}  ${formatHexBytes(chunk)}  ${formatAsciiBytes(chunk)}`)
+  }
+  return rows.join('\n')
+}
+
+function formatHexTable(bytes: Uint8Array): string {
+  const rows = ['Offset      HEX                                               ASCII']
+  for (let offset = 0; offset < bytes.length; offset += 16) {
+    const chunk = bytes.slice(offset, offset + 16)
+    rows.push(`${formatOffset(offset)}  ${formatHexBytes(chunk).padEnd(47, ' ')}  ${formatAsciiBytes(chunk)}`)
+  }
+  return rows.join('\n')
+}
+
+function formatOffset(offset: number): string {
+  return offset.toString(16).padStart(8, '0')
+}
+
+function formatHexBytes(bytes: Uint8Array): string {
+  return Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join(' ')
+}
+
+function formatAsciiBytes(bytes: Uint8Array): string {
+  return Array.from(bytes).map(byte => (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : '.').join('')
+}
+
+function frameDisplay(frame: {
+  DisplayText?: string
+  DisplayHex?: string
+  DisplayDec?: string
+  DisplayOct?: string
+  DisplayBin?: string
+}): string {
+  switch (selectedFrameDisplayMode.value) {
+    case 'text':
+      return frame.DisplayText ?? ''
+    case 'dec':
+      return frame.DisplayDec ?? ''
+    case 'oct':
+      return frame.DisplayOct ?? ''
+    case 'bin':
+      return frame.DisplayBin ?? ''
+    default:
+      return frame.DisplayHex || frame.DisplayText || ''
+  }
+}
+
+function modeOptionsForNode(node: SerialGraphNode | null): { value: string; label: string }[] {
+  if (node?.type === 'serial.modbus.master' || node?.type === 'serial.modbus.slave') {
+    return [
+      { value: 'rtu', label: 'rtu' },
+      { value: 'ascii', label: 'ascii' },
+    ]
+  }
+  return [
+    { value: 'ascii', label: 'ascii' },
+    { value: 'hex', label: 'hex' },
+  ]
+}
+
+async function scrollSelectedBufferToBottom() {
+  const node = selectedNode.value
+  if (!node || !supportsBuffer(node) || node.config.autoScroll === false) return
+  await nextTick()
+  const el = selectedBufferRef.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
+
 function panelGraphDocumentId(): string | null {
   return panelGraph.value?.id ?? panelGraphId.value
 }
@@ -399,6 +492,7 @@ async function pollSelectedRuntimeDetails() {
     if (!runtimeRunning.value || !node) return
     if (supportsBuffer(node)) {
       await store.queryNodeBufferForGraph(graphId, node.id)
+      await scrollSelectedBufferToBottom()
     }
     if (supportsFrames(node)) {
       await store.queryNodeFramesForGraph(graphId, node.id)
@@ -995,9 +1089,10 @@ onUnmounted(() => {
               </button>
             </div>
             <pre
+              ref="selectedBufferRef"
               class="serial-graph__buffer serial-graph__buffer--content"
               data-testid="serial-graph-content-node-buffer"
-            >{{ selectedBufferText }}</pre>
+            >{{ selectedBufferDisplayText }}</pre>
           </template>
           <template v-if="supportsFrames(selectedNode)">
             <button
@@ -1008,22 +1103,27 @@ onUnmounted(() => {
             >
               刷新帧
             </button>
-            <table
-              class="serial-graph__frames"
-              data-testid="serial-graph-content-node-frames"
+            <div
+              class="serial-graph__frames-container"
+              data-testid="serial-graph-content-node-frame-container"
             >
-              <tbody>
-                <tr
-                  v-for="frame in selectedFrames"
-                  :key="frame.Seq"
-                >
-                  <td>{{ frame.Seq }}</td>
-                  <td>{{ frame.Direction }}</td>
-                  <td>{{ frame.Length }}</td>
-                  <td>{{ frame.DisplayHex || frame.DisplayText }}</td>
-                </tr>
-              </tbody>
-            </table>
+              <table
+                class="serial-graph__frames"
+                data-testid="serial-graph-content-node-frames"
+              >
+                <tbody>
+                  <tr
+                    v-for="frame in selectedFrames"
+                    :key="frame.Seq"
+                  >
+                    <td>{{ frame.Seq }}</td>
+                    <td>{{ frame.Direction }}</td>
+                    <td>{{ frame.Length }}</td>
+                    <td>{{ frameDisplay(frame) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </template>
           <section
             v-if="selectedConfigEntries.length > 0"
@@ -1052,14 +1152,40 @@ onUnmounted(() => {
                   @input="updateConfig(key, ($event.target as HTMLInputElement).value)"
                 >
                 <select
-                  v-else-if="key === 'mode' || key === 'viewMode'"
+                  v-else-if="key === 'viewMode'"
                   :value="String(value)"
                   :data-testid="`serial-graph-config-${key}`"
                   @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="ascii">ascii</option>
+                  <option value="ascii">ASCII</option>
+                  <option value="hexClassic">HEX 经典</option>
+                  <option value="hexTable">HEX 表格</option>
+                </select>
+                <select
+                  v-else-if="key === 'displayMode'"
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="text">text</option>
                   <option value="hex">hex</option>
-                  <option value="rtu">rtu</option>
+                  <option value="dec">dec</option>
+                  <option value="oct">oct</option>
+                  <option value="bin">bin</option>
+                </select>
+                <select
+                  v-else-if="key === 'mode'"
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option
+                    v-for="option in selectedModeOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
                 </select>
                 <input
                   v-else
@@ -1645,9 +1771,17 @@ onUnmounted(() => {
   height: 180px;
   max-height: 180px;
 }
+.serial-graph__frames-container {
+  height: 180px;
+  max-height: 180px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 4px;
+  background: var(--app-bg, #1e1e1e);
+}
 .serial-graph__frames {
   width: 100%;
-  margin-top: 8px;
   border-collapse: collapse;
   font-size: 12px;
 }

@@ -180,9 +180,12 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: #1e1e1e;
+  overflow: hidden;
 }
 .data-display__controls {
+  flex: 0 0 auto;
   padding: 4px 8px;
   border-bottom: 1px solid #2d2d2d;
   background: #252526;
@@ -196,7 +199,8 @@ watch(
 }
 .data-display__content {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: auto;
   font-family: var(--serial-terminal-font-family);
   font-size: var(--serial-terminal-font-size);
 }
@@ -205,6 +209,8 @@ watch(
 }
 .data-view {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 4px 8px;
 }

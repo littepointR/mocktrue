@@ -12,6 +12,7 @@ export async function injectWailsMock(page: Page) {
       virtualPairs: [] as any[],
       virtualPorts: [] as any[],
       bridges: [] as any[],
+      graphBufferText: 'hello',
       nextHandleId: 1,
     };
 
@@ -127,6 +128,37 @@ export async function injectWailsMock(page: Page) {
         return null;
       },
       2577893816: () => mockState.bridges,
+      1844679930: (req: any) => ({
+        ID: req.ID,
+        Status: 'running',
+        Error: '',
+        Nodes: (req.Nodes ?? []).map((node: any) => ({
+          ID: node.ID,
+          Type: node.Type,
+          Status: 'running',
+          RxBytes: node.Type === 'serial.receiver' ? 5 : 0,
+          TxBytes: node.Type === 'serial.sender' ? 5 : 0,
+          FrameCount: 0,
+          ResourceID: '',
+          Error: '',
+        })),
+      }),
+      3195045016: (id: string) => ({
+        ID: id,
+        Status: 'running',
+        Error: '',
+        Nodes: [],
+      }),
+      2736010660: () => ({
+        Offset: 0,
+        Data: btoa(mockState.graphBufferText),
+        Total: mockState.graphBufferText.length,
+        EOF: true,
+      }),
+      514153512: () => ({ Frames: [], Total: 0, NextOffset: 0 }),
+      2969054863: () => null,
+      151526110: () => null,
+      3331981752: (req: any) => utf8Length(req.Content ?? ''),
       3380062301: () => null,
       1653301220: () => ({ CPUPercent: 7.5, MemoryBytes: 64 * 1024 * 1024 }),
     };

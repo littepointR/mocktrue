@@ -228,6 +228,88 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"]`).exists()).toBe(true)
   })
 
+  it('switches between content, split, and topology views from the toolbar', async () => {
+    const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
+    const store = useSerialGraphStore()
+
+    await wrapper.find('[data-testid="serial-graph-provider-serial.sender"]').trigger('click')
+    const sender = store.nodes[0]
+    const contentButton = wrapper.find('[data-testid="serial-graph-view-content"]')
+    const splitButton = wrapper.find('[data-testid="serial-graph-view-split"]')
+    const topologyButton = wrapper.find('[data-testid="serial-graph-view-topology"]')
+    const validation = wrapper.find('.serial-graph__validation')
+
+    expect(contentButton.exists()).toBe(true)
+    expect(splitButton.exists()).toBe(true)
+    expect(topologyButton.exists()).toBe(true)
+    expect(validation.element.nextElementSibling).toBe(wrapper.find('.serial-graph__view-switcher').element)
+    expect(splitButton.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="serial-graph-canvas"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-split-resize-handle"]').exists()).toBe(true)
+
+    await contentButton.trigger('click')
+
+    expect(contentButton.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="serial-graph-canvas"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').classes()).toContain('serial-graph__node-workbench--full')
+    expect(wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"]`).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-split-resize-handle"]').exists()).toBe(false)
+
+    await topologyButton.trigger('click')
+
+    expect(topologyButton.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="serial-graph-canvas"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-split-resize-handle"]').exists()).toBe(false)
+
+    await splitButton.trigger('click')
+
+    expect(splitButton.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="serial-graph-canvas"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-split-resize-handle"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('resizes the split view with pointer and keyboard controls', async () => {
+    const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
+
+    await wrapper.find('[data-testid="serial-graph-provider-serial.sender"]').trigger('click')
+    const workspace = wrapper.find<HTMLElement>('.serial-graph__workspace')
+    Object.defineProperty(workspace.element, 'clientHeight', { value: 720, configurable: true })
+    const toolbar = wrapper.find<HTMLElement>('.serial-graph__toolbar')
+    Object.defineProperty(toolbar.element, 'offsetHeight', { value: 32, configurable: true })
+
+    const workbench = wrapper.find<HTMLElement>('[data-testid="serial-graph-node-workbench"]')
+    expect(workbench.attributes('style')).toContain('320px')
+
+    const handle = wrapper.find<HTMLElement>('[data-testid="serial-graph-split-resize-handle"]')
+    handle.element.dispatchEvent(pointerTestEvent('pointerdown', { pointerId: 1, clientY: 400 }))
+    window.dispatchEvent(pointerTestEvent('pointermove', { pointerId: 1, clientY: 360 }))
+    window.dispatchEvent(pointerTestEvent('pointerup', { pointerId: 1 }))
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('360px')
+
+    await handle.trigger('keydown', { key: 'ArrowDown' })
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('348px')
+
+    await handle.trigger('keydown', { key: 'ArrowUp', shiftKey: true })
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('388px')
+
+    handle.element.dispatchEvent(pointerTestEvent('pointerdown', { pointerId: 1, clientY: 400 }))
+    window.dispatchEvent(pointerTestEvent('pointermove', { pointerId: 1, clientY: -200 }))
+    window.dispatchEvent(pointerTestEvent('pointerup', { pointerId: 1 }))
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('562px')
+
+    wrapper.unmount()
+  })
+
   it('shows the remaining node content when the active node tab is closed', async () => {
     const wrapper = mount(SerialGraphPanel)
     const store = useSerialGraphStore()
@@ -353,6 +435,7 @@ describe('SerialGraphPanel', () => {
     await nextTick()
 
     expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()).toContain('hello')
+    expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').classes()).toContain('serial-graph__buffer--content')
     expect(wrapper.find('[data-testid="serial-graph-send"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="serial-graph-node-buffer"]').exists()).toBe(false)
 

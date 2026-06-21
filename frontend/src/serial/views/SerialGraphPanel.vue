@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSerialGraphStore } from '../stores/graphStore'
 import {
   providerByType,
@@ -14,7 +14,12 @@ const props = defineProps<{
 
 const nodeWidth = 180
 const nodeHeight = 104
+const minCanvasHeight = 120
+const minWorkbenchHeight = 160
+const defaultWorkbenchHeight = 320
+type GraphViewMode = 'content' | 'split' | 'topology'
 const store = useSerialGraphStore()
+const workspaceRef = ref<HTMLElement | null>(null)
 const canvasRef = ref<HTMLElement | null>(null)
 const pendingOutput = ref<{ nodeId: string; handleId: string } | null>(null)
 const dragging = ref<{
@@ -34,6 +39,11 @@ const suppressCanvasClick = ref(false)
 const runtimePollTimer = ref<number | null>(null)
 const runtimePollInFlight = ref(false)
 const localGraphId = ref<string | null>(null)
+const graphViewMode = ref<GraphViewMode>('split')
+const workbenchHeight = ref(defaultWorkbenchHeight)
+const splitResizing = ref(false)
+let splitResizeStartY = 0
+let splitResizeStartHeight = 0
 
 const providerGroups = computed(() => {
   const groups = new Map<string, typeof serialGraphProviders>()
@@ -83,6 +93,16 @@ const activeGraphName = computed(() => panelGraph.value?.name ?? '')
 const showDetailsWorkbench = computed(() => (
   panelNodeTabs.value.length > 0 || Boolean(selectedEdge.value) || panelValidation.value.errors.length > 0
 ))
+const showCanvas = computed(() => graphViewMode.value !== 'content')
+const showWorkbenchPane = computed(() => graphViewMode.value !== 'topology' && showDetailsWorkbench.value)
+const showEmptyContentPane = computed(() => graphViewMode.value === 'content' && !showDetailsWorkbench.value)
+const showSplitResizeHandle = computed(() => graphViewMode.value === 'split' && showDetailsWorkbench.value)
+const workbenchStyle = computed(() => {
+  if (graphViewMode.value === 'split') {
+    return { flex: `0 0 ${workbenchHeight.value}px` }
+  }
+  return undefined
+})
 
 function addNode(type: string) {
   const graphId = panelGraphDocumentId()
@@ -172,6 +192,70 @@ async function stopRuntime() {
   if (!graphId) return
   stopRuntimePolling()
   await store.stopRuntimeForGraph(graphId)
+}
+
+function setGraphViewMode(mode: GraphViewMode) {
+  graphViewMode.value = mode
+}
+
+function workspaceAvailableHeight(): number {
+  const workspaceHeight = workspaceRef.value?.clientHeight ?? 0
+  if (workspaceHeight <= 0) return 0
+  const toolbarHeight = workspaceRef.value?.querySelector<HTMLElement>('.serial-graph__toolbar')?.offsetHeight ?? 0
+  const handleHeight = workspaceRef.value?.querySelector<HTMLElement>('.serial-graph__split-resize-handle')?.offsetHeight || 6
+  return Math.max(0, workspaceHeight - toolbarHeight - handleHeight)
+}
+
+function clampWorkbenchHeight(value: number): number {
+  const availableHeight = workspaceAvailableHeight()
+  if (availableHeight <= 0) return value
+  const maxHeight = Math.max(minWorkbenchHeight, availableHeight - minCanvasHeight)
+  return Math.min(Math.max(value, minWorkbenchHeight), maxHeight)
+}
+
+function resizeSplitTo(clientY: number) {
+  workbenchHeight.value = clampWorkbenchHeight(splitResizeStartHeight + splitResizeStartY - clientY)
+}
+
+function handleSplitPointerMove(event: PointerEvent) {
+  resizeSplitTo(event.clientY)
+}
+
+function stopSplitResize() {
+  if (!splitResizing.value) return
+  splitResizing.value = false
+  window.removeEventListener('pointermove', handleSplitPointerMove)
+  window.removeEventListener('pointerup', stopSplitResize)
+  window.removeEventListener('pointercancel', stopSplitResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+function startSplitResize(event: PointerEvent) {
+  event.preventDefault()
+  splitResizeStartY = event.clientY
+  splitResizeStartHeight = workbenchHeight.value
+  splitResizing.value = true
+  document.body.style.cursor = 'row-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('pointermove', handleSplitPointerMove)
+  window.addEventListener('pointerup', stopSplitResize)
+  window.addEventListener('pointercancel', stopSplitResize)
+}
+
+function handleSplitResizeKeydown(event: KeyboardEvent) {
+  const step = event.shiftKey ? 40 : 12
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    workbenchHeight.value = clampWorkbenchHeight(workbenchHeight.value + step)
+  } else if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    workbenchHeight.value = clampWorkbenchHeight(workbenchHeight.value - step)
+  }
+}
+
+function clampCurrentWorkbenchHeight() {
+  workbenchHeight.value = clampWorkbenchHeight(workbenchHeight.value)
 }
 
 async function sendSelectedNode() {
@@ -474,10 +558,19 @@ watch(
   }
 )
 
+onMounted(() => {
+  void nextTick(() => {
+    clampCurrentWorkbenchHeight()
+  })
+  window.addEventListener('resize', clampCurrentWorkbenchHeight)
+})
+
 onUnmounted(() => {
   stopRuntimePolling()
   stopNodeDrag()
   stopCanvasPan()
+  stopSplitResize()
+  window.removeEventListener('resize', clampCurrentWorkbenchHeight)
 })
 </script>
 
@@ -511,7 +604,11 @@ onUnmounted(() => {
       </section>
     </aside>
 
-    <main class="serial-graph__workspace">
+    <main
+      ref="workspaceRef"
+      class="serial-graph__workspace"
+      :class="{ 'serial-graph__workspace--resizing': splitResizing }"
+    >
       <div class="serial-graph__toolbar">
         <select
           class="serial-graph__graph-select"
@@ -586,11 +683,54 @@ onUnmounted(() => {
         >
           {{ panelValidation.errors.length > 0 ? `${panelValidation.errors.length} 个问题` : '拓扑有效' }}
         </span>
+        <div
+          class="serial-graph__view-switcher"
+          role="group"
+          aria-label="切换拓扑和内容视图"
+        >
+          <button
+            type="button"
+            class="serial-graph__view-button"
+            :class="{ 'serial-graph__view-button--active': graphViewMode === 'content' }"
+            data-testid="serial-graph-view-content"
+            :aria-pressed="graphViewMode === 'content'"
+            title="只显示内容区域"
+            @click="setGraphViewMode('content')"
+          >
+            内容
+          </button>
+          <button
+            type="button"
+            class="serial-graph__view-button"
+            :class="{ 'serial-graph__view-button--active': graphViewMode === 'split' }"
+            data-testid="serial-graph-view-split"
+            :aria-pressed="graphViewMode === 'split'"
+            title="同时显示内容区域和拓扑图"
+            @click="setGraphViewMode('split')"
+          >
+            拆分
+          </button>
+          <button
+            type="button"
+            class="serial-graph__view-button"
+            :class="{ 'serial-graph__view-button--active': graphViewMode === 'topology' }"
+            data-testid="serial-graph-view-topology"
+            :aria-pressed="graphViewMode === 'topology'"
+            title="只显示拓扑图"
+            @click="setGraphViewMode('topology')"
+          >
+            拓扑
+          </button>
+        </div>
       </div>
       <div
+        v-if="showCanvas"
         ref="canvasRef"
         class="serial-graph__canvas"
-        :class="{ 'serial-graph__canvas--panning': panning }"
+        :class="{
+          'serial-graph__canvas--panning': panning,
+          'serial-graph__canvas--full': graphViewMode === 'topology',
+        }"
         data-testid="serial-graph-canvas"
         @pointerdown="startCanvasPan"
         @click="handleCanvasClick"
@@ -667,9 +807,22 @@ onUnmounted(() => {
           </div>
         </article>
       </div>
+      <div
+        v-if="showSplitResizeHandle"
+        class="serial-graph__split-resize-handle"
+        data-testid="serial-graph-split-resize-handle"
+        role="separator"
+        aria-label="调整拓扑图和内容区域大小"
+        aria-orientation="horizontal"
+        tabindex="0"
+        @pointerdown="startSplitResize"
+        @keydown="handleSplitResizeKeydown"
+      />
       <section
-        v-if="showDetailsWorkbench"
+        v-if="showWorkbenchPane"
         class="serial-graph__node-workbench"
+        :class="{ 'serial-graph__node-workbench--full': graphViewMode === 'content' }"
+        :style="workbenchStyle"
         data-testid="serial-graph-node-workbench"
       >
         <div
@@ -911,6 +1064,11 @@ onUnmounted(() => {
           </ul>
         </div>
       </section>
+      <section
+        v-else-if="showEmptyContentPane"
+        class="serial-graph__node-workbench serial-graph__node-workbench--full serial-graph__node-workbench--empty"
+        data-testid="serial-graph-node-workbench"
+      />
     </main>
   </div>
 </template>
@@ -981,6 +1139,9 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
 }
+.serial-graph__workspace--resizing {
+  cursor: row-resize;
+}
 .serial-graph__toolbar {
   display: flex;
   align-items: center;
@@ -1048,11 +1209,43 @@ onUnmounted(() => {
 .serial-graph__validation--error {
   color: var(--app-danger, #f85149);
 }
+.serial-graph__view-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 4px;
+  background: var(--app-surface, #252526);
+}
+.serial-graph__toolbar .serial-graph__view-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 0;
+  background: transparent;
+  line-height: 1;
+}
+.serial-graph__toolbar .serial-graph__view-button:last-child {
+  border-right: 0;
+}
+.serial-graph__toolbar .serial-graph__view-button:hover {
+  background: var(--app-hover-bg, #2d2d2d);
+}
+.serial-graph__toolbar .serial-graph__view-button--active {
+  background: var(--app-accent, #007acc);
+  color: #ffffff;
+}
 .serial-graph__canvas {
   position: relative;
-  flex: 1;
+  flex: 1 1 260px;
   min-width: 0;
-  min-height: 0;
+  min-height: 120px;
   overflow: auto;
   cursor: grab;
   background-image:
@@ -1063,13 +1256,43 @@ onUnmounted(() => {
 .serial-graph__canvas--panning {
   cursor: grabbing;
 }
+.serial-graph__canvas--full {
+  flex: 1 1 auto;
+}
+.serial-graph__split-resize-handle {
+  position: relative;
+  flex: 0 0 6px;
+  cursor: row-resize;
+  background: var(--app-bg, #1e1e1e);
+}
+.serial-graph__split-resize-handle::before {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  content: "";
+  background: var(--app-border, #2d2d2d);
+}
+.serial-graph__split-resize-handle:hover::before,
+.serial-graph__split-resize-handle:focus-visible::before,
+.serial-graph__workspace--resizing .serial-graph__split-resize-handle::before {
+  background: var(--app-accent, #007acc);
+}
 .serial-graph__node-workbench {
-  flex: 0 0 320px;
+  flex: 1 1 320px;
   display: flex;
   flex-direction: column;
-  min-height: 220px;
+  min-height: 160px;
   border-top: 1px solid var(--app-border, #2d2d2d);
   background: var(--app-bg, #1e1e1e);
+}
+.serial-graph__node-workbench--full {
+  flex: 1 1 auto;
+  border-top: 0;
+}
+.serial-graph__node-workbench--empty {
+  min-height: 0;
 }
 .serial-graph__node-tabs {
   display: flex;
@@ -1329,7 +1552,8 @@ onUnmounted(() => {
   white-space: pre-wrap;
 }
 .serial-graph__buffer--content {
-  max-height: none;
+  height: 180px;
+  max-height: 180px;
 }
 .serial-graph__frames {
   width: 100%;

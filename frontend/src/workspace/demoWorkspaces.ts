@@ -46,6 +46,18 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
     snapshotFactory: createMonitorDemo,
   },
   {
+    id: 'script-transform-demo',
+    title: '脚本转换演示',
+    description: '展示脚本生成、脚本转换和接收显示组成的自动数据链路。',
+    snapshotFactory: createScriptTransformDemo,
+  },
+  {
+    id: 'script-analyzer-demo',
+    title: '脚本分析演示',
+    description: '展示脚本分析节点从真实数据链路中提取字段。',
+    snapshotFactory: createScriptAnalyzerDemo,
+  },
+  {
     id: 'modbus-demo',
     title: 'Modbus 调试演示',
     description: '展示拓扑图中的 Modbus RTU/ASCII 主站和多 Unit ID 从站。',
@@ -131,6 +143,28 @@ function createMonitorDemo(): WorkspaceSnapshot {
   })
 }
 
+function createScriptTransformDemo(): WorkspaceSnapshot {
+  const suffix = nextDemoSuffix()
+  const portName = `mocktrue-demo-script-transform-${suffix}`
+  const graph = scriptTransformGraphState(suffix, portName)
+
+  return snapshot({
+    graph,
+    workspace: graphWorkspace(graph),
+  })
+}
+
+function createScriptAnalyzerDemo(): WorkspaceSnapshot {
+  const suffix = nextDemoSuffix()
+  const portName = `mocktrue-demo-script-analyzer-${suffix}`
+  const graph = scriptAnalyzerGraphState(suffix, portName)
+
+  return snapshot({
+    graph,
+    workspace: graphWorkspace(graph),
+  })
+}
+
 function createModbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const requestPort = `mocktrue-demo-modbus-${suffix}`
@@ -169,9 +203,10 @@ function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const terminalPort = `mocktrue-demo-terminal-${suffix}`
   const bridgePortA = `mocktrue-demo-full-a-${suffix}`
   const bridgePortB = `mocktrue-demo-full-b-${suffix}`
+  const scriptPort = `mocktrue-demo-full-script-${suffix}`
   const modbusPort = `mocktrue-demo-full-modbus-${suffix}`
   const fecbusPort = `mocktrue-demo-full-fecbus-${suffix}`
-  const graph = fullWorkspaceGraphState(suffix, terminalPort, bridgePortA, bridgePortB, modbusPort, fecbusPort)
+  const graph = fullWorkspaceGraphState(suffix, terminalPort, bridgePortA, bridgePortB, scriptPort, modbusPort, fecbusPort)
 
   return snapshot({
     settings: {
@@ -541,6 +576,46 @@ function monitorGraphState(suffix: string, portName: string): SerialGraphWorkspa
   ], selectedNodeId)
 }
 
+function scriptTransformGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-script-transform-${suffix}`
+  const tapId = `graph-script-transform-tap-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'script-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig()),
+    graphNode(suffix, 'script-transform-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'script-transform', 'serial.script.transform', 528, 32, scriptTransformConfig()),
+    graphNode(suffix, 'script-transform-tap', 'serial.tap', 776, 32),
+    graphNode(suffix, 'script-transform-receiver', 'serial.receiver', 1024, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'script-transform-monitor', 'serial.monitor', 1024, 168, monitorConfig()),
+  ]
+
+  return graphState(suffix, '脚本转换演示', nodes, [
+    graphEdge(suffix, 'script-generator-vport', `graph-script-generator-${suffix}`, 'out', `graph-script-transform-vport-${suffix}`, 'tx'),
+    graphEdge(suffix, 'script-vport-transform', `graph-script-transform-vport-${suffix}`, 'rx', selectedNodeId, 'in'),
+    graphEdge(suffix, 'script-transform-tap', selectedNodeId, 'out', tapId, 'in'),
+    graphEdge(suffix, 'script-transform-tap-receiver', tapId, 'out', `graph-script-transform-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'script-transform-tap-monitor', tapId, 'out', `graph-script-transform-monitor-${suffix}`, 'in'),
+  ], selectedNodeId)
+}
+
+function scriptAnalyzerGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-script-analyzer-${suffix}`
+  const tapId = `graph-script-analyzer-tap-${suffix}`
+  const nodes = [
+    graphNode(suffix, 'script-analyzer-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig()),
+    graphNode(suffix, 'script-analyzer-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'script-analyzer-tap', 'serial.tap', 528, 32),
+    graphNode(suffix, 'script-analyzer-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
+    graphNode(suffix, 'script-analyzer', 'serial.script.analyzer', 776, 168, scriptAnalyzerConfig()),
+  ]
+
+  return graphState(suffix, '脚本分析演示', nodes, [
+    graphEdge(suffix, 'script-analyzer-generator-vport', `graph-script-analyzer-generator-${suffix}`, 'out', `graph-script-analyzer-vport-${suffix}`, 'tx'),
+    graphEdge(suffix, 'script-analyzer-vport-tap', `graph-script-analyzer-vport-${suffix}`, 'rx', tapId, 'in'),
+    graphEdge(suffix, 'script-analyzer-tap-receiver', tapId, 'out', `graph-script-analyzer-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'script-analyzer-tap-analyzer', tapId, 'out', selectedNodeId, 'in'),
+  ], selectedNodeId)
+}
+
 function modbusGraphState(suffix: string, requestPortName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-modbus-master-${suffix}`
   const requestPortId = `graph-modbus-vport-${suffix}`
@@ -592,10 +667,16 @@ function fullWorkspaceGraphState(
   terminalPort: string,
   bridgePortA: string,
   bridgePortB: string,
+  scriptPort: string,
   modbusPort: string,
   fecbusPort: string
 ): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-full-receiver-${suffix}`
+  const scriptGeneratorId = `graph-full-script-generator-${suffix}`
+  const scriptPortId = `graph-full-script-vport-${suffix}`
+  const scriptTransformId = `graph-full-script-transform-${suffix}`
+  const scriptTapId = `graph-full-script-tap-${suffix}`
+  const scriptAnalyzerId = `graph-full-script-analyzer-${suffix}`
   const modbusMasterId = `graph-full-modbus-master-${suffix}`
   const modbusPortId = `graph-full-modbus-vport-${suffix}`
   const modbusSlaveId = `graph-full-modbus-slave-${suffix}`
@@ -616,6 +697,13 @@ function fullWorkspaceGraphState(
     graphNode(suffix, 'full-bridge', 'serial.bridge', 528, 428),
     graphNode(suffix, 'full-bridge-receiver-a', 'serial.receiver', 776, 344, receiverConfig()),
     graphNode(suffix, 'full-bridge-receiver-b', 'serial.receiver', 776, 512, receiverConfig()),
+
+    graphNode(suffix, 'full-script-generator', 'serial.script.generator', 1040, 656, scriptGeneratorConfig()),
+    graphNode(suffix, 'full-script-vport', 'serial.virtual', 1288, 656, virtualConfig(scriptPort)),
+    graphNode(suffix, 'full-script-transform', 'serial.script.transform', 1536, 656, scriptTransformConfig()),
+    graphNode(suffix, 'full-script-tap', 'serial.tap', 1784, 656),
+    graphNode(suffix, 'full-script-receiver', 'serial.receiver', 2032, 656, receiverConfig('hexClassic')),
+    graphNode(suffix, 'full-script-analyzer', 'serial.script.analyzer', 2032, 792, scriptAnalyzerConfig()),
 
     graphNode(suffix, 'full-modbus-master', 'serial.modbus.master', 1040, 32, modbusMasterConfig({ autoSend: true })),
     graphNode(suffix, 'full-modbus-vport', 'serial.virtual', 1288, 32, virtualConfig(modbusPort)),
@@ -642,6 +730,11 @@ function fullWorkspaceGraphState(
     graphEdge(suffix, 'full-bridge-sender-b-vport-b', `graph-full-bridge-sender-b-${suffix}`, 'out', `graph-full-bridge-vport-b-${suffix}`, 'tx'),
     graphEdge(suffix, 'full-bridge-vport-b-in', `graph-full-bridge-vport-b-${suffix}`, 'rx', `graph-full-bridge-${suffix}`, 'b-in'),
     graphEdge(suffix, 'full-bridge-a-out-receiver', `graph-full-bridge-${suffix}`, 'a-out', `graph-full-bridge-receiver-a-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-script-generator-vport', scriptGeneratorId, 'out', scriptPortId, 'tx'),
+    graphEdge(suffix, 'full-script-vport-transform', scriptPortId, 'rx', scriptTransformId, 'in'),
+    graphEdge(suffix, 'full-script-transform-tap', scriptTransformId, 'out', scriptTapId, 'in'),
+    graphEdge(suffix, 'full-script-tap-receiver', scriptTapId, 'out', `graph-full-script-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-script-tap-analyzer', scriptTapId, 'out', scriptAnalyzerId, 'in'),
     graphEdge(suffix, 'full-modbus-master-vport', modbusMasterId, 'tx', modbusPortId, 'tx'),
     graphEdge(suffix, 'full-modbus-vport-slave', modbusPortId, 'rx', modbusSlaveId, 'rx'),
     graphEdge(suffix, 'full-modbus-slave-tap', modbusSlaveId, 'tx', `graph-full-modbus-tap-${suffix}`, 'in'),
@@ -738,6 +831,48 @@ function receiverConfig(viewMode = 'ascii'): Record<string, unknown> {
 
 function monitorConfig(): Record<string, unknown> {
   return { displayMode: 'hex' }
+}
+
+function scriptGeneratorConfig(): Record<string, unknown> {
+  return {
+    script: 'state.set("n", (state.get("n") || 0) + 1); output.text("script " + state.get("n") + "\\r\\n", "utf-8")',
+    timeoutMs: 50,
+    maxOutputBytes: 65536,
+    maxStateBytes: 262144,
+    onError: 'mark-error-and-drop',
+    encoding: 'utf-8',
+    autoRun: true,
+    intervalMs: 1000,
+    displayMode: 'hex',
+  }
+}
+
+function scriptTransformConfig(): Record<string, unknown> {
+  return {
+    script: 'output.text(input.text("utf-8").toUpperCase(), "utf-8")',
+    timeoutMs: 50,
+    maxOutputBytes: 65536,
+    maxStateBytes: 262144,
+    onError: 'mark-error-and-drop',
+    encoding: 'utf-8',
+    autoRun: false,
+    intervalMs: 1000,
+    displayMode: 'hex',
+  }
+}
+
+function scriptAnalyzerConfig(): Record<string, unknown> {
+  return {
+    script: 'field("length", input.bytes().length); field("hex", input.hex())',
+    timeoutMs: 50,
+    maxOutputBytes: 65536,
+    maxStateBytes: 262144,
+    onError: 'mark-error-and-drop',
+    encoding: 'utf-8',
+    autoRun: false,
+    intervalMs: 1000,
+    displayMode: 'hex',
+  }
 }
 
 function modbusMasterConfig(options: { autoSend?: boolean } = {}): Record<string, unknown> {

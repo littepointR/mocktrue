@@ -1,5 +1,9 @@
 import { vi } from 'vitest'
 
+if (!document.queryCommandSupported) {
+  document.queryCommandSupported = vi.fn(() => false)
+}
+
 vi.mock('@wailsio/runtime', () => ({
   Call: {
     ByID: vi.fn(async () => undefined),

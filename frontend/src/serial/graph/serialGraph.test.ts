@@ -27,7 +27,50 @@ describe('serial graph model', () => {
       'serial.modbus.slave',
       'serial.fecbus.master',
       'serial.fecbus.slave',
+      'serial.script.transform',
+      'serial.script.generator',
+      'serial.script.analyzer',
     ]))
+  })
+
+  it('registers script node providers with stable ports and frozen config fields', () => {
+    const transform = serialGraphProviders.find(item => item.type === 'serial.script.transform')
+    const generator = serialGraphProviders.find(item => item.type === 'serial.script.generator')
+    const analyzer = serialGraphProviders.find(item => item.type === 'serial.script.analyzer')
+
+    expect(transform?.inputs).toEqual([{ id: 'in', label: '接收', kind: 'bytes', direction: 'input' }])
+    expect(transform?.outputs).toEqual([{ id: 'out', label: '发送', kind: 'bytes', direction: 'output' }])
+    expect(generator?.inputs).toEqual([])
+    expect(generator?.outputs).toEqual([{ id: 'out', label: '发送', kind: 'bytes', direction: 'output' }])
+    expect(analyzer?.inputs).toEqual([{ id: 'in', label: '接收', kind: 'bytes', direction: 'input' }])
+    expect(analyzer?.outputs).toEqual([])
+
+    for (const provider of [transform, generator, analyzer]) {
+      expect(Object.keys(provider?.defaultConfig ?? {})).toEqual([
+        'script',
+        'timeoutMs',
+        'maxOutputBytes',
+        'maxStateBytes',
+        'onError',
+        'encoding',
+        'autoRun',
+        'intervalMs',
+        'displayMode',
+      ])
+      expect(provider?.defaultConfig).toEqual(expect.objectContaining({
+        timeoutMs: 50,
+        maxOutputBytes: 65536,
+        maxStateBytes: 262144,
+        onError: 'mark-error-and-drop',
+        encoding: 'utf-8',
+      }))
+    }
+    expect(transform?.defaultConfig.script).toBe('output.bytes(input.bytes())')
+    expect(generator?.defaultConfig.script).toBe('output.text("tick", "utf-8")')
+    expect(generator?.defaultConfig.autoRun).toBe(true)
+    expect(generator?.defaultConfig.intervalMs).toBe(1000)
+    expect(analyzer?.defaultConfig.script).toBe('field("length", input.bytes().length)')
+    expect(analyzer?.defaultConfig.displayMode).toBe('hex')
   })
 
   it('creates a workspace state with one active graph document', () => {

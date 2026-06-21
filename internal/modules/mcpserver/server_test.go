@@ -551,8 +551,8 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		"params":{"name":"serial_graph_provider_catalog","arguments":{}}
 	}`)
 	providers := catalog["structuredContent"].(map[string]any)["providers"].([]any)
-	if len(providers) < 10 {
-		t.Fatalf("provider count = %d, want at least 10", len(providers))
+	if len(providers) < 13 {
+		t.Fatalf("provider count = %d, want at least 13", len(providers))
 	}
 	providerTypes := make(map[string]bool, len(providers))
 	providerDefaults := make(map[string]map[string]any, len(providers))
@@ -568,7 +568,16 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		providerTypes[providerType] = true
 		providerDefaults[providerType] = provider["default_config"].(map[string]any)
 	}
-	for _, want := range []string{"serial.physical", "serial.virtual", "serial.tap", "serial.modbus.master", "serial.fecbus.slave"} {
+	for _, want := range []string{
+		"serial.physical",
+		"serial.virtual",
+		"serial.tap",
+		"serial.modbus.master",
+		"serial.fecbus.slave",
+		"serial.script.transform",
+		"serial.script.generator",
+		"serial.script.analyzer",
+	} {
 		if !providerTypes[want] {
 			t.Fatalf("catalog missing %s in %#v", want, providerTypes)
 		}
@@ -590,6 +599,45 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		"intervalMs": float64(1000),
 	}) {
 		t.Fatalf("serial.sender default_config = %#v, want frontend-compatible defaults", got)
+	}
+	if got := providerDefaults["serial.script.transform"]; !reflect.DeepEqual(got, map[string]any{
+		"script":         "output.bytes(input.bytes())",
+		"timeoutMs":      float64(50),
+		"maxOutputBytes": float64(65536),
+		"maxStateBytes":  float64(262144),
+		"onError":        "mark-error-and-drop",
+		"encoding":       "utf-8",
+		"autoRun":        false,
+		"intervalMs":     float64(1000),
+		"displayMode":    "hex",
+	}) {
+		t.Fatalf("serial.script.transform default_config = %#v, want script transform defaults", got)
+	}
+	if got := providerDefaults["serial.script.generator"]; !reflect.DeepEqual(got, map[string]any{
+		"script":         "output.text(\"tick\", \"utf-8\")",
+		"timeoutMs":      float64(50),
+		"maxOutputBytes": float64(65536),
+		"maxStateBytes":  float64(262144),
+		"onError":        "mark-error-and-drop",
+		"encoding":       "utf-8",
+		"autoRun":        true,
+		"intervalMs":     float64(1000),
+		"displayMode":    "hex",
+	}) {
+		t.Fatalf("serial.script.generator default_config = %#v, want script generator defaults", got)
+	}
+	if got := providerDefaults["serial.script.analyzer"]; !reflect.DeepEqual(got, map[string]any{
+		"script":         "field(\"length\", input.bytes().length)",
+		"timeoutMs":      float64(50),
+		"maxOutputBytes": float64(65536),
+		"maxStateBytes":  float64(262144),
+		"onError":        "mark-error-and-drop",
+		"encoding":       "utf-8",
+		"autoRun":        false,
+		"intervalMs":     float64(1000),
+		"displayMode":    "hex",
+	}) {
+		t.Fatalf("serial.script.analyzer default_config = %#v, want script analyzer defaults", got)
 	}
 	for _, raw := range providers {
 		provider := raw.(map[string]any)
@@ -631,6 +679,26 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 	}`)
 	if frontEndShape["structuredContent"].(map[string]any)["valid"] != true {
 		t.Fatalf("frontend-shaped graph result = %#v", frontEndShape["structuredContent"])
+	}
+
+	scriptGraph := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":412,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_validate","arguments":{
+			"nodes":[
+				{"id":"generator","type":"serial.script.generator","position":{"x":20,"y":20},"config":{}},
+				{"id":"transform","type":"serial.script.transform","position":{"x":260,"y":20},"config":{}},
+				{"id":"analyzer","type":"serial.script.analyzer","position":{"x":500,"y":20},"config":{}}
+			],
+			"edges":[
+				{"id":"edge-1","source":"generator","sourceHandle":"out","target":"transform","targetHandle":"in"},
+				{"id":"edge-2","source":"transform","sourceHandle":"out","target":"analyzer","targetHandle":"in"}
+			]
+		}}
+	}`)
+	if scriptGraph["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("script graph result = %#v", scriptGraph["structuredContent"])
 	}
 
 	invalid := callMCP(t, handler, `{

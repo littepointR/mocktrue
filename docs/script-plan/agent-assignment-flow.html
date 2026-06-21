@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 任务分配流程图</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./workflow-requirements.html">需求</a>
+      <a href="./workflow-backend-runtime.html">后端</a>
+      <a href="./workflow-frontend-monaco.html">前端</a>
+      <a href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a href="./workflow-review.html">审查</a>
+      <a href="./workflow-verification.html">验证</a>
+      <a aria-current="page" href="./agent-assignment-flow.html">Agent 编排</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Multi-Agent Orchestration</p>
+        <h1>脚本功能多 Agent 任务分配流程图</h1>
+        <p class="lede">
+          编排原则是先冻结接口，再并行实现。每个 agent 有单一职责，并且每个 agent 内部都按“需求确认、开发、审查、测试验证”的循环推进。
+        </p>
+        <div class="chips">
+          <span class="chip chip--amber">接口冻结后并行</span>
+          <span class="chip chip--blue">单一职责</span>
+          <span class="chip chip--green">每轮可验证</span>
+          <span class="chip chip--red">阻塞问题回流修复</span>
+        </div>
+      </div>
+      <div class="diagram">
+        <div class="handoff">
+          <div class="handoff-card">
+            <b>串行关口 0</b>
+            <span>冻结节点类型、端口、config、脚本 API、Monaco metadata。</span>
+          </div>
+          <div class="arrow"></div>
+          <div class="handoff-card">
+            <b>并行开发</b>
+            <span>后端、前端、MCP/demo 分工开发，互不重叠写文件。</span>
+          </div>
+          <div class="arrow"></div>
+          <div class="handoff-card">
+            <b>串行集成</b>
+            <span>合并接口、修复冲突，执行最终验证和提交。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>总编排图</h2>
+        <p>泳道表示 agent 归属，横向表示阶段推进。黄色是串行关口，青色是审查，绿色是验证。</p>
+      </div>
+      <div class="orchestration">
+        <div class="swimlane">
+          <div class="swimlane__label">
+            <strong>Lead / Coordinator</strong>
+            <span>负责接口冻结、任务切分、结果集成和最终提交。</span>
+          </div>
+          <div class="lane-flow">
+            <div class="lane-step lane-step--gate"><small>Gate 0</small><h3>接口冻结</h3><p>锁定节点、端口、config、API、Monaco metadata。</p></div>
+            <div class="lane-step"><small>Dispatch</small><h3>分配任务</h3><p>限定每个 agent 写入范围和验收命令。</p></div>
+            <div class="lane-step lane-step--gate"><small>Gate 1</small><h3>集成接口</h3><p>合并 provider、类型和共享 API。</p></div>
+            <div class="lane-step"><small>Fix</small><h3>回流修复</h3><p>把审查和测试发现分派给责任 agent。</p></div>
+            <div class="lane-step lane-step--gate"><small>Gate 2</small><h3>最终提交</h3><p>确认验证通过后整理提交。</p></div>
+          </div>
+        </div>
+
+        <div class="swimlane">
+          <div class="swimlane__label">
+            <strong>Requirements Agent</strong>
+            <span>只读。确认范围、边界、验收和风险。</span>
+          </div>
+          <div class="lane-flow">
+            <div class="lane-step"><small>Analyze</small><h3>读现状</h3><p>Graph、script engine、MCP、demo、测试。</p></div>
+            <div class="lane-step"><small>Spec</small><h3>产出规格</h3><p>节点矩阵、API 矩阵、禁止能力。</p></div>
+            <div class="lane-step"><small>Accept</small><h3>验收矩阵</h3><p>后端、前端、MCP、demo、压力测试。</p></div>
+            <div class="lane-step lane-step--review"><small>Review</small><h3>规格复查</h3><p>检查是否仍有实现者要做的决策。</p></div>
+            <div class="lane-step lane-step--verify"><small>Done</small><h3>交付规格</h3><p>作为其他 agent 的输入。</p></div>
+          </div>
+        </div>
+
+        <div class="swimlane">
+          <div class="swimlane__label">
+            <strong>Backend Runtime Agent</strong>
+            <span>写后端限定范围。实现脚本 runtime 和 graph 接入。</span>
+          </div>
+          <div class="lane-flow">
+            <div class="lane-step"><small>Test</small><h3>失败测试</h3><p>transform、drop、analyzer、generator。</p></div>
+            <div class="lane-step"><small>Build</small><h3>Runtime</h3><p>脚本 wrapper、超时、输出限制、state。</p></div>
+            <div class="lane-step"><small>Integrate</small><h3>Graph 接入</h3><p>provider、receive、emit、frame history。</p></div>
+            <div class="lane-step lane-step--review"><small>Review</small><h3>生命周期自查</h3><p>停止、错误、goroutine、资源 owner。</p></div>
+            <div class="lane-step lane-step--verify"><small>Verify</small><h3>Go 测试</h3><p>运行 targeted Go tests。</p></div>
+          </div>
+        </div>
+
+        <div class="swimlane">
+          <div class="swimlane__label">
+            <strong>Frontend Monaco Agent</strong>
+            <span>写前端限定范围。实现节点 UI 和 Monaco 动态能力。</span>
+          </div>
+          <div class="lane-flow">
+            <div class="lane-step"><small>Test</small><h3>失败测试</h3><p>provider、内容区、补全、诊断。</p></div>
+            <div class="lane-step"><small>Build</small><h3>ScriptEditor</h3><p>Monaco worker、主题、固定布局。</p></div>
+            <div class="lane-step"><small>Integrate</small><h3>节点内容区</h3><p>脚本 config 写回和运行中修改提示。</p></div>
+            <div class="lane-step lane-step--review"><small>Review</small><h3>UI 自查</h3><p>布局不增长、API 动态提示正确。</p></div>
+            <div class="lane-step lane-step--verify"><small>Verify</small><h3>Vitest</h3><p>运行 targeted frontend tests。</p></div>
+          </div>
+        </div>
+
+        <div class="swimlane">
+          <div class="swimlane__label">
+            <strong>Workspace / MCP / Demo Agent</strong>
+            <span>写集成限定范围。覆盖保存恢复、MCP 和 demo。</span>
+          </div>
+          <div class="lane-flow">
+            <div class="lane-step"><small>Wait</small><h3>等待接口</h3><p>依赖 Gate 0 的 provider 和 config。</p></div>
+            <div class="lane-step"><small>MCP</small><h3>Catalog / Validate</h3><p>同步脚本节点和校验规则。</p></div>
+            <div class="lane-step"><small>Workspace</small><h3>保存恢复</h3><p>脚本源码、布局和历史 round trip。</p></div>
+            <div class="lane-step"><small>Demo</small><h3>脚本示例</h3><p>自动运行、可复现、无特殊处理。</p></div>
+            <div class="lane-step lane-step--verify"><small>Verify</small><h3>集成测试</h3><p>MCP、workspace、demo tests。</p></div>
+          </div>
+        </div>
+
+        <div class="swimlane">
+          <div class="swimlane__label">
+            <strong>Review Agent</strong>
+            <span>只读。按严重度输出发现，不修复。</span>
+          </div>
+          <div class="lane-flow">
+            <div class="lane-step lane-step--review"><small>Security</small><h3>沙箱审查</h3><p>文件、网络、进程、env、路径访问。</p></div>
+            <div class="lane-step lane-step--review"><small>Runtime</small><h3>生命周期审查</h3><p>超时、取消、停止、错误路径。</p></div>
+            <div class="lane-step lane-step--review"><small>Topology</small><h3>拓扑审查</h3><p>是否绕过连接线和计数。</p></div>
+            <div class="lane-step lane-step--review"><small>Consistency</small><h3>一致性审查</h3><p>前端、后端、MCP、demo provider。</p></div>
+            <div class="lane-step lane-step--verify"><small>Report</small><h3>发现清单</h3><p>文件、行号、严重度、建议责任方。</p></div>
+          </div>
+        </div>
+
+        <div class="swimlane">
+          <div class="swimlane__label">
+            <strong>Verification Agent</strong>
+            <span>只读。执行自动化验证和压力测试。</span>
+          </div>
+          <div class="lane-flow">
+            <div class="lane-step lane-step--verify"><small>Go</small><h3>后端测试</h3><p>serial 和 mcpserver targeted tests。</p></div>
+            <div class="lane-step lane-step--verify"><small>Vitest</small><h3>前端测试</h3><p>graph、panel、workspace、demo。</p></div>
+            <div class="lane-step lane-step--verify"><small>Type / Build</small><h3>类型和构建</h3><p>vue-tsc、build:dev、Monaco worker。</p></div>
+            <div class="lane-step lane-step--verify"><small>Demo</small><h3>自动运行</h3><p>读取 runtime 状态断言计数增长。</p></div>
+            <div class="lane-step lane-step--verify"><small>Stress</small><h3>压力测试</h3><p>100 秒最小间隔、停止后计数稳定。</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>每个 Agent 内部循环</h2>
+        <p>无论 agent 负责哪一部分，都按同一套开发循环执行；差别只在写入范围和验证命令。</p>
+      </div>
+      <div class="diagram">
+        <div class="handoff">
+          <div class="handoff-card">
+            <b>1. 需求确认</b>
+            <span>复述本 agent 的输入、输出、写入范围和验收标准。</span>
+          </div>
+          <div class="arrow"></div>
+          <div class="handoff-card">
+            <b>2. 开发实现</b>
+            <span>先写失败测试，再做最小实现，避免扩大范围。</span>
+          </div>
+          <div class="arrow"></div>
+          <div class="handoff-card">
+            <b>3. 审查验证</b>
+            <span>自查后运行 targeted tests，阻塞问题回流修复。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>并行边界</h2>
+        <p>并行的前提是共享接口被冻结；否则三边会各自定义字段，集成成本会很高。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>可并行</h3>
+          <ul>
+            <li>后端 runtime 和前端 Monaco。</li>
+            <li>MCP catalog 和 workspace tests 的准备部分。</li>
+            <li>审查和 targeted verification。</li>
+            <li>demo 压测和最终 review。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>必须串行</h3>
+          <ul>
+            <li>节点类型、端口、config 和 API 冻结。</li>
+            <li>共享 provider/schema 集成。</li>
+            <li>修复跨模块字段不一致。</li>
+            <li>最终完整验证和提交。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -160,6 +160,7 @@ type serialGraphRuntimeNode struct {
 	frameBytes            int64
 	resourceID            string
 	handleID              string
+	script                *serialScriptRuntime
 	externalWriteInFlight atomic.Bool
 }
 
@@ -360,11 +361,15 @@ func (s *Service) ensureGraphPortAvailable(portName string) error {
 func newSerialGraphRuntime(svc *Service, req SerialGraphStartRequest) *serialGraphRuntime {
 	nodes := make(map[string]*serialGraphRuntimeNode, len(req.Nodes))
 	for _, spec := range req.Nodes {
-		nodes[spec.ID] = &serialGraphRuntimeNode{
+		node := &serialGraphRuntimeNode{
 			spec:   spec,
 			status: SerialGraphStatusIdle,
 			buffer: buffer.NewRing(64 * 1024 * 1024),
 		}
+		if isSerialGraphScriptNode(spec.Type) {
+			node.script = newSerialScriptRuntimeForNode(spec.Type, spec.Config)
+		}
+		nodes[spec.ID] = node
 	}
 	runtime := &serialGraphRuntime{
 		svc:       svc,
@@ -508,9 +513,28 @@ func (r *serialGraphRuntime) startAutoSenders() error {
 		data     []byte
 		interval time.Duration
 	}
+	type autoScriptGenerator struct {
+		nodeID   string
+		interval time.Duration
+	}
 
 	senders := []autoSender{}
+	generators := []autoScriptGenerator{}
 	for _, node := range r.sortedNodes() {
+		if node.spec.Type == "serial.script.generator" {
+			if !graphBoolConfig(node.spec.Config, "autoRun", false) {
+				continue
+			}
+			interval := time.Duration(graphIntConfig(node.spec.Config, "intervalMs", 1000)) * time.Millisecond
+			if interval < 10*time.Millisecond {
+				interval = 10 * time.Millisecond
+			}
+			generators = append(generators, autoScriptGenerator{
+				nodeID:   node.spec.ID,
+				interval: interval,
+			})
+			continue
+		}
 		if !graphBoolConfig(node.spec.Config, "autoSend", false) {
 			continue
 		}
@@ -529,7 +553,7 @@ func (r *serialGraphRuntime) startAutoSenders() error {
 			interval: interval,
 		})
 	}
-	if len(senders) == 0 {
+	if len(senders) == 0 && len(generators) == 0 {
 		return nil
 	}
 
@@ -539,6 +563,9 @@ func (r *serialGraphRuntime) startAutoSenders() error {
 	r.mu.Unlock()
 	for _, sender := range senders {
 		go r.runAutoSender(ctx, sender.nodeID, sender.data, sender.interval)
+	}
+	for _, generator := range generators {
+		go r.runScriptGenerator(ctx, generator.nodeID, generator.interval)
 	}
 	return nil
 }
@@ -574,6 +601,68 @@ func (r *serialGraphRuntime) runAutoSender(ctx context.Context, nodeID string, d
 			}
 		}
 	}
+}
+
+func (r *serialGraphRuntime) runScriptGenerator(ctx context.Context, nodeID string, interval time.Duration) {
+	send := func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		default:
+		}
+		if err := r.runScriptGeneratorOnce(nodeID); err != nil {
+			if r.isStopped() {
+				return false
+			}
+			if node := r.node(nodeID); node != nil {
+				node.setStatus(SerialGraphStatusError, err.Error())
+			}
+			return false
+		}
+		return true
+	}
+	if !send() {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !send() {
+				return
+			}
+		}
+	}
+}
+
+func (r *serialGraphRuntime) runScriptGeneratorOnce(nodeID string) error {
+	node := r.node(nodeID)
+	if node == nil {
+		return errors.New(errors.CodeNotFound, "graph node not found: "+nodeID)
+	}
+	if node.script == nil {
+		return errors.New(errors.CodeInvalid, "script generator is not initialized: "+nodeID)
+	}
+	result, err := node.script.run(serialScriptRunInput{})
+	if err != nil {
+		return err
+	}
+	if len(result.Errors) > 0 {
+		return fmt.Errorf("%s", strings.Join(result.Errors, "; "))
+	}
+	if result.Drop || len(result.Output) == 0 {
+		return nil
+	}
+	if r.isStopped() {
+		return nil
+	}
+	node.addTx(len(result.Output))
+	r.emit(serialGraphPortRef{nodeID: nodeID, handle: "out"}, result.Output)
+	return nil
 }
 
 func (r *serialGraphRuntime) stop() {
@@ -667,6 +756,10 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 		node.appendBuffer(data)
 	case "serial.monitor":
 		node.appendFrame(data)
+	case "serial.script.transform":
+		r.handleScriptTransform(node, data)
+	case "serial.script.analyzer":
+		r.handleScriptAnalyzer(node, data)
 	case "serial.tap", "serial.tee":
 		node.addTx(len(data))
 		r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "out"}, data)
@@ -703,6 +796,47 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 	case "serial.modbus.master", "serial.fecbus.master":
 		node.appendBuffer(data)
 	}
+}
+
+func (r *serialGraphRuntime) handleScriptTransform(node *serialGraphRuntimeNode, data []byte) {
+	if node.script == nil {
+		node.setStatus(SerialGraphStatusError, "script transform is not initialized")
+		return
+	}
+	result, err := node.script.run(serialScriptRunInput{Data: append([]byte(nil), data...)})
+	if err != nil {
+		node.setStatus(SerialGraphStatusError, err.Error())
+		if graphScriptOnErrorPassesInput(node.spec.Config) {
+			node.addTx(len(data))
+			r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, data)
+		}
+		return
+	}
+	if len(result.Errors) > 0 {
+		node.setStatus(SerialGraphStatusError, strings.Join(result.Errors, "; "))
+		return
+	}
+	if result.Drop || len(result.Output) == 0 {
+		return
+	}
+	node.addTx(len(result.Output))
+	r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, result.Output)
+}
+
+func (r *serialGraphRuntime) handleScriptAnalyzer(node *serialGraphRuntimeNode, data []byte) {
+	if node.script == nil {
+		node.setStatus(SerialGraphStatusError, "script analyzer is not initialized")
+		return
+	}
+	result, err := node.script.run(serialScriptRunInput{Data: append([]byte(nil), data...)})
+	if err != nil {
+		node.setStatus(SerialGraphStatusError, err.Error())
+		result.Errors = append(result.Errors, err.Error())
+	}
+	if len(result.Errors) > 0 {
+		node.setStatus(SerialGraphStatusError, strings.Join(result.Errors, "; "))
+	}
+	node.appendScriptFrame(data, result)
 }
 
 func (r *serialGraphRuntime) writeVirtualExternal(node *serialGraphRuntimeNode, data []byte) {
@@ -1021,6 +1155,63 @@ func (n *serialGraphRuntimeNode) appendFrame(data []byte) {
 	for len(n.frames) > 0 && (len(n.frames) > serialGraphFrameLimit || (n.frameBytes > serialGraphFrameBytesLimit && len(n.frames) > 1)) {
 		n.frameBytes -= int64(len(n.frames[0].Data))
 		n.frames = n.frames[1:]
+	}
+}
+
+func (n *serialGraphRuntimeNode) appendScriptFrame(data []byte, result serialScriptRunResult) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.frameSeq += 1
+	frame := monitor.Frame{
+		Seq:         n.frameSeq,
+		Timestamp:   time.Now(),
+		Direction:   "接收",
+		Port:        n.spec.ID,
+		Length:      len(data),
+		Data:        append([]byte(nil), data...),
+		DisplayText: graphScriptFrameText(data, result, graphStringConfig(n.spec.Config, "encoding")),
+		DisplayHex:  formatGraphFrameBytes(data, "%02x"),
+		DisplayDec:  formatGraphFrameBytes(data, "%d"),
+		DisplayOct:  formatGraphFrameBytes(data, "%03o"),
+		DisplayBin:  formatGraphFrameBytes(data, "%08b"),
+		Encoding:    graphStringConfig(n.spec.Config, "encoding"),
+	}
+	n.frames = append(n.frames, frame)
+	n.frameBytes += int64(len(data))
+	for len(n.frames) > 0 && (len(n.frames) > serialGraphFrameLimit || (n.frameBytes > serialGraphFrameBytesLimit && len(n.frames) > 1)) {
+		n.frameBytes -= int64(len(n.frames[0].Data))
+		n.frames = n.frames[1:]
+	}
+}
+
+func graphScriptFrameText(data []byte, result serialScriptRunResult, encoding string) string {
+	parts := make([]string, 0, len(result.Fields)+len(result.Errors)+1)
+	for _, field := range result.Fields {
+		value := field.Display
+		if value == "" {
+			value = fmt.Sprint(field.Value)
+		}
+		parts = append(parts, field.Name+"="+value)
+	}
+	for _, errMessage := range result.Errors {
+		parts = append(parts, "error="+errMessage)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, " ")
+	}
+	text, err := decodeSerialText(data, encoding)
+	if err != nil {
+		return string(data)
+	}
+	return text
+}
+
+func graphScriptOnErrorPassesInput(config map[string]any) bool {
+	switch strings.ToLower(graphStringConfig(config, "onError")) {
+	case "pass", "passthrough", "pass-through", "emit-input":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1423,11 +1614,20 @@ func serialGraphRuntimeProviders() []serialGraphProviderSpec {
 		{Type: "serial.tee", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
 		{Type: "serial.sender", Outputs: []serialGraphPortSpec{bytesOut}},
 		{Type: "serial.receiver", Inputs: []serialGraphPortSpec{bytesIn}},
+		{Type: "serial.script.transform", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{bytesOut}},
+		{Type: "serial.script.generator", Outputs: []serialGraphPortSpec{bytesOut}},
+		{Type: "serial.script.analyzer", Inputs: []serialGraphPortSpec{bytesIn}},
 		{Type: "serial.modbus.master", Inputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "output"}}},
 		{Type: "serial.modbus.slave", Inputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "output"}}},
 		{Type: "serial.fecbus.master", Inputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "output"}}},
 		{Type: "serial.fecbus.slave", Inputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "output"}}},
 	}
+}
+
+func isSerialGraphScriptNode(nodeType string) bool {
+	return nodeType == "serial.script.transform" ||
+		nodeType == "serial.script.generator" ||
+		nodeType == "serial.script.analyzer"
 }
 
 func serialGraphRuntimeProviderMap() map[string]serialGraphProviderSpec {

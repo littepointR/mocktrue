@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>流程：审查</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./workflow-requirements.html">需求</a>
+      <a href="./workflow-backend-runtime.html">后端</a>
+      <a href="./workflow-frontend-monaco.html">前端</a>
+      <a href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a aria-current="page" href="./workflow-review.html">审查</a>
+      <a href="./workflow-verification.html">验证</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero hero--single">
+      <div>
+        <p class="eyebrow">Workflow 5</p>
+        <h1>审查阶段</h1>
+        <p class="lede">目标是从风险角度确认脚本功能没有破坏拓扑语义、资源生命周期、安全边界和用户配置一致性。</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>审查目标</h2>
+        <p>审查 agent 只读，不修复。发现问题后由对应实现 agent 处理。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel"><h3>安全</h3><p>脚本不能越权访问系统能力或任意串口路径。</p></div>
+        <div class="panel"><h3>生命周期</h3><p>图停止和程序退出时没有任务、端口或虚拟串口残留。</p></div>
+        <div class="panel"><h3>一致性</h3><p>UI、MCP、runtime、demo 的 provider 和配置一致。</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>审查清单</h2>
+        <p>按风险排序，优先处理可能导致越权、残留或数据错路由的问题。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>类别</th><th>检查点</th><th>阻塞条件</th></tr></thead>
+          <tbody>
+            <tr><td>脚本沙箱</td><td>是否开放文件、网络、进程、env、动态模块</td><td>任何开放都阻塞</td></tr>
+            <tr><td>资源所有权</td><td>endpoint 是否统一打开和关闭端口</td><td>脚本可传路径则阻塞</td></tr>
+            <tr><td>运行时</td><td>超时、取消、定时器停止是否完整</td><td>停止后仍发送则阻塞</td></tr>
+            <tr><td>拓扑</td><td>脚本输出是否全部经过端口和连接线</td><td>绕过拓扑写数据则阻塞</td></tr>
+            <tr><td>前端</td><td>Monaco 诊断是否覆盖禁用 API</td><td>无提示但 runtime 禁止则需修复</td></tr>
+            <tr><td>保存恢复</td><td>源码、配置、布局、历史是否 round trip</td><td>配置丢失则阻塞</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>流程</h2>
+        <p>审查要在 targeted tests 通过后进行，避免浪费在明显未完成的变更上。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow">
+          <div class="stage"><small>Step 1</small><h3>读 diff</h3><p>确认变更范围和风险点。</p></div>
+          <div class="stage"><small>Step 2</small><h3>查安全</h3><p>检查脚本 API 和 runtime 暴露。</p></div>
+          <div class="stage"><small>Step 3</small><h3>查生命周期</h3><p>停止、错误、退出路径。</p></div>
+          <div class="stage"><small>Step 4</small><h3>查一致性</h3><p>UI、runtime、MCP、demo 同步。</p></div>
+          <div class="stage"><small>Step 5</small><h3>列发现</h3><p>按严重度输出文件和行号。</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

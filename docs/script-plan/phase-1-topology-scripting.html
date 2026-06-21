@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 1：拓扑内脚本能力</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a aria-current="page" href="./phase-1-topology-scripting.html">Phase 1</a>
+      <a href="./phase-2-controlled-endpoint.html">Phase 2</a>
+      <a href="./phase-3-hardening.html">Phase 3</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Phase 1</p>
+        <h1>拓扑内脚本能力</h1>
+        <p class="lede">
+          第一阶段的目标是让脚本成为普通拓扑节点。脚本只通过节点输入和输出端口处理数据，不允许直接打开串口或访问系统资源。
+        </p>
+      </div>
+      <div class="diagram">
+        <div class="node-flow">
+          <div class="node-card"><b>Generator</b><span>定时生成 bytes</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>Transform</b><span>处理并输出 bytes</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>Receiver / Analyzer</b><span>显示或解析结果</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>目标</h2>
+        <p>建立脚本功能的最小闭环，让用户不用离开拓扑图就能编写自动发送、数据转换和协议分析逻辑。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel">
+          <h3>脚本处理器</h3>
+          <p>`serial.script.transform` 接收 bytes，运行脚本，输出处理后的 bytes。</p>
+        </div>
+        <div class="panel">
+          <h3>脚本发生器</h3>
+          <p>`serial.script.generator` 按启动或定时器执行脚本，输出模拟数据。</p>
+        </div>
+        <div class="panel">
+          <h3>脚本分析器</h3>
+          <p>`serial.script.analyzer` 只消费数据，把字段、错误和帧记录写入内容区域。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>实现</h2>
+        <p>复用现有 graph runtime 的 bytes 路由，新增脚本 runtime wrapper。现有协议脚本引擎只作为基础能力参考，不直接承担拓扑节点生命周期。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>节点配置</h3>
+          <ul>
+            <li>`script`：脚本源码。</li>
+            <li>`timeoutMs`：默认 50ms。</li>
+            <li>`encoding`：默认 utf-8。</li>
+            <li>`maxOutputBytes`：默认 65536。</li>
+            <li>`autoRun` 和 `intervalMs`：仅 generator 使用。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>安全边界</h3>
+          <ul>
+            <li>只暴露 MockTrue API。</li>
+            <li>不开放文件、网络、进程和环境变量。</li>
+            <li>脚本错误只影响当前节点。</li>
+            <li>图停止必须终止定时器和执行任务。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>运行流程</h2>
+        <p>所有数据流都经过连接线，因此计数、监控、buffer、demo 和测试都能观察到脚本行为。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow">
+          <div class="stage"><small>Step 1</small><h3>图启动</h3><p>为每个脚本节点创建独立 runtime state。</p></div>
+          <div class="stage"><small>Step 2</small><h3>收包</h3><p>transform/analyzer 从输入端口收到 bytes。</p></div>
+          <div class="stage"><small>Step 3</small><h3>执行</h3><p>脚本在超时和输出限制内执行。</p></div>
+          <div class="stage"><small>Step 4</small><h3>输出</h3><p>transform/generator 通过 output API emit。</p></div>
+          <div class="stage"><small>Step 5</small><h3>记录</h3><p>fields/errors 写入 frame history。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>脚本 API</h2>
+        <p>第一阶段 API 只覆盖输入、输出、字段标注、错误记录、状态和常用工具。</p>
+      </div>
+      <pre><code>input.bytes()
+input.hex()
+input.text("utf-8")
+
+output.bytes([0x01, 0x02])
+output.hex("01 02")
+output.text("OK\r\n", "utf-8")
+drop()
+
+field("unitId", 1, "Unit 1")
+error("crc mismatch")
+
+state.get("seq")
+state.set("seq", 12)
+
+crc16(input.bytes())
+sum8(input.bytes())
+now()</code></pre>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验收</h2>
+        <p>功能通过自动化测试和 demo 验证，不依赖人工观察。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>必须通过</h3>
+          <ul>
+            <li>transform 能把输入改写后传给 receiver。</li>
+            <li>drop 后下游不收到数据。</li>
+            <li>generator 启动后循环输出。</li>
+            <li>analyzer 能产生 frame 字段和错误。</li>
+            <li>停止图后计数不再增长。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>不能出现</h3>
+          <ul>
+            <li>脚本能访问系统资源。</li>
+            <li>脚本异常导致整个图崩溃。</li>
+            <li>停止后 goroutine 或定时器残留。</li>
+            <li>保存恢复后脚本源码丢失。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

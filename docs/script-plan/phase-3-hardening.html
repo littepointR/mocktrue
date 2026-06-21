@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 3：增强和稳定化</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./phase-1-topology-scripting.html">Phase 1</a>
+      <a href="./phase-2-controlled-endpoint.html">Phase 2</a>
+      <a aria-current="page" href="./phase-3-hardening.html">Phase 3</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Phase 3</p>
+        <h1>增强、稳定化和长期运行验证</h1>
+        <p class="lede">
+          第三阶段的目标是把脚本能力从“可用”打磨到“长期可靠”。重点是模板、诊断、压力测试、日志和用户体验，而不是扩大系统权限。
+        </p>
+      </div>
+      <div class="diagram">
+        <div class="flow--four flow">
+          <div class="stage"><small>A</small><h3>模板</h3><p>常用协议脚本</p></div>
+          <div class="stage"><small>B</small><h3>诊断</h3><p>错误、耗时、输出</p></div>
+          <div class="stage"><small>C</small><h3>压测</h3><p>长时间满负载</p></div>
+          <div class="stage"><small>D</small><h3>体验</h3><p>补全和文档</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>目标</h2>
+        <p>提升脚本功能的可维护性和可诊断性，让用户能快速编写、复用和定位问题。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel">
+          <h3>模板库</h3>
+          <p>提供 Modbus、FECbus、自定义帧、CRC、循环数据等脚本模板。</p>
+        </div>
+        <div class="panel">
+          <h3>可观测性</h3>
+          <p>展示执行耗时、错误次数、最后输出、字段表和日志。</p>
+        </div>
+        <div class="panel">
+          <h3>稳定性</h3>
+          <p>覆盖长时间运行、最小间隔、停止恢复、demo 切换和资源回收。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>实现</h2>
+        <p>增强围绕现有节点展开，不改变安全边界，不新增任意系统访问能力。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>功能增强</h3>
+          <ul>
+            <li>脚本模板选择和插入。</li>
+            <li>API 文档面板。</li>
+            <li>执行日志和错误历史。</li>
+            <li>字段表导出到监控视图。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>稳定化</h3>
+          <ul>
+            <li>压力测试脚本集。</li>
+            <li>demo 自动启动验证。</li>
+            <li>内存和 goroutine 泄漏检测。</li>
+            <li>错误恢复和节点重启策略。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>流程</h2>
+        <p>每个增强先以真实用户场景定义模板，再补测试和文档。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow">
+          <div class="stage"><small>Step 1</small><h3>收集场景</h3><p>从串口、Modbus、FECbus 和自定义协议中选高频场景。</p></div>
+          <div class="stage"><small>Step 2</small><h3>写模板</h3><p>模板必须只使用公开脚本 API。</p></div>
+          <div class="stage"><small>Step 3</small><h3>补提示</h3><p>Monaco completion 和 hover 同步更新。</p></div>
+          <div class="stage"><small>Step 4</small><h3>跑压测</h3><p>最小间隔、长时间、切换 demo。</p></div>
+          <div class="stage"><small>Step 5</small><h3>固化验收</h3><p>把发现的问题转成自动化测试。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验收</h2>
+        <p>第三阶段完成后，脚本功能应适合真实项目长期使用。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>质量标准</h3>
+          <ul>
+            <li>所有 demo 启动后都有循环数据。</li>
+            <li>100 秒最小间隔压测无卡死。</li>
+            <li>停止后资源和计数稳定。</li>
+            <li>脚本错误可定位到具体节点和行。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>不做的事</h3>
+          <ul>
+            <li>不扩大脚本系统权限。</li>
+            <li>不让脚本绕过拓扑资源管理。</li>
+            <li>不引入无法自动验证的 demo 特殊逻辑。</li>
+            <li>不把协议 manager 直接嵌入脚本节点。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

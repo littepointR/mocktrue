@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MockTrue 脚本功能规划总览</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html">
+      <span class="brand-mark">S</span>
+      <span>Script Plan</span>
+    </a>
+    <nav class="nav" aria-label="脚本规划导航">
+      <a href="./phase-1-topology-scripting.html">Phase 1</a>
+      <a href="./phase-2-controlled-endpoint.html">Phase 2</a>
+      <a href="./phase-3-hardening.html">Phase 3</a>
+      <a href="./workflow-requirements.html">需求</a>
+      <a href="./workflow-backend-runtime.html">后端</a>
+      <a href="./workflow-frontend-monaco.html">前端</a>
+      <a href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a href="./workflow-review.html">审查</a>
+      <a href="./workflow-verification.html">验证</a>
+      <a href="./agent-assignment-flow.html">Agent 编排</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">MockTrue Script Nodes</p>
+        <h1>把脚本能力变成安全可控的拓扑节点</h1>
+        <p class="lede">
+          脚本功能的目标不是让用户运行任意系统脚本，而是让用户在串口拓扑中编排可观察、可保存、可测试的数据处理逻辑。脚本只能使用 MockTrue 提供的 API，并通过节点端口或授权资源访问数据。
+        </p>
+        <div class="chips">
+          <span class="chip chip--blue">Monaco 编辑器</span>
+          <span class="chip chip--green">动态补全</span>
+          <span class="chip chip--amber">受控 API</span>
+          <span class="chip chip--red">禁止任意系统访问</span>
+        </div>
+      </div>
+      <div class="diagram" aria-label="脚本拓扑流示意">
+        <div class="node-flow">
+          <div class="node-card">
+            <b>Generator</b>
+            <span>定时生成字节流，作为自动测试或模拟数据源</span>
+          </div>
+          <div class="arrow"></div>
+          <div class="node-card">
+            <b>Transform</b>
+            <span>过滤、转换、追加校验、协议适配</span>
+          </div>
+          <div class="arrow"></div>
+          <div class="node-card">
+            <b>Analyzer</b>
+            <span>字段标注、错误记录、帧历史展示</span>
+          </div>
+        </div>
+        <div class="meta">
+          <div class="meta-item">
+            <b>3</b>
+            <span>第一阶段脚本节点</span>
+          </div>
+          <div class="meta-item">
+            <b>1</b>
+            <span>第二阶段 endpoint</span>
+          </div>
+          <div class="meta-item">
+            <b>50ms</b>
+            <span>默认执行超时</span>
+          </div>
+          <div class="meta-item">
+            <b>0</b>
+            <span>停止后残留资源</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>功能阶段目标</h2>
+        <p>这三个页面描述产品能力如何从最小闭环推进到资源访问和稳定化。每个页面都包含目标、实现、流程、步骤、验收和风险。</p>
+      </div>
+      <div class="goal-list">
+        <a class="goal-link" href="./phase-1-topology-scripting.html">
+          <strong>Phase 1：拓扑内脚本能力</strong>
+          <span>实现 transform、generator、analyzer。脚本只通过连接线收发数据，配套 Monaco 编辑器和 API 提示。</span>
+        </a>
+        <a class="goal-link" href="./phase-2-controlled-endpoint.html">
+          <strong>Phase 2：受控串口 endpoint</strong>
+          <span>脚本可以访问串口，但只能访问节点启动时授权的资源句柄，统一走资源冲突检查和清理。</span>
+        </a>
+        <a class="goal-link" href="./phase-3-hardening.html">
+          <strong>Phase 3：增强和稳定化</strong>
+          <span>补模板、日志、压力测试、长稳测试、API 细化和 Monaco 体验优化。</span>
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>开发流程目标</h2>
+        <p>这些页面描述多 agent 开发流程。每个目标都有单一职责，便于把任务分配给不同 agent 或按同样顺序由主 agent 执行。</p>
+      </div>
+      <div class="goal-list">
+        <a class="goal-link" href="./workflow-requirements.html">
+          <strong>需求分析</strong>
+          <span>锁定范围、安全边界、节点类型、脚本 API 和验收标准。</span>
+        </a>
+        <a class="goal-link" href="./workflow-backend-runtime.html">
+          <strong>后端实现</strong>
+          <span>实现脚本 runtime、graph 接入、超时、输出、状态和资源清理。</span>
+        </a>
+        <a class="goal-link" href="./workflow-frontend-monaco.html">
+          <strong>前端和 Monaco</strong>
+          <span>实现脚本编辑器、动态补全、hover、diagnostics 和节点内容区。</span>
+        </a>
+        <a class="goal-link" href="./workflow-workspace-mcp-demo.html">
+          <strong>工作区 / MCP / Demo</strong>
+          <span>覆盖保存恢复、MCP graph 工具、脚本 demo 和可复现示例。</span>
+        </a>
+        <a class="goal-link" href="./workflow-review.html">
+          <strong>审查</strong>
+          <span>重点检查越权、资源泄漏、运行态一致性和拓扑语义破坏。</span>
+        </a>
+        <a class="goal-link" href="./workflow-verification.html">
+          <strong>验证</strong>
+          <span>执行 Go、Vitest、类型检查、构建、demo 自动运行和压力测试。</span>
+        </a>
+        <a class="goal-link" href="./agent-assignment-flow.html">
+          <strong>Agent 任务分配流程图</strong>
+          <span>展示接口冻结、并行开发、集成、审查、验证和每个 agent 内部循环。</span>
+        </a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

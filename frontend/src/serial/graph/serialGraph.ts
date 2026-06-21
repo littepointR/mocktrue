@@ -93,6 +93,17 @@ const serialDefaults = {
 
 const bytesIn: SerialGraphPortSpec = { id: 'in', label: '接收', kind: 'bytes', direction: 'input' }
 const bytesOut: SerialGraphPortSpec = { id: 'out', label: '发送', kind: 'bytes', direction: 'output' }
+const scriptDefaults = {
+  script: 'output.bytes(input.bytes())',
+  timeoutMs: 50,
+  maxOutputBytes: 65536,
+  maxStateBytes: 262144,
+  onError: 'mark-error-and-drop',
+  encoding: 'utf-8',
+  autoRun: false,
+  intervalMs: 1000,
+  displayMode: 'hex',
+}
 
 export const serialGraphProviders: SerialGraphNodeProvider[] = [
   {
@@ -176,6 +187,33 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     inputs: [bytesIn],
     outputs: [],
     defaultConfig: { viewMode: 'ascii', autoScroll: true },
+  },
+  {
+    type: 'serial.script.transform',
+    title: '脚本转换',
+    category: '脚本',
+    description: '通过安全脚本处理输入字节流并输出处理后的字节流。',
+    inputs: [bytesIn],
+    outputs: [bytesOut],
+    defaultConfig: { ...scriptDefaults },
+  },
+  {
+    type: 'serial.script.generator',
+    title: '脚本生成',
+    category: '脚本',
+    description: '通过安全脚本按启动或定时器生成字节流。',
+    inputs: [],
+    outputs: [bytesOut],
+    defaultConfig: { ...scriptDefaults, script: 'output.text("tick", "utf-8")', autoRun: true },
+  },
+  {
+    type: 'serial.script.analyzer',
+    title: '脚本分析',
+    category: '脚本',
+    description: '通过安全脚本解析输入字节流并生成字段和错误记录。',
+    inputs: [bytesIn],
+    outputs: [],
+    defaultConfig: { ...scriptDefaults, script: 'field("length", input.bytes().length)' },
   },
   {
     type: 'serial.modbus.master',

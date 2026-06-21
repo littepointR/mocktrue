@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>流程：后端 Runtime</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./workflow-requirements.html">需求</a>
+      <a aria-current="page" href="./workflow-backend-runtime.html">后端</a>
+      <a href="./workflow-frontend-monaco.html">前端</a>
+      <a href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a href="./workflow-review.html">审查</a>
+      <a href="./workflow-verification.html">验证</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Workflow 2</p>
+        <h1>后端脚本 Runtime 实现阶段</h1>
+        <p class="lede">目标是让脚本节点能在 graph runtime 中安全执行、路由数据、记录结果，并在停止时完整清理。</p>
+      </div>
+      <div class="diagram">
+        <div class="node-flow">
+          <div class="node-card"><b>receive</b><span>节点收到 bytes</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>script runtime</b><span>超时执行</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>emit/frame</b><span>输出或记录</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>实现目标</h2>
+        <p>后端 agent 只负责 runtime、执行安全和 Go 测试，不处理前端编辑器。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel"><h3>脚本执行</h3><p>每个节点独立状态，支持超时、输出限制和错误记录。</p></div>
+        <div class="panel"><h3>数据路由</h3><p>transform/generator 输出进入 graph emit，analyzer 写 frame。</p></div>
+        <div class="panel"><h3>生命周期</h3><p>图停止取消定时器和执行任务，释放 endpoint 资源。</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>步骤</h2>
+        <p>先建立最小 transform 闭环，再扩展 analyzer、generator 和 endpoint。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow--six flow">
+          <div class="stage"><small>Step 1</small><h3>失败测试</h3><p>写 transform 输入输出测试。</p></div>
+          <div class="stage"><small>Step 2</small><h3>Provider</h3><p>后端 catalog 增加脚本节点。</p></div>
+          <div class="stage"><small>Step 3</small><h3>Wrapper</h3><p>封装 goja 脚本 runtime。</p></div>
+          <div class="stage"><small>Step 4</small><h3>Receive</h3><p>接入 graph receive 分支。</p></div>
+          <div class="stage"><small>Step 5</small><h3>Generator</h3><p>接入定时执行和停止清理。</p></div>
+          <div class="stage"><small>Step 6</small><h3>Endpoint</h3><p>第二阶段实现资源绑定。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>测试重点</h2>
+        <p>后端测试必须覆盖错误路径和停止路径。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>行为测试</h3>
+          <ul>
+            <li>transform 输出改写数据。</li>
+            <li>drop 不发送下游。</li>
+            <li>analyzer 生成字段和错误 frame。</li>
+            <li>generator 最小 10ms 间隔输出。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>安全测试</h3>
+          <ul>
+            <li>死循环脚本超时。</li>
+            <li>输出和状态大小超限。</li>
+            <li>停止后计数不再增长。</li>
+            <li>endpoint 只能写绑定资源。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

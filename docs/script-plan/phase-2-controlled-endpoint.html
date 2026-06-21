@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 2：受控串口 Endpoint</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./phase-1-topology-scripting.html">Phase 1</a>
+      <a aria-current="page" href="./phase-2-controlled-endpoint.html">Phase 2</a>
+      <a href="./phase-3-hardening.html">Phase 3</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Phase 2</p>
+        <h1>受控串口资源脚本节点</h1>
+        <p class="lede">
+          第二阶段允许脚本访问串口，但访问对象必须由节点配置声明，并由 MockTrue runtime 在启动时授权。脚本不能传路径打开或写任意串口。
+        </p>
+      </div>
+      <div class="diagram">
+        <div class="node-flow">
+          <div class="node-card"><b>节点配置</b><span>portName、波特率、编码</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>Runtime 授权</b><span>冲突检查并打开资源</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>Script API</b><span>只写绑定句柄</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>目标</h2>
+        <p>解决脚本需要模拟真实设备或主动应答外部串口请求的场景，同时保持资源生命周期、冲突检查和拓扑可观察性。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel">
+          <h3>Capability-based</h3>
+          <p>脚本拿到的是 MockTrue 授权能力，不是系统路径。</p>
+        </div>
+        <div class="panel">
+          <h3>统一资源所有权</h3>
+          <p>打开、关闭、冲突检查和退出清理都由 graph runtime 负责。</p>
+        </div>
+        <div class="panel">
+          <h3>拓扑不失真</h3>
+          <p>数据仍能计数、记录、显示和通过 demo/测试验证。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>实现</h2>
+        <p>新增 `serial.script.endpoint`。节点启动时绑定一个串口资源，脚本通过 `serial.*` API 写入该绑定资源。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>节点配置</h3>
+          <ul>
+            <li>`portName`：绑定端口名。</li>
+            <li>`baudRate/dataBits/stopBits/parity/flowMode`。</li>
+            <li>`readBufKB` 和 `encoding`。</li>
+            <li>`script`、`timeoutMs`、`maxOutputBytes`。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>新增 API</h3>
+          <pre><code>serial.write(bytes)
+serial.writeHex("01 02")
+serial.writeText("OK\r\n", "utf-8")
+serial.info()</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>运行流程</h2>
+        <p>endpoint 节点的资源绑定发生在图启动阶段，脚本执行阶段只能使用已绑定句柄。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow--six flow">
+          <div class="stage"><small>Step 1</small><h3>校验配置</h3><p>确认 portName 和串口参数有效。</p></div>
+          <div class="stage"><small>Step 2</small><h3>冲突检查</h3><p>复用现有串口、监控、桥接、协议占用检查。</p></div>
+          <div class="stage"><small>Step 3</small><h3>打开资源</h3><p>runtime 打开端口并记录 owner。</p></div>
+          <div class="stage"><small>Step 4</small><h3>执行脚本</h3><p>脚本只看到 serial capability。</p></div>
+          <div class="stage"><small>Step 5</small><h3>读写路由</h3><p>RX/TX 进入计数和 buffer。</p></div>
+          <div class="stage"><small>Step 6</small><h3>统一清理</h3><p>停止图时关闭资源。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>禁止行为</h2>
+        <p>这些限制是 endpoint 能安全落地的前提。</p>
+      </div>
+      <div class="callout">
+        <p>不允许 `serial.open("/tmp/ttyX")`、`serial.write("/dev/cu.usbserial", bytes)`、文件读写、网络请求、进程执行、环境变量访问和动态模块加载。</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验收</h2>
+        <p>endpoint 的验收重点是资源安全和生命周期。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>必须通过</h3>
+          <ul>
+            <li>启动时占用检查有效。</li>
+            <li>脚本只能写当前绑定资源。</li>
+            <li>停止图后端口关闭。</li>
+            <li>程序退出后没有虚拟串口残留。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>主要风险</h3>
+          <ul>
+            <li>隐式回灌循环。</li>
+            <li>脚本绕开拓扑写数据。</li>
+            <li>端口重复占用。</li>
+            <li>错误路径下资源未清理。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

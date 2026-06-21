@@ -8,6 +8,21 @@ const expectedDemoNodeTypes: Record<string, string[]> = {
   'virtual-port-demo': ['serial.sender', 'serial.virtual', 'serial.receiver'],
   'bridge-demo': ['serial.sender', 'serial.virtual', 'serial.bridge', 'serial.receiver'],
   'monitor-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.receiver', 'serial.monitor'],
+  'script-transform-demo': [
+    'serial.script.generator',
+    'serial.virtual',
+    'serial.script.transform',
+    'serial.tap',
+    'serial.receiver',
+    'serial.monitor',
+  ],
+  'script-analyzer-demo': [
+    'serial.script.generator',
+    'serial.virtual',
+    'serial.tap',
+    'serial.receiver',
+    'serial.script.analyzer',
+  ],
   'modbus-demo': ['serial.virtual', 'serial.modbus.master', 'serial.modbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
   'fecbus-demo': ['serial.virtual', 'serial.fecbus.master', 'serial.fecbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
   'serial-graph-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.receiver', 'serial.modbus.master', 'serial.monitor'],
@@ -18,6 +33,9 @@ const expectedDemoNodeTypes: Record<string, string[]> = {
     'serial.monitor',
     'serial.tap',
     'serial.receiver',
+    'serial.script.generator',
+    'serial.script.transform',
+    'serial.script.analyzer',
     'serial.modbus.master',
     'serial.modbus.slave',
     'serial.fecbus.master',
@@ -36,6 +54,8 @@ describe('demoWorkspaces', () => {
       'virtual-port-demo',
       'bridge-demo',
       'monitor-demo',
+      'script-transform-demo',
+      'script-analyzer-demo',
       'modbus-demo',
       'fecbus-demo',
       'serial-graph-demo',
@@ -172,6 +192,20 @@ describe('demoWorkspaces', () => {
     }
   })
 
+  it('opens script examples as normal topology nodes', () => {
+    for (const id of ['script-transform-demo', 'script-analyzer-demo', 'full-workspace-demo']) {
+      const snapshot = createDemoWorkspaceSnapshot(id)
+      const graph = activeGraph(snapshot?.serial.graph)
+      const scriptNodes = graph.nodes.filter(node => node.type.startsWith('serial.script.'))
+
+      expect(scriptNodes.length, id).toBeGreaterThan(0)
+      expect(graph.nodeTabs.some(tab => scriptNodes.some(node => node.id === tab.nodeId)), id).toBe(true)
+      expect(graph.selectedNodeId, id).toBeTruthy()
+      expect(graph.activeNodeTabId, id).toBe(graph.selectedNodeId)
+      expect(scriptNodes.some(node => node.type === 'serial.script.generator'), id).toBe(true)
+    }
+  })
+
   it('uses demo-specific topology graphs for every example', () => {
     const providerTypes = new Set(serialGraphProviders.map(provider => provider.type))
 
@@ -222,8 +256,13 @@ describe('demoWorkspaces', () => {
       const snapshot = createDemoWorkspaceSnapshot(demo.id)
       const graph = activeGraph(snapshot?.serial.graph)
       const autoNodes = graph.nodes.filter(node => (
-        (node.type === 'serial.sender' || node.type === 'serial.modbus.master' || node.type === 'serial.fecbus.master')
-        && node.config.autoSend === true
+        (
+          (node.type === 'serial.script.generator' && node.config.autoRun === true)
+          || (
+            (node.type === 'serial.sender' || node.type === 'serial.modbus.master' || node.type === 'serial.fecbus.master')
+            && node.config.autoSend === true
+          )
+        )
         && Number(node.config.intervalMs) >= 10
         && (node.type !== 'serial.sender' || String(node.config.payload ?? '').length > 0)
       ))
@@ -369,6 +408,9 @@ function outputsAfterInput(nodeType: string, inputHandle: string): string[] {
     return ['rx']
   }
   if ((nodeType === 'serial.tap' || nodeType === 'serial.tee') && inputHandle === 'in') {
+    return ['out']
+  }
+  if (nodeType === 'serial.script.transform' && inputHandle === 'in') {
     return ['out']
   }
   if (nodeType === 'serial.bridge') {

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>流程：工作区 / MCP / Demo</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./workflow-requirements.html">需求</a>
+      <a href="./workflow-backend-runtime.html">后端</a>
+      <a href="./workflow-frontend-monaco.html">前端</a>
+      <a aria-current="page" href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a href="./workflow-review.html">审查</a>
+      <a href="./workflow-verification.html">验证</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Workflow 4</p>
+        <h1>工作区、MCP 和 Demo 集成</h1>
+        <p class="lede">目标是让脚本节点成为 MockTrue 的普通能力：能保存恢复、被 MCP 创建和启动、在 demo 中完整展示，并且没有隐藏特殊逻辑。</p>
+      </div>
+      <div class="diagram">
+        <div class="node-flow">
+          <div class="node-card"><b>Workspace</b><span>保存脚本和布局</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>MCP</b><span>列出和启动节点</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>Demo</b><span>可复现自动运行</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>目标</h2>
+        <p>脚本节点不能只在 UI 中可见，还要贯穿配置文件、自动化接口和示例工作区。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel"><h3>保存恢复</h3><p>脚本源码、节点配置、布局、标签页和历史数据完整导入导出。</p></div>
+        <div class="panel"><h3>MCP 暴露</h3><p>provider catalog、validate、start、status、query 都支持脚本节点。</p></div>
+        <div class="panel"><h3>Demo 可复现</h3><p>用户可通过手动节点操作搭出与 demo 一样的内容。</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>实现步骤</h2>
+        <p>先同步 provider 和 snapshot，再做 demo 和 MCP 验证。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow">
+          <div class="stage"><small>Step 1</small><h3>Snapshot</h3><p>确认脚本 config 进入 graph workspace state。</p></div>
+          <div class="stage"><small>Step 2</small><h3>MCP catalog</h3><p>同步脚本 provider、默认配置和规则。</p></div>
+          <div class="stage"><small>Step 3</small><h3>Validate</h3><p>脚本端口、fan-out、资源冲突校验。</p></div>
+          <div class="stage"><small>Step 4</small><h3>Demo</h3><p>新增 transform/analyzer demo。</p></div>
+          <div class="stage"><small>Step 5</small><h3>Round trip</h3><p>导出后导入，内容完全一致。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Demo 设计</h2>
+        <p>Demo 必须基于真实节点和真实运行时，不允许特殊处理。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Demo</th><th>拓扑</th><th>展示能力</th></tr></thead>
+          <tbody>
+            <tr><td>script-transform-demo</td><td>generator -> transform -> receiver</td><td>脚本改写数据、自动发送、接收显示</td></tr>
+            <tr><td>script-analyzer-demo</td><td>generator -> tap -> analyzer + receiver</td><td>字段解析、分流、接收对照</td></tr>
+            <tr><td>script-endpoint-demo</td><td>virtual port + endpoint + receiver</td><td>第二阶段受控资源访问</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验收</h2>
+        <p>集成目标以可重复自动化验证为准。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>必须通过</h3>
+          <ul>
+            <li>所有 demo 的 graph validate 通过。</li>
+            <li>所有 demo 启动后计数增长。</li>
+            <li>导出导入后脚本源码一致。</li>
+            <li>MCP 能 validate 和 start 脚本图。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>不允许</h3>
+          <ul>
+            <li>demo 依赖隐藏运行逻辑。</li>
+            <li>加载不同 demo 得到同一个拓扑。</li>
+            <li>MCP catalog 与 UI provider 不一致。</li>
+            <li>导入导出遗漏脚本字段。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

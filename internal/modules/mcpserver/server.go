@@ -1129,6 +1129,17 @@ func serialGraphProviders() []serialGraphProvider {
 	}
 	bytesIn := serialGraphPortSpec{ID: "in", Label: "接收", Kind: "bytes", Direction: "input"}
 	bytesOut := serialGraphPortSpec{ID: "out", Label: "发送", Kind: "bytes", Direction: "output"}
+	scriptDefaults := map[string]any{
+		"script":         "output.bytes(input.bytes())",
+		"timeoutMs":      50,
+		"maxOutputBytes": 65536,
+		"maxStateBytes":  262144,
+		"onError":        "mark-error-and-drop",
+		"encoding":       "utf-8",
+		"autoRun":        false,
+		"intervalMs":     1000,
+		"displayMode":    "hex",
+	}
 
 	return []serialGraphProvider{
 		{
@@ -1169,12 +1180,12 @@ func serialGraphProviders() []serialGraphProvider {
 			DefaultConfig: map[string]any{},
 		},
 		{
-			Type:        "serial.monitor",
-			Title:       "串口监控",
-			Category:    "工具",
-			Description: "监听一路串口字节流并生成监控帧。",
-			Inputs:      []serialGraphPortSpec{bytesIn},
-			Outputs:     []serialGraphPortSpec{},
+			Type:          "serial.monitor",
+			Title:         "串口监控",
+			Category:      "工具",
+			Description:   "监听一路串口字节流并生成监控帧。",
+			Inputs:        []serialGraphPortSpec{bytesIn},
+			Outputs:       []serialGraphPortSpec{},
 			DefaultConfig: map[string]any{"displayMode": "hex"},
 		},
 		{
@@ -1212,6 +1223,40 @@ func serialGraphProviders() []serialGraphProvider {
 			Inputs:        []serialGraphPortSpec{bytesIn},
 			Outputs:       []serialGraphPortSpec{},
 			DefaultConfig: map[string]any{"viewMode": "ascii", "autoScroll": true},
+		},
+		{
+			Type:          "serial.script.transform",
+			Title:         "脚本转换",
+			Category:      "脚本",
+			Description:   "通过安全脚本处理输入字节流并输出处理后的字节流。",
+			Inputs:        []serialGraphPortSpec{bytesIn},
+			Outputs:       []serialGraphPortSpec{bytesOut},
+			DefaultConfig: scriptDefaults,
+		},
+		{
+			Type:        "serial.script.generator",
+			Title:       "脚本生成",
+			Category:    "脚本",
+			Description: "通过安全脚本按启动或定时器生成字节流。",
+			Inputs:      []serialGraphPortSpec{},
+			Outputs:     []serialGraphPortSpec{bytesOut},
+			DefaultConfig: withConfig(scriptDefaults, map[string]any{
+				"script":     "output.text(\"tick\", \"utf-8\")",
+				"autoRun":    true,
+				"intervalMs": 1000,
+			}),
+		},
+		{
+			Type:        "serial.script.analyzer",
+			Title:       "脚本分析",
+			Category:    "脚本",
+			Description: "通过安全脚本解析输入字节流并生成字段和错误记录。",
+			Inputs:      []serialGraphPortSpec{bytesIn},
+			Outputs:     []serialGraphPortSpec{},
+			DefaultConfig: withConfig(scriptDefaults, map[string]any{
+				"script":      "field(\"length\", input.bytes().length)",
+				"displayMode": "hex",
+			}),
 		},
 		{
 			Type:          "serial.modbus.master",

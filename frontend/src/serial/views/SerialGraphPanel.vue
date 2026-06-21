@@ -8,6 +8,8 @@ import {
   type SerialGraphNode,
   type SerialGraphPortSpec,
 } from '../graph/serialGraph'
+import ScriptEditor from './ScriptEditor.vue'
+import { isScriptNodeType } from './scriptLanguage'
 
 const props = defineProps<{
   graphId?: string
@@ -54,6 +56,7 @@ const localGraphId = ref<string | null>(null)
 const graphViewMode = ref<GraphViewMode>('split')
 const workbenchHeight = ref(defaultWorkbenchHeight)
 const splitResizing = ref(false)
+const scriptNeedsRestart = ref(false)
 let splitResizeStartY = 0
 let splitResizeStartHeight = 0
 
@@ -88,7 +91,7 @@ const selectedEdge = computed(() => (
 const selectedProvider = computed(() => (
   selectedNode.value ? providerByType(selectedNode.value.type) : null
 ))
-const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}))
+const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script'))
 const selectedStatus = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeStatuses.get(selectedNode.value.id) ?? null : null
 ))
@@ -107,6 +110,7 @@ const selectedFrameDisplayMode = computed(() => String(selectedNode.value?.confi
 const selectedPayload = computed(() => String(selectedNode.value?.config.payload ?? ''))
 const selectedMode = computed(() => String(selectedNode.value?.config.mode ?? 'ascii'))
 const selectedModeOptions = computed(() => modeOptionsForNode(selectedNode.value))
+const selectedScript = computed(() => String(selectedNode.value?.config.script ?? ''))
 const runtimeRunning = computed(() => panelRuntime.value.runtimeStatus === 'running')
 const activeGraphName = computed(() => panelGraph.value?.name ?? '')
 const showDetailsWorkbench = computed(() => (
@@ -198,6 +202,16 @@ function updateConfig(key: string, value: string | boolean) {
   if (!graphId) return
   const current = selectedNode.value.config[key]
   store.updateNodeConfigInGraph(graphId, selectedNode.value.id, { [key]: typedConfigValue(current, value) })
+}
+
+function updateScript(value: string) {
+  if (!selectedNode.value) return
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.updateNodeConfigInGraph(graphId, selectedNode.value.id, { script: value })
+  if (runtimeRunning.value) {
+    scriptNeedsRestart.value = true
+  }
 }
 
 async function startRuntime() {
@@ -400,7 +414,11 @@ function supportsBuffer(node: SerialGraphNode): boolean {
 }
 
 function supportsFrames(node: SerialGraphNode): boolean {
-  return node.type === 'serial.monitor'
+  return node.type === 'serial.monitor' || node.type === 'serial.script.analyzer'
+}
+
+function supportsScriptEditor(node: SerialGraphNode): boolean {
+  return isScriptNodeType(node.type)
 }
 
 function formatNodeBuffer(bytes: Uint8Array, text: string, viewMode: string): string {
@@ -796,6 +814,7 @@ function isPendingOutput(nodeId: string, handleId: string): boolean {
 }
 
 watch(() => panelGraph.value?.selectedNodeId, () => {
+  scriptNeedsRestart.value = false
   if (runtimeRunning.value) void pollSelectedRuntimeDetails()
 })
 
@@ -1132,6 +1151,24 @@ onUnmounted(() => {
               <strong>{{ counter.value }}</strong>
             </template>
           </div>
+          <section
+            v-if="supportsScriptEditor(selectedNode)"
+            class="serial-graph__script-section"
+          >
+            <div class="serial-graph__section-title">脚本</div>
+            <ScriptEditor
+              :model-value="selectedScript"
+              :node-type="selectedNode.type"
+              @script-change="updateScript"
+            />
+            <p
+              v-if="scriptNeedsRestart"
+              class="serial-graph__script-restart"
+              data-testid="serial-script-restart-notice"
+            >
+              运行中修改脚本需停止重启生效
+            </p>
+          </section>
           <template v-if="supportsManualSend(selectedNode)">
             <div class="serial-graph__send-content">
               <label class="serial-graph__field">
@@ -1829,6 +1866,15 @@ onUnmounted(() => {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--app-border, #2d2d2d);
+}
+.serial-graph__script-section {
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.serial-graph__script-restart {
+  margin: 6px 0 0;
+  color: var(--app-warning, #dcdcaa);
+  font-size: 12px;
 }
 .serial-graph__config-grid {
   display: grid;

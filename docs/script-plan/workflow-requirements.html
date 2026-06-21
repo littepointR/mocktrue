@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>流程：需求分析</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a aria-current="page" href="./workflow-requirements.html">需求</a>
+      <a href="./workflow-backend-runtime.html">后端</a>
+      <a href="./workflow-frontend-monaco.html">前端</a>
+      <a href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a href="./workflow-review.html">审查</a>
+      <a href="./workflow-verification.html">验证</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero hero--single">
+      <div>
+        <p class="eyebrow">Workflow 1</p>
+        <h1>需求分析阶段</h1>
+        <p class="lede">目标是把脚本功能的边界、节点类型、API、UI 行为和验收标准锁定到实现者不需要再做产品判断。</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>阶段目标</h2>
+        <p>需求分析 agent 只读，不写代码。输出的是可执行规格，而不是实现方案草稿。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel"><h3>确认边界</h3><p>明确脚本只能通过 MockTrue API 工作，不能直接访问系统资源。</p></div>
+        <div class="panel"><h3>确认节点</h3><p>锁定 transform、generator、analyzer 和后续 endpoint 的职责。</p></div>
+        <div class="panel"><h3>确认验收</h3><p>把 demo、保存恢复、MCP、压力测试都纳入完成定义。</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>步骤</h2>
+        <p>按从产品到技术边界的顺序整理，避免实现阶段反复改方向。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow">
+          <div class="stage"><small>Step 1</small><h3>读取现状</h3><p>确认现有 graph、script engine、MCP、demo、测试约束。</p></div>
+          <div class="stage"><small>Step 2</small><h3>定义角色</h3><p>明确每个脚本节点的输入、输出和禁止能力。</p></div>
+          <div class="stage"><small>Step 3</small><h3>定义 API</h3><p>列出公开 API、默认配置和限制。</p></div>
+          <div class="stage"><small>Step 4</small><h3>定义验收</h3><p>用可自动测试的场景描述完成条件。</p></div>
+          <div class="stage"><small>Step 5</small><h3>交付规格</h3><p>给后端、前端、MCP/demo agent 使用。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>输出物</h2>
+        <p>需求阶段完成后，后续 agent 不需要猜测范围。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>输出</th><th>内容</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td>节点规格</td><td>类型、端口、默认配置、显示能力</td><td>前后端 provider 同步</td></tr>
+            <tr><td>API 规格</td><td>函数签名、可用节点、禁止调用</td><td>runtime 和 Monaco 补全</td></tr>
+            <tr><td>验收矩阵</td><td>后端、前端、MCP、demo、压力测试</td><td>验证阶段执行</td></tr>
+            <tr><td>风险清单</td><td>越权、资源泄漏、循环、运行态一致性</td><td>审查阶段重点</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

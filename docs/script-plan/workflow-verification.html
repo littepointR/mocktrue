@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>流程：验证</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./workflow-requirements.html">需求</a>
+      <a href="./workflow-backend-runtime.html">后端</a>
+      <a href="./workflow-frontend-monaco.html">前端</a>
+      <a href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a href="./workflow-review.html">审查</a>
+      <a aria-current="page" href="./workflow-verification.html">验证</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Workflow 6</p>
+        <h1>验证阶段</h1>
+        <p class="lede">目标是用自动化证明脚本功能真实有效。验证不靠截图观察，而是通过 runtime 状态、计数、buffer、frame 和测试断言完成。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow--four flow">
+          <div class="stage"><small>A</small><h3>Go</h3><p>runtime 行为</p></div>
+          <div class="stage"><small>B</small><h3>Vitest</h3><p>UI 和 store</p></div>
+          <div class="stage"><small>C</small><h3>Build</h3><p>Monaco worker</p></div>
+          <div class="stage"><small>D</small><h3>Demo</h3><p>自动运行计数</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验证目标</h2>
+        <p>每个目标都要有命令和可判定结果，避免“看起来能用”。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel"><h3>功能正确</h3><p>脚本节点按 API 处理数据，错误路径可控。</p></div>
+        <div class="panel"><h3>集成正确</h3><p>保存恢复、MCP、demo 和 build 都通过。</p></div>
+        <div class="panel"><h3>运行稳定</h3><p>最小间隔和长时间运行不会卡死或泄漏。</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验证步骤</h2>
+        <p>从窄到宽，先定位问题，再跑完整验证。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow">
+          <div class="stage"><small>Step 1</small><h3>Targeted Go</h3><p>脚本 runtime 和 graph tests。</p></div>
+          <div class="stage"><small>Step 2</small><h3>Targeted Vitest</h3><p>ScriptEditor、SerialGraphPanel、workspace。</p></div>
+          <div class="stage"><small>Step 3</small><h3>类型检查</h3><p>vue-tsc noEmit。</p></div>
+          <div class="stage"><small>Step 4</small><h3>构建</h3><p>build:dev 验证 Monaco worker。</p></div>
+          <div class="stage"><small>Step 5</small><h3>Demo 压测</h3><p>自动启动并读取状态断言计数增长。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验收命令</h2>
+        <p>具体命令在实现后可按实际包路径微调，但验证范围不能缩小。</p>
+      </div>
+      <pre><code>go test ./internal/modules/serial/... ./internal/modules/mcpserver/...
+cd frontend
+pnpm exec vitest run src/serial/graph/serialGraph.test.ts
+pnpm exec vitest run src/serial/stores/graphStore.test.ts
+pnpm exec vitest run src/serial/views/SerialGraphPanel.test.ts
+pnpm exec vitest run src/workspace/demoWorkspaces.test.ts
+pnpm exec vitest run src/workspace/workspaceSession.test.ts
+pnpm exec vue-tsc --noEmit
+pnpm run build:dev</code></pre>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>自动化场景</h2>
+        <p>对 demo 的验证要读取程序状态，不采用人工截图判断。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>Demo 断言</h3>
+          <ul>
+            <li>加载每个 demo 得到不同拓扑。</li>
+            <li>启动后 10 秒内 RX/TX 增长。</li>
+            <li>查询 receiver buffer 能读到数据。</li>
+            <li>analyzer frame 总数增长。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>压力断言</h3>
+          <ul>
+            <li>100 秒最小间隔运行不中断。</li>
+            <li>停止按钮返回成功。</li>
+            <li>停止后计数保持不变。</li>
+            <li>重复启动停止没有资源残留。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>流程：前端与 Monaco</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span class="brand-mark">S</span><span>Script Plan</span></a>
+    <nav class="nav">
+      <a href="./index.html">总览</a>
+      <a href="./workflow-requirements.html">需求</a>
+      <a href="./workflow-backend-runtime.html">后端</a>
+      <a aria-current="page" href="./workflow-frontend-monaco.html">前端</a>
+      <a href="./workflow-workspace-mcp-demo.html">工作区/MCP</a>
+      <a href="./workflow-review.html">审查</a>
+      <a href="./workflow-verification.html">验证</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Workflow 3</p>
+        <h1>前端节点内容区和 Monaco 编辑器</h1>
+        <p class="lede">目标是让脚本编辑体验接近 IDE：根据节点类型动态提示可用 API，并在用户写错安全边界时给出明确诊断。</p>
+      </div>
+      <div class="diagram">
+        <div class="node-flow">
+          <div class="node-card"><b>Node Type</b><span>transform / generator / analyzer</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>API Model</b><span>动态声明和补全</span></div>
+          <div class="arrow"></div>
+          <div class="node-card"><b>Monaco</b><span>编辑、hover、诊断</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>实现目标</h2>
+        <p>新增专用 ScriptEditor 组件，替换普通 textarea，并接入节点 config 保存。</p>
+      </div>
+      <div class="grid grid--three">
+        <div class="panel"><h3>编辑器</h3><p>引入 Monaco，固定容器，可拖动高度，跟随主题。</p></div>
+        <div class="panel"><h3>动态补全</h3><p>不同节点暴露不同 API、模板和参数片段。</p></div>
+        <div class="panel"><h3>诊断</h3><p>禁止 API、节点不匹配 API 和风险调用即时提示。</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Monaco 能力</h2>
+        <p>补全和诊断由 MockTrue 脚本 API 模型生成，不从 runtime 反推。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>能力</th><th>内容</th><th>示例</th></tr></thead>
+          <tbody>
+            <tr><td>Completion</td><td>函数、参数片段、模板</td><td>`output.hex("01 02")`</td></tr>
+            <tr><td>Hover</td><td>用途、参数、节点限制</td><td>`drop()` 终止本次输出</td></tr>
+            <tr><td>Diagnostics</td><td>禁用 API 和节点错配</td><td>generator 中使用 `input.*` 报错</td></tr>
+            <tr><td>Theme</td><td>跟随系统和应用主题</td><td>亮色/暗色自动切换</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>实现流程</h2>
+        <p>先让组件可测试，再接入真实 Monaco worker 和构建。</p>
+      </div>
+      <div class="diagram">
+        <div class="flow">
+          <div class="stage"><small>Step 1</small><h3>依赖</h3><p>添加 monaco-editor 和 Vite worker 配置。</p></div>
+          <div class="stage"><small>Step 2</small><h3>组件</h3><p>实现 ScriptEditor props、events、主题。</p></div>
+          <div class="stage"><small>Step 3</small><h3>API 模型</h3><p>按节点类型生成补全和声明。</p></div>
+          <div class="stage"><small>Step 4</small><h3>接入内容区</h3><p>脚本字段写回节点 config。</p></div>
+          <div class="stage"><small>Step 5</small><h3>测试</h3><p>Vitest mock Monaco，build 验证真实加载。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>验收</h2>
+        <p>编辑器不能只是可输入，必须真正提供动态提示和补全。</p>
+      </div>
+      <div class="grid grid--two">
+        <div class="panel">
+          <h3>必须通过</h3>
+          <ul>
+            <li>transform 有 input/output 补全。</li>
+            <li>generator 没有 input 补全。</li>
+            <li>analyzer 使用 output 有诊断。</li>
+            <li>endpoint 才显示 serial API。</li>
+            <li>主题切换后 Monaco 主题同步。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>布局要求</h3>
+          <ul>
+            <li>编辑器在固定容器内滚动。</li>
+            <li>不导致父布局无限增长。</li>
+            <li>切换节点后内容不丢失。</li>
+            <li>运行中修改显示需重启提示。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

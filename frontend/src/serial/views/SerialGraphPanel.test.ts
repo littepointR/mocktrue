@@ -17,6 +17,13 @@ const bindings = vi.hoisted(() => ({
 }))
 
 vi.mock('../../../bindings/github.com/suyue/mocktrue/internal/modules/serial/service.js', () => bindings)
+vi.mock('./ScriptEditor.vue', () => ({
+  default: {
+    props: ['modelValue', 'nodeType'],
+    emits: ['script-change', 'update:modelValue'],
+    template: '<div class="serial-script-editor" data-testid="serial-script-editor">script editor</div>',
+  },
+}))
 
 describe('SerialGraphPanel', () => {
   beforeEach(() => {
@@ -585,6 +592,9 @@ describe('SerialGraphPanel', () => {
       { type: 'serial.tee', send: false, buffer: false, frames: false, counters: ['RX', 'TX'] },
       { type: 'serial.sender', send: true, buffer: false, frames: false, counters: ['TX'] },
       { type: 'serial.receiver', send: false, buffer: true, frames: false, counters: ['RX'] },
+      { type: 'serial.script.transform', send: false, buffer: false, frames: false, counters: ['RX', 'TX'] },
+      { type: 'serial.script.generator', send: false, buffer: false, frames: false, counters: ['TX'] },
+      { type: 'serial.script.analyzer', send: false, buffer: false, frames: true, counters: ['RX'] },
       { type: 'serial.modbus.master', send: true, buffer: true, frames: false, counters: ['RX', 'TX'] },
       { type: 'serial.modbus.slave', send: false, buffer: true, frames: false, counters: ['RX', 'TX'] },
       { type: 'serial.fecbus.master', send: true, buffer: true, frames: false, counters: ['RX', 'TX'] },
@@ -598,7 +608,7 @@ describe('SerialGraphPanel', () => {
       Status: 'running',
       RxBytes: 100 + index,
       TxBytes: 200 + index,
-      FrameCount: node.type === 'serial.monitor' ? 3 : 0,
+      FrameCount: node.type === 'serial.monitor' || node.type === 'serial.script.analyzer' ? 3 : 0,
       ResourceID: '',
       Error: '',
     }))
@@ -886,6 +896,64 @@ describe('SerialGraphPanel', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('renders script nodes with Monaco-backed script editors and frozen config fields', async () => {
+    const store = useSerialGraphStore()
+    const transform = store.addNode('serial.script.transform')
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find('[data-testid="serial-graph-provider-serial.script.transform"]').text()).toContain('脚本转换')
+    expect(wrapper.find('[data-testid="serial-graph-provider-serial.script.generator"]').text()).toContain('脚本生成')
+    expect(wrapper.find('[data-testid="serial-graph-provider-serial.script.analyzer"]').text()).toContain('脚本分析')
+    expect(wrapper.find(`[data-testid="serial-graph-input-${transform.id}-in"]`).exists()).toBe(true)
+    expect(wrapper.find(`[data-testid="serial-graph-output-${transform.id}-out"]`).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-script-editor"]').exists()).toBe(true)
+
+    const configKeys = wrapper.findAll('.serial-graph__field > span').map(item => item.text())
+    expect(configKeys).toEqual(expect.arrayContaining([
+      'timeoutMs',
+      'maxOutputBytes',
+      'maxStateBytes',
+      'onError',
+      'encoding',
+      'autoRun',
+      'intervalMs',
+      'displayMode',
+    ]))
+    expect(wrapper.find('[data-testid="serial-graph-config-script"]').exists()).toBe(false)
+
+    wrapper.findComponent({ name: 'ScriptEditor' }).vm.$emit('script-change', 'output.bytes(input.bytes())')
+    await nextTick()
+
+    expect(store.nodes.find(node => node.id === transform.id)?.config.script).toBe('output.bytes(input.bytes())')
+  })
+
+  it('shows script restart guidance when editing while the graph runtime is running', async () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.script.generator')
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    wrapper.findComponent({ name: 'ScriptEditor' }).vm.$emit('script-change', 'output.bytes([1])')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-script-restart-notice"]').text()).toContain('停止重启生效')
+
+    wrapper.unmount()
+  })
+
+  it('uses script node type to omit generator input and analyzer output handles', () => {
+    const store = useSerialGraphStore()
+    const generator = store.addNode('serial.script.generator')
+    const analyzer = store.addNode('serial.script.analyzer')
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find(`[data-testid="serial-graph-input-${generator.id}-in"]`).exists()).toBe(false)
+    expect(wrapper.find(`[data-testid="serial-graph-output-${generator.id}-out"]`).exists()).toBe(true)
+    expect(wrapper.find(`[data-testid="serial-graph-input-${analyzer.id}-in"]`).exists()).toBe(true)
+    expect(wrapper.find(`[data-testid="serial-graph-output-${analyzer.id}-out"]`).exists()).toBe(false)
   })
 })
 

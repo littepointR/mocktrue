@@ -107,6 +107,7 @@ func (r *RingBuffer) Query(offset int64, length int) (*Snapshot, error) {
 
 	// Copy bytes across chunks
 	result := make([]byte, 0, length)
+	snapshotChunks := make([]SnapshotChunk, 0, len(r.chunks)-startChunk)
 	remaining := length
 	chunkIdx := startChunk
 	chunkOff := startOffset
@@ -117,7 +118,13 @@ func (r *RingBuffer) Query(offset int64, length int) (*Snapshot, error) {
 		if available > int64(remaining) {
 			available = int64(remaining)
 		}
-		result = append(result, c.Data[chunkOff:chunkOff+available]...)
+		chunkData := append([]byte(nil), c.Data[chunkOff:chunkOff+available]...)
+		result = append(result, chunkData...)
+		snapshotChunks = append(snapshotChunks, SnapshotChunk{
+			Offset:    c.BaseOffset + chunkOff,
+			Timestamp: c.Timestamp,
+			Data:      chunkData,
+		})
 		remaining -= int(available)
 		chunkIdx++
 		chunkOff = 0
@@ -126,6 +133,7 @@ func (r *RingBuffer) Query(offset int64, length int) (*Snapshot, error) {
 	return &Snapshot{
 		Offset: offset,
 		Data:   result,
+		Chunks: snapshotChunks,
 		Total:  r.total,
 		EOF:    false,
 	}, nil

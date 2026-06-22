@@ -760,6 +760,7 @@ describe('SerialGraphPanel', () => {
       expect(wrapper.find('[data-testid="serial-graph-content-send"]').exists(), `${item.type} send pane`).toBe(item.send)
       expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').exists(), `${item.type} receive buffer`).toBe(item.buffer)
       expect(wrapper.find('[data-testid="serial-graph-config-autoScroll"]').exists(), `${item.type} auto scroll`).toBe(item.buffer)
+      expect(wrapper.find('[data-testid="serial-graph-config-showTimestamp"]').exists(), `${item.type} timestamp`).toBe(item.buffer)
       expect(wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').exists(), `${item.type} frame pane`).toBe(item.frames)
 
       for (const label of ['RX', 'TX']) {
@@ -815,6 +816,40 @@ describe('SerialGraphPanel', () => {
     await nextTick()
 
     expect(buffer.scrollTop).toBe(0)
+
+    wrapper.unmount()
+  })
+
+  it('renders receiver buffer timestamps only when showTimestamp is enabled', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.selectNode(receiver.id)
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
+      Offset: 0,
+      Data: btoa('hi!'),
+      Total: 3,
+      EOF: false,
+      Chunks: [
+        { Offset: 0, Timestamp: '2026-06-23T02:01:02.003', Data: btoa('hi') },
+        { Offset: 2, Timestamp: '2026-06-23T02:01:03.004', Data: btoa('!') },
+      ],
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+
+    const bufferText = () => wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()
+    expect(bufferText()).toContain('hi!')
+    expect(bufferText()).not.toContain('2026-06-23 02:01:02.003')
+
+    await wrapper.find('[data-testid="serial-graph-config-showTimestamp"]').setValue(true)
+    await nextTick()
+
+    expect(bufferText()).toContain('[2026-06-23 02:01:02.003] hi')
+    expect(bufferText()).toContain('[2026-06-23 02:01:03.004] !')
 
     wrapper.unmount()
   })

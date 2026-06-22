@@ -55,6 +55,30 @@ func TestRingBufferQueryCrossesChunkBoundary(t *testing.T) {
 	}
 }
 
+func TestRingBufferQueryReturnsChunkMetadata(t *testing.T) {
+	t.Parallel()
+	r := NewRing(1024 * 1024)
+	r.Append(Chunk{Seq: 0, BaseOffset: 0, Timestamp: "2026-06-23T02:01:02.003", Data: []byte("hello")})
+	r.Append(Chunk{Seq: 1, BaseOffset: 5, Timestamp: "2026-06-23T02:01:03.004", Data: []byte("world")})
+
+	snap, err := r.Query(3, 4)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if string(snap.Data) != "lowo" {
+		t.Fatalf("Query(3,4) = %q, want %q", snap.Data, "lowo")
+	}
+	if len(snap.Chunks) != 2 {
+		t.Fatalf("len(Chunks) = %d, want 2", len(snap.Chunks))
+	}
+	if snap.Chunks[0].Offset != 3 || snap.Chunks[0].Timestamp != "2026-06-23T02:01:02.003" || string(snap.Chunks[0].Data) != "lo" {
+		t.Fatalf("Chunks[0] = %+v, want offset 3 timestamp 2026-06-23T02:01:02.003 data lo", snap.Chunks[0])
+	}
+	if snap.Chunks[1].Offset != 5 || snap.Chunks[1].Timestamp != "2026-06-23T02:01:03.004" || string(snap.Chunks[1].Data) != "wo" {
+		t.Fatalf("Chunks[1] = %+v, want offset 5 timestamp 2026-06-23T02:01:03.004 data wo", snap.Chunks[1])
+	}
+}
+
 func TestRingBufferQueryEOF(t *testing.T) {
 	t.Parallel()
 	r := NewRing(1024 * 1024)

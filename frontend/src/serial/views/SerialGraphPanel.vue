@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useSerialGraphStore } from '../stores/graphStore'
+import { useSerialGraphStore, type GraphBufferChunk } from '../stores/graphStore'
 import {
   providerByType,
   serialGraphProviders,
@@ -103,7 +103,7 @@ const selectedEdge = computed(() => (
 const selectedProvider = computed(() => (
   selectedNode.value ? providerByType(selectedNode.value.type) : null
 ))
-const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script' && key !== 'autoScroll'))
+const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script' && key !== 'autoScroll' && key !== 'showTimestamp'))
 const selectedStatus = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeStatuses.get(selectedNode.value.id) ?? null : null
 ))
@@ -113,10 +113,19 @@ const selectedBufferText = computed(() => (
 const selectedBufferBytes = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeBuffers.get(selectedNode.value.id) ?? new Uint8Array() : new Uint8Array()
 ))
+const selectedBufferChunks = computed(() => (
+  selectedNode.value ? panelRuntime.value.nodeBufferChunks.get(selectedNode.value.id) ?? [] : []
+))
 const selectedBufferViewMode = computed(() => (
   selectedNode.value ? bufferViewModeForNode(selectedNode.value) : 'ascii'
 ))
-const selectedBufferDisplayText = computed(() => formatNodeBuffer(selectedBufferBytes.value, selectedBufferText.value, selectedBufferViewMode.value))
+const selectedBufferDisplayText = computed(() => formatNodeBuffer(
+  selectedBufferBytes.value,
+  selectedBufferText.value,
+  selectedBufferViewMode.value,
+  selectedBufferChunks.value,
+  selectedNode.value ? showTimestampEnabledForNode(selectedNode.value) : false
+))
 const selectedFrames = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeFrames.get(selectedNode.value.id) ?? [] : []
 ))
@@ -432,6 +441,10 @@ function autoScrollEnabledForNode(node: SerialGraphNode): boolean {
   return node.config.autoScroll !== false
 }
 
+function showTimestampEnabledForNode(node: SerialGraphNode): boolean {
+  return node.config.showTimestamp === true
+}
+
 function frameDisplayModeForNode(node: SerialGraphNode): string {
   if (isModbusNode(node)) return 'text'
   return String(node.config.displayMode ?? 'hex')
@@ -441,7 +454,16 @@ function isModbusNode(node: SerialGraphNode | null | undefined): boolean {
   return node?.type === 'serial.modbus.master' || node?.type === 'serial.modbus.slave'
 }
 
-function formatNodeBuffer(bytes: Uint8Array, text: string, viewMode: string): string {
+function formatNodeBuffer(
+  bytes: Uint8Array,
+  text: string,
+  viewMode: string,
+  chunks: GraphBufferChunk[] = [],
+  showTimestamp = false
+): string {
+  if (showTimestamp && chunks.length > 0) {
+    return formatTimestampedNodeBuffer(chunks, viewMode)
+  }
   switch (viewMode) {
     case 'hexClassic':
       return formatHexClassic(bytes)
@@ -450,6 +472,30 @@ function formatNodeBuffer(bytes: Uint8Array, text: string, viewMode: string): st
     default:
       return text
   }
+}
+
+function formatTimestampedNodeBuffer(chunks: GraphBufferChunk[], viewMode: string): string {
+  return chunks.map((chunk) => {
+    const timestamp = formatBufferTimestamp(chunk.timestamp)
+    const text = new TextDecoder().decode(chunk.data)
+    const display = formatNodeBuffer(chunk.data, text, viewMode, [], false)
+    if (viewMode === 'ascii') {
+      return `[${timestamp}] ${display}`
+    }
+    return `[${timestamp}]\n${display}`
+  }).join('\n')
+}
+
+function formatBufferTimestamp(value: string): string {
+  if (!value) return '未知时间'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
+}
+
+function pad(value: number, length = 2): string {
+  return String(value).padStart(length, '0')
 }
 
 function formatHexClassic(bytes: Uint8Array): string {
@@ -1325,6 +1371,15 @@ onUnmounted(() => {
                   @change="updateConfig('autoScroll', ($event.target as HTMLInputElement).checked)"
                 >
                 <span>自动滚动</span>
+              </label>
+              <label class="serial-graph__inline-toggle">
+                <input
+                  type="checkbox"
+                  :checked="showTimestampEnabledForNode(selectedNode)"
+                  data-testid="serial-graph-config-showTimestamp"
+                  @change="updateConfig('showTimestamp', ($event.target as HTMLInputElement).checked)"
+                >
+                <span>显示时间戳</span>
               </label>
             </div>
             <pre

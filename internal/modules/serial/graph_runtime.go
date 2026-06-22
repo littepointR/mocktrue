@@ -1108,7 +1108,7 @@ func (n *serialGraphRuntimeNode) appendBuffer(data []byte) {
 		return
 	}
 	base := buf.Total()
-	buf.Append(buffer.Chunk{BaseOffset: base, Data: append([]byte(nil), data...)})
+	buf.Append(buffer.Chunk{BaseOffset: base, Timestamp: time.Now().Format(time.RFC3339Nano), Data: append([]byte(nil), data...)})
 }
 
 func (n *serialGraphRuntimeNode) queryBuffer(offset int64, length int) (*buffer.Snapshot, error) {

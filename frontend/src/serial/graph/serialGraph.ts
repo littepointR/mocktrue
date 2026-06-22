@@ -93,6 +93,12 @@ const serialDefaults = {
   showTimestamp: false,
 }
 
+const serialGraphLoggingDefaults = {
+  enableLogging: false,
+  logLevel: 'info',
+  logFormat: '',
+}
+
 const bytesIn: SerialGraphPortSpec = { id: 'in', label: '接收', kind: 'bytes', direction: 'input' }
 const bytesOut: SerialGraphPortSpec = { id: 'out', label: '发送', kind: 'bytes', direction: 'output' }
 const scriptDefaults = {
@@ -155,6 +161,15 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     defaultConfig: { displayMode: 'hex' },
   },
   {
+    type: 'serial.filter',
+    title: '过滤器',
+    category: '工具',
+    description: '按关键字、正则或 Wireshark-like 表达式过滤字节流。',
+    inputs: [bytesIn],
+    outputs: [bytesOut],
+    defaultConfig: { mode: 'plain', expression: '', caseSensitive: false, wholeWord: false },
+  },
+  {
     type: 'serial.tap',
     title: '分流器',
     category: '工具',
@@ -179,7 +194,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     description: '从编辑框或发送历史输出字节流。',
     inputs: [],
     outputs: [bytesOut],
-    defaultConfig: { mode: 'ascii', encoding: 'utf-8', payload: '', autoSend: false, intervalMs: 1000 },
+    defaultConfig: { mode: 'ascii', encoding: 'utf-8', payload: '', autoSend: false, intervalMs: 1000, ...serialGraphLoggingDefaults },
   },
   {
     type: 'serial.receiver',
@@ -188,7 +203,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     description: '显示接收到的字节流。',
     inputs: [bytesIn],
     outputs: [],
-    defaultConfig: { viewMode: 'ascii', autoScroll: true, showTimestamp: false },
+    defaultConfig: { viewMode: 'ascii', autoScroll: true, showTimestamp: false, ...serialGraphLoggingDefaults },
   },
   {
     type: 'serial.script.transform',

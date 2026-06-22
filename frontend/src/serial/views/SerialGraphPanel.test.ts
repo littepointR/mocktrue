@@ -511,6 +511,211 @@ describe('SerialGraphPanel', () => {
     expect(typeof store.nodes.find(node => node.id === receiver.id)?.config.autoScroll).toBe('boolean')
   })
 
+  it('renders sender and receiver logging controls with stable test ids', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    const wrapper = mount(SerialGraphPanel)
+
+    store.selectNode(sender.id)
+    await nextTick()
+
+    const enableLogging = wrapper.find<HTMLInputElement>('[data-testid="serial-graph-config-enableLogging"]')
+    const logLevel = wrapper.find<HTMLSelectElement>('[data-testid="serial-graph-config-logLevel"]')
+    const logFormat = wrapper.find<HTMLTextAreaElement>('[data-testid="serial-graph-config-logFormat"]')
+    expect(enableLogging.element.type).toBe('checkbox')
+    expect(logLevel.element.tagName).toBe('SELECT')
+    expect(logLevel.findAll('option').map(option => option.attributes('value'))).toEqual(['debug', 'info', 'warn', 'error'])
+    expect(logFormat.element.tagName).toBe('TEXTAREA')
+
+    await enableLogging.setValue(true)
+    await logLevel.setValue('warn')
+    await logFormat.setValue('{direction}:{text}')
+
+    expect(store.nodes.find(node => node.id === sender.id)?.config).toEqual(expect.objectContaining({
+      enableLogging: true,
+      logLevel: 'warn',
+      logFormat: '{direction}:{text}',
+    }))
+
+    store.selectNode(receiver.id)
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-graph-config-enableLogging"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-config-logLevel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-config-logFormat"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('renders logging controls for restored sender and receiver nodes that omit logging config', async () => {
+    const store = useSerialGraphStore()
+    store.restoreState({
+      graphs: [
+        {
+          id: 'legacy-graph',
+          name: '旧拓扑',
+          nodes: [
+            {
+              id: 'legacy-sender',
+              type: 'serial.sender',
+              position: { x: 24, y: 32 },
+              config: { mode: 'ascii', encoding: 'utf-8', payload: '' },
+            },
+            {
+              id: 'legacy-receiver',
+              type: 'serial.receiver',
+              position: { x: 320, y: 32 },
+              config: { viewMode: 'ascii' },
+            },
+          ],
+          edges: [],
+          selectedNodeId: 'legacy-sender',
+          selectedEdgeId: null,
+          nodeTabs: [
+            { nodeId: 'legacy-sender', title: '发送器' },
+            { nodeId: 'legacy-receiver', title: '接收器' },
+          ],
+          activeNodeTabId: 'legacy-sender',
+        },
+      ],
+      activeGraphId: 'legacy-graph',
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    const senderEnableLogging = wrapper.find<HTMLInputElement>('[data-testid="serial-graph-config-enableLogging"]')
+    expect(senderEnableLogging.exists()).toBe(true)
+    expect(senderEnableLogging.element.checked).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-config-logLevel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-config-logFormat"]').exists()).toBe(true)
+
+    await senderEnableLogging.setValue(true)
+
+    expect(store.graphById('legacy-graph')?.nodes.find(node => node.id === 'legacy-sender')?.config.enableLogging).toBe(true)
+
+    store.selectNodeInGraph('legacy-graph', 'legacy-receiver')
+    await nextTick()
+
+    const receiverEnableLogging = wrapper.find<HTMLInputElement>('[data-testid="serial-graph-config-enableLogging"]')
+    expect(receiverEnableLogging.exists()).toBe(true)
+    expect(receiverEnableLogging.element.checked).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-config-logLevel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-config-logFormat"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('renders filter controls with stable test ids and writes matcher options', async () => {
+    const store = useSerialGraphStore()
+    const filter = store.addNode('serial.filter')
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find('[data-testid="serial-graph-provider-serial.filter"]').text()).toContain('过滤')
+
+    const mode = wrapper.find<HTMLSelectElement>('[data-testid="serial-graph-config-mode"]')
+    const expression = wrapper.find<HTMLInputElement>('[data-testid="serial-graph-config-expression"]')
+    const caseSensitive = wrapper.find<HTMLInputElement>('[data-testid="serial-graph-config-caseSensitive"]')
+    const wholeWord = wrapper.find<HTMLInputElement>('[data-testid="serial-graph-config-wholeWord"]')
+    expect(mode.element.tagName).toBe('SELECT')
+    expect(mode.findAll('option').map(option => option.attributes('value'))).toEqual(['plain', 'regex', 'expression'])
+    expect(expression.exists()).toBe(true)
+    expect(caseSensitive.element.type).toBe('checkbox')
+    expect(wholeWord.element.type).toBe('checkbox')
+
+    await mode.setValue('regex')
+    await expression.setValue('TEMP\\d+')
+    await caseSensitive.setValue(true)
+    await wholeWord.setValue(true)
+
+    expect(store.nodes.find(node => node.id === filter.id)?.config).toEqual(expect.objectContaining({
+      mode: 'regex',
+      expression: 'TEMP\\d+',
+      caseSensitive: true,
+      wholeWord: true,
+    }))
+
+    wrapper.unmount()
+  })
+
+  it('opens the operation log tab and filters rendered entries by level and keyword options', async () => {
+    const store = useSerialGraphStore()
+    store.appendOperationLogForGraph('graph-1', {
+      timestamp: '2026-06-23T02:01:02.003Z',
+      level: 'info',
+      source: 'serial.sender',
+      action: 'send-command',
+      category: 'serial.graph',
+      message: 'Sent TEMP OK payload',
+      details: 'manual send',
+      nodeId: 'node-1',
+      direction: 'tx',
+      payloadText: 'TEMP OK',
+      payloadHex: '54 45 4d 50 20 4f 4b',
+      byteLength: 7,
+    })
+    store.appendOperationLogForGraph('graph-1', {
+      timestamp: '2026-06-23T02:01:03.004Z',
+      level: 'error',
+      source: 'serial.receiver',
+      action: 'template',
+      category: 'serial.graph',
+      message: 'Log template failed',
+      details: 'fallback used',
+      nodeId: 'node-2',
+      direction: 'rx',
+      byteLength: 7,
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="serial-graph-open-operation-log"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="serial-graph-operation-log-tab"]').text()).toContain('操作日志')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-operation-log-empty"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="serial-operation-log-entry"]')).toHaveLength(2)
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('2026-06-23')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('serial.sender/send-command')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('TEMP OK')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('node-1')
+
+    await wrapper.find('[data-testid="serial-operation-log-level"]').setValue('error')
+    expect(wrapper.findAll('[data-testid="serial-operation-log-entry"]')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('Log template failed')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).not.toContain('Sent TEMP OK payload')
+
+    await wrapper.find('[data-testid="serial-operation-log-level"]').setValue('all')
+    await wrapper.find('[data-testid="serial-operation-log-mode"]').setValue('plain')
+    await wrapper.find('[data-testid="serial-operation-log-expression"]').setValue('temp ok')
+    expect(wrapper.findAll('[data-testid="serial-operation-log-entry"]')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('Sent TEMP OK payload')
+
+    await wrapper.find('[data-testid="serial-operation-log-case-sensitive"]').setValue(true)
+    expect(wrapper.find('[data-testid="serial-operation-log-empty"]').text()).toContain('没有匹配的操作日志')
+
+    await wrapper.find('[data-testid="serial-operation-log-expression"]').setValue('TEMP')
+    await wrapper.find('[data-testid="serial-operation-log-whole-word"]').setValue(true)
+    expect(wrapper.findAll('[data-testid="serial-operation-log-entry"]')).toHaveLength(1)
+
+    await wrapper.find('[data-testid="serial-operation-log-mode"]').setValue('regex')
+    await wrapper.find('[data-testid="serial-operation-log-expression"]').setValue('template\\s+failed')
+    expect(wrapper.findAll('[data-testid="serial-operation-log-entry"]')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('Log template failed')
+
+    await wrapper.find('[data-testid="serial-operation-log-mode"]').setValue('expression')
+    await wrapper.find('[data-testid="serial-operation-log-expression"]').setValue('level == "info" and action == "send-command"')
+    expect(wrapper.findAll('[data-testid="serial-operation-log-entry"]')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('Sent TEMP OK payload')
+
+    await wrapper.find('[data-testid="serial-operation-log-mode"]').setValue('regex')
+    await wrapper.find('[data-testid="serial-operation-log-expression"]').setValue('[broken')
+    expect(wrapper.findAll('[data-testid="serial-operation-log-entry"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="serial-operation-log-error"]').text()).toContain('invalid regex')
+
+    wrapper.unmount()
+  })
+
   it('uses actual receiver viewMode options and writes the selected mode to node config', async () => {
     const store = useSerialGraphStore()
     const receiver = store.addNode('serial.receiver')

@@ -128,6 +128,263 @@ describe('serial graph store', () => {
     expect(store.nodeTabs).toEqual([])
   })
 
+  it('adds filter nodes with matcher defaults and restores saved filter options', () => {
+    const store = useSerialGraphStore()
+    const filter = store.addNode('serial.filter')
+
+    expect(filter.config).toEqual({
+      mode: 'plain',
+      expression: '',
+      caseSensitive: false,
+      wholeWord: false,
+    })
+
+    store.updateNodeConfig(filter.id, {
+      mode: 'regex',
+      expression: 'temp\\d+',
+      caseSensitive: true,
+      wholeWord: true,
+    })
+    const snapshot = store.exportState()
+
+    setActivePinia(createPinia())
+    const restored = useSerialGraphStore()
+    restored.restoreState(snapshot)
+
+    expect(restored.nodes[0].type).toBe('serial.filter')
+    expect(restored.nodes[0].config).toEqual(expect.objectContaining({
+      mode: 'regex',
+      expression: 'temp\\d+',
+      caseSensitive: true,
+      wholeWord: true,
+    }))
+  })
+
+  it('records runtime actions while keeping sender and receiver payload logging opt-in', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+
+    expect(sender.config).toEqual(expect.objectContaining({
+      enableLogging: false,
+      logLevel: 'info',
+      logFormat: '',
+    }))
+    expect(receiver.config).toEqual(expect.objectContaining({
+      enableLogging: false,
+      logLevel: 'info',
+      logFormat: '',
+    }))
+
+    await store.startRuntime()
+    await store.sendNode(sender.id, 'hello', 'ascii')
+    await store.queryNodeBuffer(receiver.id)
+    await store.clearNodeBuffer(receiver.id)
+    await store.resetNodeCounters(receiver.id)
+    await store.stopRuntime()
+
+    expect(store.operationLogs.map(entry => ({
+      level: entry.level,
+      source: entry.source,
+      action: entry.action,
+      nodeId: entry.nodeId,
+    }))).toEqual([
+      { level: 'info', source: 'serial.graph', action: 'start', nodeId: undefined },
+      { level: 'info', source: 'serial.sender', action: 'send-command', nodeId: sender.id },
+      { level: 'info', source: 'serial.receiver', action: 'clear-buffer', nodeId: receiver.id },
+      { level: 'info', source: 'serial.receiver', action: 'reset-counters', nodeId: receiver.id },
+      { level: 'info', source: 'serial.graph', action: 'stop', nodeId: undefined },
+    ])
+    expect(store.operationLogs.some(entry => entry.action === 'send')).toBe(false)
+    expect(store.operationLogs.some(entry => entry.action === 'receive')).toBe(false)
+    expect(store.operationLogs.find(entry => entry.action === 'send-command')).toEqual(expect.objectContaining({
+      message: '发送器发送 5 bytes',
+      payloadText: 'hello',
+      payloadHex: '68 65 6c 6c 6f',
+      byteLength: 5,
+    }))
+  })
+
+  it('records runtime start failures as operation log errors', async () => {
+    const store = useSerialGraphStore()
+    store.addNode('serial.sender')
+    bindings.StartSerialGraph.mockRejectedValueOnce(new Error('backend unavailable'))
+
+    await expect(store.startRuntime()).rejects.toThrow('backend unavailable')
+
+    expect(store.operationLogs).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        source: 'serial.graph',
+        action: 'start-error',
+        category: 'serial.graph',
+        message: '拓扑启动失败',
+        details: 'backend unavailable',
+      }),
+    ])
+  })
+
+  it('records sender and receiver operation logs when logging is enabled', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.updateNodeConfig(sender.id, { enableLogging: true })
+    store.updateNodeConfig(receiver.id, { enableLogging: true })
+
+    await store.startRuntime()
+    await store.sendNode(sender.id, 'hello', 'ascii')
+    await store.queryNodeBuffer(receiver.id)
+    await store.queryNodeBuffer(receiver.id)
+
+    const payloadLogs = store.operationLogs.filter(entry => entry.action === 'send' || entry.action === 'receive')
+    expect(payloadLogs).toHaveLength(2)
+    expect(payloadLogs[0]).toEqual(expect.objectContaining({
+      level: 'info',
+      source: 'serial.sender',
+      action: 'send',
+      category: 'serial.graph',
+      nodeId: sender.id,
+      direction: 'tx',
+      payloadText: 'hello',
+      payloadHex: '68 65 6c 6c 6f',
+      byteLength: 5,
+    }))
+    expect(payloadLogs[0].message).toContain('发送器')
+    expect(payloadLogs[0].message).toContain('tx')
+    expect(payloadLogs[0].message).toContain('hello')
+    expect(payloadLogs[1]).toEqual(expect.objectContaining({
+      level: 'info',
+      source: 'serial.receiver',
+      action: 'receive',
+      category: 'serial.graph',
+      nodeId: receiver.id,
+      direction: 'rx',
+      payloadText: 'hello',
+      payloadHex: '68 65 6c 6c 6f',
+      byteLength: 5,
+    }))
+    expect(payloadLogs[1].message).toContain('接收器')
+    expect(payloadLogs[1].message).toContain('rx')
+    expect(payloadLogs[1].message).toContain('hello')
+  })
+
+  it('formats logging entries with node templates and falls back on invalid templates', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.updateNodeConfig(sender.id, {
+      enableLogging: true,
+      logLevel: 'debug',
+      logFormat: '{direction}:{nodeId}:{length}:{hex}:{text}',
+    })
+    store.updateNodeConfig(receiver.id, {
+      enableLogging: true,
+      logFormat: 'received {missing}',
+    })
+    bindings.SendSerialGraphNode.mockResolvedValueOnce(2)
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValueOnce({
+      Offset: 0,
+      Data: btoa('hi'),
+      Total: 2,
+      EOF: false,
+    })
+
+    await store.startRuntime()
+    await store.sendNode(sender.id, 'hi', 'ascii')
+    await store.queryNodeBuffer(receiver.id)
+
+    const payloadLogs = store.operationLogs.filter(entry => entry.action === 'send' || entry.action === 'receive')
+    expect(payloadLogs[0]).toEqual(expect.objectContaining({
+      level: 'debug',
+      message: `tx:${sender.id}:2:68 69:hi`,
+    }))
+    expect(payloadLogs[1]).toEqual(expect.objectContaining({
+      level: 'error',
+      action: 'receive',
+      payloadText: 'hi',
+      byteLength: 2,
+    }))
+    expect(payloadLogs[1].message).toContain('接收器')
+    expect(payloadLogs[1].message).toContain('rx')
+    expect(payloadLogs[1].details).toContain('unknown field missing')
+    expect(store.nodeBufferText.get(receiver.id)).toBe('hi')
+  })
+
+  it('normalizes hex sender payloads the same way as the backend before logging', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    store.updateNodeConfig(sender.id, { enableLogging: true })
+    bindings.SendSerialGraphNode.mockResolvedValueOnce(2)
+
+    await store.startRuntime()
+    await store.sendNode(sender.id, '6 8 6 9', 'hex')
+
+    const payloadLog = store.operationLogs.find(entry => entry.action === 'send')
+    expect(payloadLog).toEqual(expect.objectContaining({
+      action: 'send',
+      direction: 'tx',
+      payloadText: 'hi',
+      payloadHex: '68 69',
+      byteLength: 2,
+    }))
+  })
+
+  it('records filter pass and drop operation logs for direct sends', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const filter = store.addNode('serial.filter')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', filter.id, 'in')
+    store.connect(filter.id, 'out', receiver.id, 'in')
+    store.updateNodeConfig(filter.id, { mode: 'plain', expression: 'ok' })
+
+    await store.startRuntime()
+    await store.sendNode(sender.id, 'ok telemetry', 'ascii')
+    await store.sendNode(sender.id, 'drop telemetry', 'ascii')
+
+    const filterLogs = store.operationLogs.filter(entry => entry.source === 'serial.filter' && ['pass', 'drop'].includes(entry.action))
+    expect(filterLogs.map(entry => ({ source: entry.source, action: entry.action, nodeId: entry.nodeId }))).toEqual([
+      { source: 'serial.filter', action: 'pass', nodeId: filter.id },
+      { source: 'serial.filter', action: 'drop', nodeId: filter.id },
+    ])
+    expect(filterLogs[0]).toEqual(expect.objectContaining({
+      level: 'debug',
+      category: 'serial.graph',
+      direction: 'rx',
+      payloadText: 'ok telemetry',
+      payloadHex: '6f 6b 20 74 65 6c 65 6d 65 74 72 79',
+      byteLength: 12,
+    }))
+    expect(filterLogs[1].message).toContain('drop')
+  })
+
+  it('records invalid filter matcher errors without throwing direct sends', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const filter = store.addNode('serial.filter')
+    store.connect(sender.id, 'out', filter.id, 'in')
+    store.updateNodeConfig(filter.id, { mode: 'regex', expression: '[unterminated' })
+
+    await store.startRuntime()
+    await store.sendNode(sender.id, 'anything', 'ascii')
+
+    const filterLogs = store.operationLogs.filter(entry => entry.source === 'serial.filter' && entry.action === 'error')
+    expect(filterLogs).toHaveLength(1)
+    expect(filterLogs[0]).toEqual(expect.objectContaining({
+      level: 'error',
+      source: 'serial.filter',
+      action: 'error',
+      category: 'serial.graph',
+      nodeId: filter.id,
+      direction: 'rx',
+      payloadText: 'anything',
+    }))
+    expect(filterLogs[0].details).toContain('invalid regex')
+  })
+
   it('removes connected edges when a node is removed', () => {
     const store = useSerialGraphStore()
     const sender = store.addNode('serial.sender')
@@ -374,5 +631,83 @@ describe('serial graph store', () => {
     await query
 
     expect(store.runtimeStateForGraph('graph-1').nodeStatuses.get(monitor.id)?.RxBytes).toBe(44)
+  })
+
+  it('adds, caps, and clears operation log entries per graph', () => {
+    const store = useSerialGraphStore()
+
+    for (let index = 0; index < 2005; index += 1) {
+      store.appendOperationLogForGraph('graph-1', {
+        level: 'info',
+        source: 'test',
+        action: 'append',
+        message: `event ${index}`,
+      })
+    }
+
+    expect(store.operationLogs).toHaveLength(2000)
+    expect(store.operationLogs[0].message).toBe('event 5')
+    expect(store.operationLogs[store.operationLogs.length - 1]).toEqual(expect.objectContaining({
+      graphId: 'graph-1',
+      level: 'info',
+      source: 'test',
+      action: 'append',
+      message: 'event 2004',
+    }))
+
+    store.clearOperationLogsForGraph('graph-1')
+
+    expect(store.operationLogs).toEqual([])
+  })
+
+  it('filters operation logs by level and shared filter modes without throwing on invalid patterns', () => {
+    const store = useSerialGraphStore()
+    store.appendOperationLogForGraph('graph-1', {
+      level: 'info',
+      source: 'sender',
+      action: 'send',
+      category: 'serial',
+      message: 'Sent TEMP OK payload',
+      details: 'manual send',
+      nodeId: 'tx-1',
+      direction: 'tx',
+      payloadText: 'TEMP OK',
+      payloadHex: '54 45 4d 50 20 4f 4b',
+      byteLength: 7,
+    })
+    store.appendOperationLogForGraph('graph-1', {
+      level: 'error',
+      source: 'receiver',
+      action: 'template',
+      category: 'serial',
+      message: 'Log template failed',
+      details: 'fallback used',
+      nodeId: 'rx-1',
+      direction: 'rx',
+      byteLength: 7,
+    })
+
+    store.setOperationLogFilterForGraph('graph-1', { level: 'error' })
+    expect(store.filteredOperationLogsForGraph('graph-1').map(entry => entry.message)).toEqual(['Log template failed'])
+    expect(store.operationLogFilterErrorForGraph('graph-1')).toBeNull()
+
+    store.setOperationLogFilterForGraph('graph-1', {
+      level: 'all',
+      mode: 'plain',
+      expression: 'temp',
+      caseSensitive: false,
+      wholeWord: true,
+    })
+    expect(store.filteredOperationLogsForGraph('graph-1').map(entry => entry.message)).toEqual(['Sent TEMP OK payload'])
+
+    store.setOperationLogFilterForGraph('graph-1', { mode: 'regex', expression: 'template\\s+failed' })
+    expect(store.filteredOperationLogsForGraph('graph-1').map(entry => entry.message)).toEqual(['Log template failed'])
+
+    store.setOperationLogFilterForGraph('graph-1', { mode: 'expression', expression: 'len >= 7 and direction == "tx"' })
+    expect(store.filteredOperationLogsForGraph('graph-1').map(entry => entry.message)).toEqual(['Sent TEMP OK payload'])
+
+    store.setOperationLogFilterForGraph('graph-1', { mode: 'regex', expression: '[broken' })
+    expect(store.filteredOperationLogsForGraph('graph-1')).toEqual([])
+    expect(store.operationLogFilterErrorForGraph('graph-1')).toContain('invalid regex')
   })
 })

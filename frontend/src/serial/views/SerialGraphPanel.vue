@@ -8,6 +8,7 @@ import {
   type SerialGraphNode,
   type SerialGraphPortSpec,
 } from '../graph/serialGraph'
+import type { SerialOperationLogEntry, SerialOperationLogFilter } from '../utils/operationLog'
 import ScriptEditor from './ScriptEditor.vue'
 import { isScriptNodeType } from './scriptLanguage'
 
@@ -69,8 +70,16 @@ const graphViewMode = ref<GraphViewMode>('split')
 const workbenchHeight = ref(defaultWorkbenchHeight)
 const splitResizing = ref(false)
 const scriptNeedsRestart = ref(false)
+const operationLogTabOpen = ref(false)
+const operationLogTabActive = ref(false)
 let splitResizeStartY = 0
 let splitResizeStartHeight = 0
+const operationLogLevelOptions = ['all', 'debug', 'info', 'warn', 'error'] as const
+const operationLogModeOptions = [
+  { value: 'plain', label: 'plain keyword' },
+  { value: 'regex', label: 'regex' },
+  { value: 'expression', label: 'Wireshark-like' },
+] as const
 
 const providerGroups = computed(() => {
   const groups = new Map<string, typeof serialGraphProviders>()
@@ -103,7 +112,13 @@ const selectedEdge = computed(() => (
 const selectedProvider = computed(() => (
   selectedNode.value ? providerByType(selectedNode.value.type) : null
 ))
-const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script' && key !== 'autoScroll' && key !== 'showTimestamp'))
+const selectedConfigEntries = computed(() => {
+  if (!selectedNode.value) return []
+  return Object.entries({
+    ...(selectedProvider.value?.defaultConfig ?? {}),
+    ...selectedNode.value.config,
+  }).filter(([key]) => key !== 'script' && key !== 'autoScroll' && key !== 'showTimestamp')
+})
 const selectedStatus = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeStatuses.get(selectedNode.value.id) ?? null : null
 ))
@@ -139,9 +154,20 @@ const selectedModeOptions = computed(() => modeOptionsForNode(selectedNode.value
 const selectedScript = computed(() => String(selectedNode.value?.config.script ?? ''))
 const runtimeRunning = computed(() => panelRuntime.value.runtimeStatus === 'running')
 const activeGraphName = computed(() => panelGraph.value?.name ?? '')
+const panelOperationLogFilter = computed(() => panelRuntime.value.operationLogFilter)
+const panelOperationLogEntries = computed(() => {
+  const graphId = panelGraphDocumentId()
+  return graphId ? store.filteredOperationLogsForGraph(graphId) : []
+})
+const panelOperationLogFilterError = computed(() => {
+  const graphId = panelGraphDocumentId()
+  return graphId ? store.operationLogFilterErrorForGraph(graphId) : null
+})
 const showDetailsWorkbench = computed(() => (
-  panelNodeTabs.value.length > 0 || Boolean(selectedEdge.value) || panelValidation.value.errors.length > 0
+  operationLogTabOpen.value || panelNodeTabs.value.length > 0 || Boolean(selectedEdge.value) || panelValidation.value.errors.length > 0
 ))
+const showWorkbenchTabs = computed(() => operationLogTabOpen.value || panelNodeTabs.value.length > 0)
+const showOperationLogContent = computed(() => operationLogTabOpen.value && operationLogTabActive.value)
 const showCanvas = computed(() => graphViewMode.value !== 'content')
 const showWorkbenchPane = computed(() => graphViewMode.value !== 'topology' && showDetailsWorkbench.value)
 const showEmptyContentPane = computed(() => graphViewMode.value !== 'topology' && !showDetailsWorkbench.value)
@@ -212,7 +238,7 @@ function updateConfig(key: string, value: string | boolean) {
   if (!selectedNode.value) return
   const graphId = panelGraphDocumentId()
   if (!graphId) return
-  const current = selectedNode.value.config[key]
+  const current = selectedNode.value.config[key] ?? selectedProvider.value?.defaultConfig[key]
   store.updateNodeConfigInGraph(graphId, selectedNode.value.id, { [key]: typedConfigValue(current, value) })
 }
 
@@ -242,6 +268,33 @@ async function stopRuntime() {
 
 function setGraphViewMode(mode: GraphViewMode) {
   graphViewMode.value = mode
+}
+
+function openOperationLogTab() {
+  operationLogTabOpen.value = true
+  operationLogTabActive.value = true
+}
+
+function activateOperationLogTab() {
+  operationLogTabOpen.value = true
+  operationLogTabActive.value = true
+}
+
+function closeOperationLogTab() {
+  operationLogTabOpen.value = false
+  operationLogTabActive.value = false
+}
+
+function updateOperationLogFilter(patch: Partial<SerialOperationLogFilter>) {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.setOperationLogFilterForGraph(graphId, patch)
+}
+
+function clearOperationLogs() {
+  const graphId = panelGraphDocumentId()
+  if (!graphId) return
+  store.clearOperationLogsForGraph(graphId)
 }
 
 function workspaceAvailableHeight(): number {
@@ -356,6 +409,7 @@ function removeSelectedEdge() {
 function activateNodeTab(nodeId: string) {
   const graphId = panelGraphDocumentId()
   if (!graphId) return
+  operationLogTabActive.value = false
   store.setActiveNodeTabInGraph(graphId, nodeId)
 }
 
@@ -564,6 +618,32 @@ function rawFrameDisplayFromText(text?: string): string {
   return match?.[1]?.trim() ?? ''
 }
 
+function operationLogSourceAction(entry: SerialOperationLogEntry): string {
+  const source = entry.source || 'unknown'
+  const action = entry.action || 'event'
+  return `${source}/${action}`
+}
+
+function operationLogContext(entry: SerialOperationLogEntry): string {
+  return [entry.graphId, entry.nodeId].filter(Boolean).join(' · ')
+}
+
+function operationLogPayload(entry: SerialOperationLogEntry): string {
+  return [entry.payloadText, entry.payloadHex].filter(Boolean).join(' · ')
+}
+
+function operationLogByteLength(entry: SerialOperationLogEntry): string {
+  return typeof entry.byteLength === 'number' ? `${entry.byteLength} bytes` : ''
+}
+
+function formatOperationLogTimestamp(value: string): string {
+  if (!value) return '未知时间'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
+}
+
 function buildFrameRows(frames: GraphFrame[], node: SerialGraphNode | null) {
   let packetIndex = -1
   return frames.map((frame) => {
@@ -612,6 +692,13 @@ function isRxDirection(direction: string): boolean {
 }
 
 function modeOptionsForNode(node: SerialGraphNode | null): { value: string; label: string }[] {
+  if (node?.type === 'serial.filter') {
+    return [
+      { value: 'plain', label: 'plain' },
+      { value: 'regex', label: 'regex' },
+      { value: 'expression', label: 'expression' },
+    ]
+  }
   if (node?.type === 'serial.modbus.master' || node?.type === 'serial.modbus.slave') {
     return [
       { value: 'rtu', label: 'rtu' },
@@ -793,12 +880,14 @@ function handleCanvasClick() {
 function selectNode(nodeId: string) {
   const graphId = panelGraphDocumentId()
   if (!graphId) return
+  operationLogTabActive.value = false
   store.selectNodeInGraph(graphId, nodeId)
 }
 
 function selectEdge(edgeId: string) {
   const graphId = panelGraphDocumentId()
   if (!graphId) return
+  operationLogTabActive.value = false
   store.selectEdgeInGraph(graphId, edgeId)
 }
 
@@ -1126,6 +1215,13 @@ onUnmounted(() => {
             拓扑
           </button>
         </div>
+        <button
+          type="button"
+          data-testid="serial-graph-open-operation-log"
+          @click="openOperationLogTab"
+        >
+          操作日志
+        </button>
       </div>
       <div
         v-if="showCanvas"
@@ -1242,15 +1338,34 @@ onUnmounted(() => {
         data-testid="serial-graph-node-workbench"
       >
         <div
-          v-if="panelNodeTabs.length > 0"
+          v-if="showWorkbenchTabs"
           class="serial-graph__node-tabs"
         >
+          <button
+            v-if="operationLogTabOpen"
+            type="button"
+            class="serial-graph__node-tab"
+            :class="{ 'serial-graph__node-tab--active': operationLogTabActive }"
+            data-testid="serial-graph-operation-log-tab"
+            @click="activateOperationLogTab"
+          >
+            <span>操作日志</span>
+            <span
+              class="serial-graph__node-tab-close"
+              role="button"
+              tabindex="0"
+              @click.stop="closeOperationLogTab"
+              @keydown.enter.stop="closeOperationLogTab"
+            >
+              ×
+            </span>
+          </button>
           <button
             v-for="tab in panelNodeTabs"
             :key="tab.nodeId"
             type="button"
             class="serial-graph__node-tab"
-            :class="{ 'serial-graph__node-tab--active': panelActiveNodeTabId === tab.nodeId }"
+            :class="{ 'serial-graph__node-tab--active': !operationLogTabActive && panelActiveNodeTabId === tab.nodeId }"
             :data-testid="`serial-graph-node-tab-${tab.nodeId}`"
             @click="activateNodeTab(tab.nodeId)"
           >
@@ -1267,7 +1382,139 @@ onUnmounted(() => {
           </button>
         </div>
         <div
-          v-if="selectedNode"
+          v-if="showOperationLogContent"
+          class="serial-graph__node-content serial-graph__operation-log"
+          data-testid="serial-operation-log-panel"
+        >
+          <div class="serial-graph__node-content-header">
+            <div>
+              <h3>操作日志</h3>
+              <p>记录拓扑启动/停止、发送、清空、过滤和节点日志事件。</p>
+            </div>
+            <button
+              type="button"
+              data-testid="serial-operation-log-clear"
+              @click="clearOperationLogs"
+            >
+              清空日志
+            </button>
+          </div>
+          <div class="serial-graph__operation-log-filters">
+            <label class="serial-graph__field">
+              <span>level</span>
+              <select
+                :value="panelOperationLogFilter.level"
+                data-testid="serial-operation-log-level"
+                @change="updateOperationLogFilter({ level: ($event.target as HTMLSelectElement).value as SerialOperationLogFilter['level'] })"
+              >
+                <option
+                  v-for="level in operationLogLevelOptions"
+                  :key="level"
+                  :value="level"
+                >
+                  {{ level }}
+                </option>
+              </select>
+            </label>
+            <label class="serial-graph__field">
+              <span>mode</span>
+              <select
+                :value="panelOperationLogFilter.mode"
+                data-testid="serial-operation-log-mode"
+                @change="updateOperationLogFilter({ mode: ($event.target as HTMLSelectElement).value as SerialOperationLogFilter['mode'] })"
+              >
+                <option
+                  v-for="option in operationLogModeOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+            <label class="serial-graph__field serial-graph__field--grow">
+              <span>keyword / expression</span>
+              <input
+                :value="panelOperationLogFilter.expression"
+                data-testid="serial-operation-log-expression"
+                @input="updateOperationLogFilter({ expression: ($event.target as HTMLInputElement).value })"
+              >
+            </label>
+            <label class="serial-graph__inline-toggle">
+              <input
+                type="checkbox"
+                :checked="panelOperationLogFilter.caseSensitive"
+                data-testid="serial-operation-log-case-sensitive"
+                @change="updateOperationLogFilter({ caseSensitive: ($event.target as HTMLInputElement).checked })"
+              >
+              <span>case sensitive</span>
+            </label>
+            <label class="serial-graph__inline-toggle">
+              <input
+                type="checkbox"
+                :checked="panelOperationLogFilter.wholeWord"
+                data-testid="serial-operation-log-whole-word"
+                @change="updateOperationLogFilter({ wholeWord: ($event.target as HTMLInputElement).checked })"
+              >
+              <span>whole word</span>
+            </label>
+          </div>
+          <p
+            v-if="panelOperationLogFilterError"
+            class="serial-graph__operation-log-error"
+            data-testid="serial-operation-log-error"
+          >
+            {{ panelOperationLogFilterError }}
+          </p>
+          <div
+            v-if="panelOperationLogEntries.length === 0"
+            class="serial-graph__operation-log-empty"
+            data-testid="serial-operation-log-empty"
+          >
+            没有匹配的操作日志
+          </div>
+          <div
+            v-else
+            class="serial-graph__operation-log-table-wrap"
+          >
+            <table class="serial-graph__operation-log-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>级别</th>
+                  <th>来源/动作</th>
+                  <th>上下文</th>
+                  <th>消息/详情</th>
+                  <th>数据</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="entry in panelOperationLogEntries"
+                  :key="entry.id"
+                  class="serial-graph__operation-log-row"
+                  :class="`serial-graph__operation-log-row--${entry.level}`"
+                  data-testid="serial-operation-log-entry"
+                >
+                  <td>{{ formatOperationLogTimestamp(entry.timestamp) }}</td>
+                  <td>{{ entry.level }}</td>
+                  <td>{{ operationLogSourceAction(entry) }}</td>
+                  <td>{{ operationLogContext(entry) }}</td>
+                  <td>
+                    <strong>{{ entry.message }}</strong>
+                    <small v-if="entry.details">{{ entry.details }}</small>
+                  </td>
+                  <td>
+                    <span>{{ operationLogByteLength(entry) }}</span>
+                    <small v-if="operationLogPayload(entry)">{{ operationLogPayload(entry) }}</small>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div
+          v-else-if="selectedNode"
           class="serial-graph__node-content"
           data-testid="serial-graph-node-content"
         >
@@ -1504,6 +1751,23 @@ onUnmounted(() => {
                     {{ option.label }}
                   </option>
                 </select>
+                <select
+                  v-else-if="key === 'logLevel'"
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="debug">debug</option>
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="error">error</option>
+                </select>
+                <textarea
+                  v-else-if="key === 'logFormat'"
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @input="updateConfig(key, ($event.target as HTMLTextAreaElement).value)"
+                />
                 <input
                   v-else
                   :value="String(value)"
@@ -2116,6 +2380,87 @@ onUnmounted(() => {
 }
 .serial-graph__inline-toggle input {
   margin: 0;
+}
+.serial-graph__operation-log-filters {
+  display: grid;
+  grid-template-columns: 120px 160px minmax(220px, 1fr) auto auto;
+  align-items: end;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.serial-graph__operation-log-filters .serial-graph__field {
+  margin-bottom: 0;
+}
+.serial-graph__operation-log-error,
+.serial-graph__operation-log-empty {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 4px;
+  background: var(--app-surface, #252526);
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
+}
+.serial-graph__operation-log-error {
+  border-color: color-mix(in srgb, var(--app-danger, #f85149) 55%, transparent);
+  color: var(--app-danger, #f85149);
+}
+.serial-graph__operation-log-table-wrap {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 4px;
+  background: var(--app-bg, #1e1e1e);
+}
+.serial-graph__operation-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.serial-graph__operation-log-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--app-border, #2d2d2d);
+  background: var(--app-panel-bg, #252526);
+  color: var(--app-text-muted, #8b949e);
+  font-weight: 500;
+  text-align: left;
+}
+.serial-graph__operation-log-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--app-border, #2d2d2d);
+  color: var(--app-text, #cccccc);
+  vertical-align: top;
+}
+.serial-graph__operation-log-table td:first-child,
+.serial-graph__operation-log-table td:nth-child(3),
+.serial-graph__operation-log-table td:nth-child(4),
+.serial-graph__operation-log-table td:nth-child(6) {
+  font-family: var(--terminal-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.serial-graph__operation-log-row--debug td:nth-child(2) {
+  color: var(--app-text-muted, #8b949e);
+}
+.serial-graph__operation-log-row--info td:nth-child(2) {
+  color: var(--app-accent, #007acc);
+}
+.serial-graph__operation-log-row--warn td:nth-child(2) {
+  color: var(--app-warning, #dcdcaa);
+}
+.serial-graph__operation-log-row--error td:nth-child(2) {
+  color: var(--app-danger, #f85149);
+}
+.serial-graph__operation-log-table strong,
+.serial-graph__operation-log-table small {
+  display: block;
+}
+.serial-graph__operation-log-table small {
+  margin-top: 3px;
+  color: var(--app-text-muted, #8b949e);
+  white-space: pre-wrap;
 }
 .serial-graph__buffer {
   min-height: 120px;

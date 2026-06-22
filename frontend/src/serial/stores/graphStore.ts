@@ -29,6 +29,18 @@ import {
   type SerialGraphPosition,
   type SerialGraphWorkspaceState,
 } from '../graph/serialGraph'
+import {
+  capSerialOperationLogs,
+  createSerialOperationLogEntry,
+  defaultSerialOperationLogFilter,
+  filterSerialOperationLogs,
+  normalizeSerialOperationLogFilter,
+  type SerialOperationLogEntry,
+  type SerialOperationLogEntryPatch,
+  type SerialOperationLogFilter,
+  type SerialOperationLogLevel,
+} from '../utils/operationLog'
+import { matchSerialFilter, type SerialFilterCandidate } from '../utils/serialFilter'
 
 type RuntimeStatus = 'idle' | 'running' | 'stopped' | 'error'
 
@@ -41,6 +53,10 @@ interface GraphRuntimeState {
   nodeBufferText: Map<string, string>
   nodeBufferChunks: Map<string, GraphBufferChunk[]>
   nodeFrames: Map<string, Frame[]>
+  operationLogs: SerialOperationLogEntry[]
+  operationLogFilter: SerialOperationLogFilter
+  operationLogSeq: number
+  nodeReceiveLogOffsets: Map<string, number>
 }
 
 export interface GraphBufferChunk {
@@ -81,6 +97,10 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
   const nodeBufferText = computed(() => activeRuntimeState().nodeBufferText)
   const nodeBufferChunks = computed(() => activeRuntimeState().nodeBufferChunks)
   const nodeFrames = computed(() => activeRuntimeState().nodeFrames)
+  const operationLogs = computed(() => activeRuntimeState().operationLogs)
+  const operationLogFilter = computed(() => activeRuntimeState().operationLogFilter)
+  const filteredOperationLogs = computed(() => filteredOperationLogsForGraph(activeGraph.value?.id ?? activeGraphId.value ?? 'graph-1'))
+  const operationLogFilterError = computed(() => operationLogFilterErrorForGraph(activeGraph.value?.id ?? activeGraphId.value ?? 'graph-1'))
   const validation = computed(() => activeGraph.value ? validateGraph(activeGraph.value) : { valid: true, errors: [] })
   const validationErrors = computed(() => validation.value.errors)
 
@@ -234,6 +254,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     runtime.nodeBufferText.delete(id)
     runtime.nodeBufferChunks.delete(id)
     runtime.nodeFrames.delete(id)
+    runtime.nodeReceiveLogOffsets.delete(id)
   }
 
   function moveNode(id: string, position: SerialGraphPosition) {
@@ -258,6 +279,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
 
   function updateNodeConfigInGraph(graphId: string, id: string, patch: Record<string, unknown>) {
     const graph = graphByIdOrThrow(graphId)
+    const original = graph.nodes.find(node => node.id === id)
     replaceGraph(graph.id, current => ({
       ...current,
       nodes: current.nodes.map(node => (
@@ -266,6 +288,9 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
           : node
       )),
     }))
+    if (original) {
+      appendConfigOperationLogForGraph(graph.id, original, Object.keys(patch))
+    }
   }
 
   function connect(
@@ -463,30 +488,38 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     const graph = graphByIdOrThrow(graphId)
     const graphValidation = validateGraph(graph)
     if (!graphValidation.valid) {
-      throw new Error(graphValidation.errors.join('; '))
+      const details = graphValidation.errors.join('; ')
+      appendGraphOperationLogForGraph(graph.id, 'start-error', 'error', '拓扑启动失败', details)
+      throw new Error(details)
     }
-    const info = await StartSerialGraph({
-      ID: runtimeId,
-      Nodes: graph.nodes.map(node => ({
-        ID: node.id,
-        Type: node.type,
-        Config: node.config,
-        Position: {
-          X: node.position.x,
-          Y: node.position.y,
-        },
-      })),
-      Edges: graph.edges.map(edge => ({
-        ID: edge.id,
-        Source: edge.source,
-        SourceHandle: edge.sourceHandle,
-        Target: edge.target,
-        TargetHandle: edge.targetHandle,
-      })),
-    })
-    if (!info) throw new Error('serial graph did not return runtime info')
-    applyRuntimeInfo(graph.id, info)
-    return info
+    try {
+      const info = await StartSerialGraph({
+        ID: runtimeId,
+        Nodes: graph.nodes.map(node => ({
+          ID: node.id,
+          Type: node.type,
+          Config: node.config,
+          Position: {
+            X: node.position.x,
+            Y: node.position.y,
+          },
+        })),
+        Edges: graph.edges.map(edge => ({
+          ID: edge.id,
+          Source: edge.source,
+          SourceHandle: edge.sourceHandle,
+          Target: edge.target,
+          TargetHandle: edge.targetHandle,
+        })),
+      })
+      if (!info) throw new Error('serial graph did not return runtime info')
+      applyRuntimeInfo(graph.id, info)
+      appendGraphOperationLogForGraph(graph.id, 'start', 'info', '拓扑已启动', `runtime ${info.ID}`)
+      return info
+    } catch (error) {
+      appendGraphOperationLogForGraph(graph.id, 'start-error', 'error', '拓扑启动失败', errorMessage(error))
+      throw error
+    }
   }
 
   async function stopRuntime() {
@@ -498,14 +531,21 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     const graph = graphByIdOrThrow(graphId)
     const runtime = runtimeFor(graph.id)
     if (!runtime.runtimeGraphId) return
-    await StopSerialGraph(runtime.runtimeGraphId)
-    runtimeStates.value = {
-      ...runtimeStates.value,
-      [graph.id]: {
-        ...runtime,
-        runtimeStatus: 'stopped',
-        nodeStatuses: stoppedStatuses(runtime.nodeStatuses),
-      },
+    const runtimeGraphId = runtime.runtimeGraphId
+    try {
+      await StopSerialGraph(runtimeGraphId)
+      runtimeStates.value = {
+        ...runtimeStates.value,
+        [graph.id]: {
+          ...runtime,
+          runtimeStatus: 'stopped',
+          nodeStatuses: stoppedStatuses(runtime.nodeStatuses),
+        },
+      }
+      appendGraphOperationLogForGraph(graph.id, 'stop', 'info', '拓扑已停止', `runtime ${runtimeGraphId}`)
+    } catch (error) {
+      appendGraphOperationLogForGraph(graph.id, 'stop-error', 'error', '拓扑停止失败', errorMessage(error))
+      throw error
     }
   }
 
@@ -536,17 +576,32 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     encoding = 'utf-8'
   ) {
     const graph = graphByIdOrThrow(graphId)
+    const node = graph.nodes.find(item => item.id === nodeId)
     const runtime = runtimeFor(graph.id)
     if (!runtime.runtimeGraphId) {
       throw new Error('serial graph is not running')
     }
-    const written = await SendSerialGraphNode({
-      GraphID: runtime.runtimeGraphId,
-      NodeID: nodeId,
-      Content: content,
-      Mode: mode,
-      Encoding: encoding,
-    })
+    let written: number
+    try {
+      written = await SendSerialGraphNode({
+        GraphID: runtime.runtimeGraphId,
+        NodeID: nodeId,
+        Content: content,
+        Mode: mode,
+        Encoding: encoding,
+      })
+    } catch (error) {
+      if (node) {
+        appendNodeActionOperationLogForGraph(graph.id, node, 'send-error', 'error', `${nodeDisplayName(node)}发送失败`, errorMessage(error))
+      }
+      throw error
+    }
+    if (node) {
+      const payload = encodePayloadForOperationLog(content, mode)
+      appendSendCommandOperationLogForGraph(graph.id, node, payload, written)
+      appendNodeOperationLogForGraph(graph.id, node, 'send', 'tx', payload, written)
+      appendFilterOperationLogsForGraph(graph.id, graph, node.id, payload)
+    }
     await refreshRuntimeForGraph(graph.id)
     return written
   }
@@ -563,6 +618,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     length = 4096
   ): Promise<Snapshot> {
     const graph = graphByIdOrThrow(graphId)
+    const node = graph.nodes.find(item => item.id === nodeId)
     const runtime = runtimeFor(graph.id)
     if (!runtime.runtimeGraphId) {
       throw new Error('serial graph is not running')
@@ -585,6 +641,9 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
         nodeBufferText: new Map(latestRuntime.nodeBufferText).set(nodeId, new TextDecoder().decode(bytes)),
         nodeBufferChunks: new Map(latestRuntime.nodeBufferChunks).set(nodeId, chunks),
       },
+    }
+    if (node) {
+      appendReceiveOperationLogForGraph(graph.id, node, page.Offset ?? offset, bytes, page.Total ?? (page.Offset ?? offset) + bytes.length)
     }
     return page
   }
@@ -627,6 +686,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
 
   async function clearNodeBufferForGraph(graphId: string, nodeId: string) {
     const graph = graphByIdOrThrow(graphId)
+    const node = graph.nodes.find(item => item.id === nodeId)
     const runtime = runtimeFor(graph.id)
     if (!runtime.runtimeGraphId) return
     await ClearSerialGraphNodeBuffer(runtime.runtimeGraphId, nodeId)
@@ -635,13 +695,18 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     const nodeBufferText = new Map(latestRuntime.nodeBufferText)
     const nodeBufferChunks = new Map(latestRuntime.nodeBufferChunks)
     const nodeFrames = new Map(latestRuntime.nodeFrames)
+    const nodeReceiveLogOffsets = new Map(latestRuntime.nodeReceiveLogOffsets)
     nodeBuffers.delete(nodeId)
     nodeBufferText.delete(nodeId)
     nodeBufferChunks.delete(nodeId)
     nodeFrames.delete(nodeId)
+    nodeReceiveLogOffsets.delete(nodeId)
     runtimeStates.value = {
       ...runtimeStates.value,
-      [graph.id]: { ...latestRuntime, nodeBuffers, nodeBufferText, nodeBufferChunks, nodeFrames },
+      [graph.id]: { ...latestRuntime, nodeBuffers, nodeBufferText, nodeBufferChunks, nodeFrames, nodeReceiveLogOffsets },
+    }
+    if (node) {
+      appendNodeActionOperationLogForGraph(graph.id, node, 'clear-buffer', 'info', `${nodeDisplayName(node)}清空缓冲区`)
     }
   }
 
@@ -665,6 +730,282 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
         [graph.id]: { ...latestRuntime, nodeStatuses },
       }
     }
+    const node = graph.nodes.find(item => item.id === nodeId)
+    if (node) {
+      appendNodeActionOperationLogForGraph(graph.id, node, 'reset-counters', 'info', `${nodeDisplayName(node)}复位计数`)
+    }
+  }
+
+  function appendOperationLogForGraph(graphId: string, patch: SerialOperationLogEntryPatch): SerialOperationLogEntry {
+    const runtime = runtimeFor(graphId)
+    const sequence = runtime.operationLogSeq + 1
+    const entry = createSerialOperationLogEntry(graphId, sequence, patch)
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graphId]: {
+        ...runtime,
+        operationLogSeq: sequence,
+        operationLogs: capSerialOperationLogs([...runtime.operationLogs, entry]),
+      },
+    }
+    return entry
+  }
+
+  function appendGraphOperationLogForGraph(
+    graphId: string,
+    action: string,
+    level: SerialOperationLogLevel,
+    message: string,
+    details?: string
+  ): SerialOperationLogEntry {
+    return appendOperationLogForGraph(graphId, {
+      level,
+      source: 'serial.graph',
+      action,
+      category: 'serial.graph',
+      message,
+      details,
+    })
+  }
+
+  function appendNodeActionOperationLogForGraph(
+    graphId: string,
+    node: SerialGraphNode,
+    action: string,
+    level: SerialOperationLogLevel,
+    message: string,
+    details?: string
+  ): SerialOperationLogEntry {
+    return appendOperationLogForGraph(graphId, {
+      level,
+      source: node.type,
+      action,
+      category: 'serial.graph',
+      message,
+      details,
+      nodeId: node.id,
+    })
+  }
+
+  function appendSendCommandOperationLogForGraph(
+    graphId: string,
+    node: SerialGraphNode,
+    payload: Uint8Array,
+    byteLength: number
+  ): SerialOperationLogEntry {
+    const payloadText = decodeOperationLogPayload(payload)
+    const payloadHex = formatOperationLogHex(payload)
+    return appendOperationLogForGraph(graphId, {
+      level: 'info',
+      source: node.type,
+      action: 'send-command',
+      category: 'serial.graph',
+      message: `${nodeDisplayName(node)}发送 ${byteLength} bytes`,
+      nodeId: node.id,
+      direction: 'tx',
+      payloadText,
+      payloadHex,
+      byteLength,
+    })
+  }
+
+  function appendConfigOperationLogForGraph(graphId: string, node: SerialGraphNode, keys: string[]): SerialOperationLogEntry | null {
+    const loggedKeys = keys.filter(key => key !== 'payload' && key !== 'script')
+    if (loggedKeys.length === 0) return null
+    return appendNodeActionOperationLogForGraph(
+      graphId,
+      node,
+      'config',
+      'info',
+      `${nodeDisplayName(node)}配置更新`,
+      loggedKeys.join(', ')
+    )
+  }
+
+  function appendNodeOperationLogForGraph(
+    graphId: string,
+    node: SerialGraphNode,
+    action: 'send' | 'receive',
+    direction: 'tx' | 'rx',
+    payload: Uint8Array,
+    byteLength = payload.length
+  ): SerialOperationLogEntry | null {
+    if (!nodeLoggingEnabled(node, action)) return null
+    const payloadText = decodeOperationLogPayload(payload)
+    const payloadHex = formatOperationLogHex(payload)
+    const context: SerialGraphLogTemplateContext = {
+      timestamp: new Date().toISOString(),
+      nodeName: node.name || providerByType(node.type)?.title || node.id,
+      nodeId: node.id,
+      direction,
+      length: byteLength,
+      text: payloadText,
+      hex: payloadHex,
+    }
+    const formatted = formatSerialGraphLogMessage(String(node.config.logFormat ?? ''), context)
+    return appendOperationLogForGraph(graphId, {
+      level: formatted.error ? 'error' : nodeLogLevel(node),
+      source: node.type,
+      action,
+      category: 'serial.graph',
+      message: formatted.message,
+      details: formatted.error,
+      nodeId: node.id,
+      direction,
+      payloadText,
+      payloadHex,
+      byteLength,
+    })
+  }
+
+  function appendReceiveOperationLogForGraph(
+    graphId: string,
+    node: SerialGraphNode,
+    pageOffset: number,
+    pageBytes: Uint8Array,
+    totalBytes: number
+  ) {
+    if (!nodeLoggingEnabled(node, 'receive')) return
+    const runtime = runtimeFor(graphId)
+    const previousOffset = runtime.nodeReceiveLogOffsets.get(node.id) ?? 0
+    if (totalBytes <= previousOffset) return
+    const pageEnd = pageOffset + pageBytes.length
+    const newStart = Math.max(previousOffset, pageOffset)
+    const newEnd = Math.min(totalBytes, pageEnd)
+    const payload = newEnd > newStart
+      ? pageBytes.slice(newStart - pageOffset, newEnd - pageOffset)
+      : new Uint8Array()
+    appendNodeOperationLogForGraph(graphId, node, 'receive', 'rx', payload, totalBytes - previousOffset)
+    const latestRuntime = runtimeFor(graphId)
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graphId]: {
+        ...latestRuntime,
+        nodeReceiveLogOffsets: new Map(latestRuntime.nodeReceiveLogOffsets).set(node.id, totalBytes),
+      },
+    }
+  }
+
+  function appendFilterOperationLogsForGraph(
+    graphId: string,
+    graph: SerialGraphDocument,
+    sourceNodeId: string,
+    payload: Uint8Array
+  ) {
+    if (payload.length === 0) return
+    const visitedEdges = new Set<string>()
+    const visit = (nodeId: string) => {
+      for (const edge of graph.edges) {
+        if (edge.source !== nodeId || visitedEdges.has(edge.id)) continue
+        visitedEdges.add(edge.id)
+        const target = graph.nodes.find(item => item.id === edge.target)
+        if (!target) continue
+        if (target.type !== 'serial.filter') {
+          visit(target.id)
+          continue
+        }
+        const payloadText = decodeOperationLogPayload(payload)
+        const payloadHex = formatOperationLogHex(payload)
+        const result = matchSerialFilter(filterCandidateForPayload(graphId, target, payload, payloadText, payloadHex), {
+          mode: String(target.config.mode ?? 'plain'),
+          expression: String(target.config.expression ?? ''),
+          caseSensitive: target.config.caseSensitive === true,
+          wholeWord: target.config.wholeWord === true,
+        })
+        if (result.error) {
+          appendFilterOperationLogForGraph(graphId, target, 'error', payloadText, payloadHex, payload.length, result.error)
+          continue
+        }
+        if (result.matched) {
+          appendFilterOperationLogForGraph(graphId, target, 'pass', payloadText, payloadHex, payload.length)
+          visit(target.id)
+        } else {
+          appendFilterOperationLogForGraph(graphId, target, 'drop', payloadText, payloadHex, payload.length)
+        }
+      }
+    }
+    visit(sourceNodeId)
+  }
+
+  function appendFilterOperationLogForGraph(
+    graphId: string,
+    node: SerialGraphNode,
+    action: 'pass' | 'drop' | 'error',
+    payloadText: string,
+    payloadHex: string,
+    byteLength: number,
+    details?: string
+  ) {
+    appendOperationLogForGraph(graphId, {
+      level: action === 'error' ? 'error' : 'debug',
+      source: 'serial.filter',
+      action,
+      category: 'serial.graph',
+      message: `过滤器 ${action} ${byteLength} bytes ${payloadText || payloadHex}`.trim(),
+      details,
+      nodeId: node.id,
+      direction: 'rx',
+      payloadText,
+      payloadHex,
+      byteLength,
+    })
+  }
+
+  function filterCandidateForPayload(
+    graphId: string,
+    node: SerialGraphNode,
+    payload: Uint8Array,
+    payloadText: string,
+    payloadHex: string
+  ): SerialFilterCandidate {
+    return {
+      len: payload.length,
+      byteLength: payload.length,
+      byteCount: payload.length,
+      text: payloadText,
+      hex: payloadHex,
+      source: 'serial.filter',
+      graphId,
+      nodeId: node.id,
+      nodeType: node.type,
+      direction: 'rx',
+      payloadText,
+      payloadHex,
+      action: 'filter',
+      category: 'serial.graph',
+    }
+  }
+
+  function clearOperationLogsForGraph(graphId: string) {
+    const runtime = runtimeFor(graphId)
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graphId]: {
+        ...runtime,
+        operationLogs: [],
+      },
+    }
+  }
+
+  function setOperationLogFilterForGraph(graphId: string, patch: Partial<SerialOperationLogFilter>) {
+    const runtime = runtimeFor(graphId)
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graphId]: {
+        ...runtime,
+        operationLogFilter: normalizeSerialOperationLogFilter(patch, runtime.operationLogFilter),
+      },
+    }
+  }
+
+  function filteredOperationLogsForGraph(graphId: string): SerialOperationLogEntry[] {
+    const runtime = runtimeFor(graphId)
+    return filterSerialOperationLogs(runtime.operationLogs, runtime.operationLogFilter).entries
+  }
+
+  function operationLogFilterErrorForGraph(graphId: string): string | null {
+    const runtime = runtimeFor(graphId)
+    return filterSerialOperationLogs(runtime.operationLogs, runtime.operationLogFilter).error
   }
 
   function applyRuntimeInfo(graphId: string, info: SerialGraphRuntimeInfo) {
@@ -774,6 +1115,10 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     nodeBufferText,
     nodeBufferChunks,
     nodeFrames,
+    operationLogs,
+    operationLogFilter,
+    filteredOperationLogs,
+    operationLogFilterError,
     validation,
     validationErrors,
     graphById,
@@ -826,6 +1171,11 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     clearNodeBufferForGraph,
     resetNodeCounters,
     resetNodeCountersForGraph,
+    appendOperationLogForGraph,
+    clearOperationLogsForGraph,
+    setOperationLogFilterForGraph,
+    filteredOperationLogsForGraph,
+    operationLogFilterErrorForGraph,
   }
 })
 
@@ -839,6 +1189,10 @@ function emptyRuntimeState(): GraphRuntimeState {
     nodeBufferText: new Map(),
     nodeBufferChunks: new Map(),
     nodeFrames: new Map(),
+    operationLogs: [],
+    operationLogFilter: defaultSerialOperationLogFilter(),
+    operationLogSeq: 0,
+    nodeReceiveLogOffsets: new Map(),
   }
 }
 
@@ -875,6 +1229,106 @@ function normalizeRuntimeStatus(status: string): RuntimeStatus {
 function normalizeNodeStatus(status: string): 'idle' | 'running' | 'error' {
   if (status === 'running' || status === 'error') return status
   return 'idle'
+}
+
+function nodeDisplayName(node: SerialGraphNode): string {
+  return node.name || providerByType(node.type)?.title || node.id
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+interface SerialGraphLogTemplateContext {
+  timestamp: string
+  nodeName: string
+  nodeId: string
+  direction: 'tx' | 'rx'
+  length: number
+  text: string
+  hex: string
+}
+
+const serialGraphLogTemplateFields = new Set<keyof SerialGraphLogTemplateContext>([
+  'timestamp',
+  'nodeName',
+  'nodeId',
+  'direction',
+  'length',
+  'text',
+  'hex',
+])
+
+function nodeLoggingEnabled(node: SerialGraphNode, action: 'send' | 'receive'): boolean {
+  if (action === 'send' && node.type !== 'serial.sender') return false
+  if (action === 'receive' && node.type !== 'serial.receiver') return false
+  return node.config.enableLogging === true
+}
+
+function nodeLogLevel(node: SerialGraphNode): SerialOperationLogLevel {
+  const value = node.config.logLevel
+  return value === 'debug' || value === 'warn' || value === 'error' ? value : 'info'
+}
+
+function encodePayloadForOperationLog(content: string, mode: string): Uint8Array {
+  if (mode === 'hex') {
+    const compact = content.replace(/[ \n\t\r]/g, '')
+    if (compact.length % 2 !== 0 || /[^0-9a-fA-F]/.test(compact)) return new Uint8Array()
+    const bytes: number[] = []
+    for (let index = 0; index < compact.length; index += 2) {
+      bytes.push(Number.parseInt(compact.slice(index, index + 2), 16))
+    }
+    return new Uint8Array(bytes)
+  }
+  return new TextEncoder().encode(content)
+}
+
+function decodeOperationLogPayload(payload: Uint8Array): string {
+  if (payload.length === 0) return ''
+  return new TextDecoder().decode(payload)
+}
+
+function formatOperationLogHex(payload: Uint8Array): string {
+  return Array.from(payload).map(byte => byte.toString(16).padStart(2, '0')).join(' ')
+}
+
+function formatSerialGraphLogMessage(
+  template: string,
+  context: SerialGraphLogTemplateContext
+): { message: string; error?: string } {
+  const fallback = defaultSerialGraphLogMessage(context)
+  if (template.trim() === '') return { message: fallback }
+  const source = template
+
+  let message = ''
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '}') {
+      return { message: fallback, error: 'invalid log template: unmatched }' }
+    }
+    if (char !== '{') {
+      message += char
+      continue
+    }
+    const end = source.indexOf('}', index + 1)
+    if (end < 0) {
+      return { message: fallback, error: 'invalid log template: missing }' }
+    }
+    const field = source.slice(index + 1, end).trim() as keyof SerialGraphLogTemplateContext
+    if (!serialGraphLogTemplateFields.has(field)) {
+      return { message: fallback, error: `invalid log template: unknown field ${field || '(empty)'}` }
+    }
+    message += String(context[field])
+    index = end
+  }
+  return { message }
+}
+
+function defaultSerialGraphLogMessage(context: SerialGraphLogTemplateContext): string {
+  const payload = context.text || context.hex
+  return payload
+    ? `${context.nodeName} ${context.direction} ${context.length} bytes ${payload}`
+    : `${context.nodeName} ${context.direction} ${context.length} bytes`
 }
 
 function snapshotBytes(page: Snapshot): Uint8Array {

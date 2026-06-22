@@ -759,6 +759,7 @@ describe('SerialGraphPanel', () => {
 
       expect(wrapper.find('[data-testid="serial-graph-content-send"]').exists(), `${item.type} send pane`).toBe(item.send)
       expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').exists(), `${item.type} receive buffer`).toBe(item.buffer)
+      expect(wrapper.find('[data-testid="serial-graph-config-autoScroll"]').exists(), `${item.type} auto scroll`).toBe(item.buffer)
       expect(wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').exists(), `${item.type} frame pane`).toBe(item.frames)
 
       for (const label of ['RX', 'TX']) {

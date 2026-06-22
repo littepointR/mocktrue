@@ -103,7 +103,7 @@ const selectedEdge = computed(() => (
 const selectedProvider = computed(() => (
   selectedNode.value ? providerByType(selectedNode.value.type) : null
 ))
-const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script'))
+const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script' && key !== 'autoScroll'))
 const selectedStatus = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeStatuses.get(selectedNode.value.id) ?? null : null
 ))
@@ -426,6 +426,10 @@ function supportsScriptEditor(node: SerialGraphNode): boolean {
 
 function bufferViewModeForNode(node: SerialGraphNode): string {
   return String(node.config.viewMode ?? 'ascii')
+}
+
+function autoScrollEnabledForNode(node: SerialGraphNode): boolean {
+  return node.config.autoScroll !== false
 }
 
 function frameDisplayModeForNode(node: SerialGraphNode): string {
@@ -1313,6 +1317,15 @@ onUnmounted(() => {
               >
                 复位计数
               </button>
+              <label class="serial-graph__inline-toggle">
+                <input
+                  type="checkbox"
+                  :checked="autoScrollEnabledForNode(selectedNode)"
+                  data-testid="serial-graph-config-autoScroll"
+                  @change="updateConfig('autoScroll', ($event.target as HTMLInputElement).checked)"
+                >
+                <span>自动滚动</span>
+              </label>
             </div>
             <pre
               ref="selectedBufferRef"
@@ -2035,8 +2048,19 @@ onUnmounted(() => {
 .serial-graph__button-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin-bottom: 8px;
+}
+.serial-graph__inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
+}
+.serial-graph__inline-toggle input {
+  margin: 0;
 }
 .serial-graph__buffer {
   min-height: 120px;

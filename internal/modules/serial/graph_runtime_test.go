@@ -345,6 +345,59 @@ func TestSerialGraphRuntimeModbusMasterBuildsRequestFrame(t *testing.T) {
 	}
 }
 
+func TestSerialGraphModbusMasterFrameBuildsMultiWriteRequests(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   map[string]any
+		function mb.FunctionCode
+		data     []byte
+	}{
+		{
+			name: "multiple coils from string values",
+			config: map[string]any{
+				"mode":         "rtu",
+				"unitIds":      "7",
+				"functionCode": int(mb.FunctionWriteMultipleCoils),
+				"address":      10,
+				"coilValues":   "1, 0 true off 1",
+			},
+			function: mb.FunctionWriteMultipleCoils,
+			data:     []byte{0x00, 0x0a, 0x00, 0x05, 0x01, 0x15},
+		},
+		{
+			name: "multiple registers from array values",
+			config: map[string]any{
+				"mode":           "rtu",
+				"unitIds":        "9",
+				"functionCode":   int(mb.FunctionWriteMultipleRegisters),
+				"address":        11,
+				"registerValues": []any{uint16(1), float64(258), "0x0103"},
+			},
+			function: mb.FunctionWriteMultipleRegisters,
+			data:     []byte{0x00, 0x0b, 0x00, 0x03, 0x06, 0x00, 0x01, 0x01, 0x02, 0x01, 0x03},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			encoded, err := graphModbusMasterFrame(tt.config)
+			if err != nil {
+				t.Fatalf("graphModbusMasterFrame returned error: %v", err)
+			}
+			frame, err := mb.DecodeFrame(mb.FrameModeRTU, encoded)
+			if err != nil {
+				t.Fatalf("DecodeFrame: %v", err)
+			}
+			if frame.PDU.Function != tt.function {
+				t.Fatalf("function = %02x, want %02x", byte(frame.PDU.Function), byte(tt.function))
+			}
+			if got := formatGraphFrameBytes(frame.PDU.Data, "%02x"); got != formatGraphFrameBytes(tt.data, "%02x") {
+				t.Fatalf("pdu data = %s, want %s", got, formatGraphFrameBytes(tt.data, "%02x"))
+			}
+		})
+	}
+}
+
 func TestSerialGraphRuntimeModbusSlaveAutoResponds(t *testing.T) {
 	svc := NewService(nil)
 	defer svc.cleanup()

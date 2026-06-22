@@ -1561,6 +1561,10 @@ func graphModbusMasterFrame(config map[string]any) ([]byte, error) {
 		pdu, err = mb.BuildReadRequest(function, address, quantity)
 	case mb.FunctionWriteSingleCoil, mb.FunctionWriteSingleRegister:
 		pdu, err = mb.BuildWriteSingleRequest(function, address, value)
+	case mb.FunctionWriteMultipleCoils:
+		pdu, err = mb.BuildWriteMultipleCoilsRequest(address, graphBoolValuesConfig(config, "coilValues"))
+	case mb.FunctionWriteMultipleRegisters:
+		pdu, err = mb.BuildWriteMultipleRegistersRequest(address, graphUint16ValuesConfig(config, "registerValues"))
 	default:
 		err = fmt.Errorf("unsupported graph modbus master function: %02x", byte(function))
 	}
@@ -1572,6 +1576,173 @@ func graphModbusMasterFrame(config map[string]any) ([]byte, error) {
 		return nil, errors.Wrap(errors.CodeInvalid, "encode modbus frame", err)
 	}
 	return frame, nil
+}
+
+func graphBoolValuesConfig(config map[string]any, key string) []bool {
+	if config == nil {
+		return nil
+	}
+	switch value := config[key].(type) {
+	case []bool:
+		return append([]bool(nil), value...)
+	case []any:
+		values := make([]bool, 0, len(value))
+		for _, item := range value {
+			parsed, ok := graphBoolValue(item)
+			if ok {
+				values = append(values, parsed)
+			}
+		}
+		return values
+	case []string:
+		values := make([]bool, 0, len(value))
+		for _, item := range value {
+			parsed, ok := graphBoolValue(item)
+			if ok {
+				values = append(values, parsed)
+			}
+		}
+		return values
+	default:
+		return graphBoolValuesString(fmt.Sprint(value))
+	}
+}
+
+func graphUint16ValuesConfig(config map[string]any, key string) []uint16 {
+	if config == nil {
+		return nil
+	}
+	switch value := config[key].(type) {
+	case []uint16:
+		return append([]uint16(nil), value...)
+	case []int:
+		values := make([]uint16, 0, len(value))
+		for _, item := range value {
+			if item >= 0 && item <= 0xffff {
+				values = append(values, uint16(item))
+			}
+		}
+		return values
+	case []any:
+		values := make([]uint16, 0, len(value))
+		for _, item := range value {
+			parsed, ok := graphUint16Value(item)
+			if ok {
+				values = append(values, parsed)
+			}
+		}
+		return values
+	case []string:
+		values := make([]uint16, 0, len(value))
+		for _, item := range value {
+			parsed, ok := graphUint16Value(item)
+			if ok {
+				values = append(values, parsed)
+			}
+		}
+		return values
+	default:
+		return graphUint16ValuesString(fmt.Sprint(value))
+	}
+}
+
+func graphBoolValuesString(raw string) []bool {
+	values := []bool{}
+	for _, token := range graphValueTokens(raw) {
+		parsed, ok := graphBoolToken(token)
+		if ok {
+			values = append(values, parsed)
+		}
+	}
+	return values
+}
+
+func graphUint16ValuesString(raw string) []uint16 {
+	values := []uint16{}
+	for _, token := range graphValueTokens(raw) {
+		parsed, ok := graphUint16Token(token)
+		if ok {
+			values = append(values, parsed)
+		}
+	}
+	return values
+}
+
+func graphValueTokens(raw string) []string {
+	return strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '	' || r == '\n' || r == '\r'
+	})
+}
+
+func graphBoolValue(value any) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case int:
+		if typed == 0 || typed == 1 {
+			return typed == 1, true
+		}
+	case int64:
+		if typed == 0 || typed == 1 {
+			return typed == 1, true
+		}
+	case float64:
+		if typed == 0 || typed == 1 {
+			return typed == 1, true
+		}
+	case string:
+		return graphBoolToken(typed)
+	}
+	return false, false
+}
+
+func graphBoolToken(token string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "1", "true", "t", "yes", "y", "on":
+		return true, true
+	case "0", "false", "f", "no", "n", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func graphUint16Value(value any) (uint16, bool) {
+	switch typed := value.(type) {
+	case uint16:
+		return typed, true
+	case uint:
+		if typed <= 0xffff {
+			return uint16(typed), true
+		}
+	case uint64:
+		if typed <= 0xffff {
+			return uint16(typed), true
+		}
+	case int:
+		if typed >= 0 && typed <= 0xffff {
+			return uint16(typed), true
+		}
+	case int64:
+		if typed >= 0 && typed <= 0xffff {
+			return uint16(typed), true
+		}
+	case float64:
+		if typed >= 0 && typed <= 0xffff && typed == float64(uint16(typed)) {
+			return uint16(typed), true
+		}
+	case string:
+		return graphUint16Token(typed)
+	}
+	return 0, false
+}
+
+func graphUint16Token(token string) (uint16, bool) {
+	parsed, err := strconv.ParseUint(strings.TrimSpace(token), 0, 16)
+	if err != nil {
+		return 0, false
+	}
+	return uint16(parsed), true
 }
 
 func graphModbusSlaveResponse(frame mb.DecodedFrame) (mb.PDU, error) {

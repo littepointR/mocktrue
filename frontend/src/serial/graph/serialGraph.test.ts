@@ -104,6 +104,27 @@ describe('serial graph model', () => {
     })
   })
 
+  it('exposes multi-write value config on Modbus master nodes', () => {
+    const modbusMaster = serialGraphProviders.find(item => item.type === 'serial.modbus.master')
+    const master = createSerialGraphNode('master', 'serial.modbus.master', { x: 0, y: 0 })
+
+    expect(modbusMaster?.defaultConfig).toEqual(expect.objectContaining({
+      coilValues: '1 0 1 1',
+      registerValues: '24 42',
+    }))
+    expect(master.config).toEqual(expect.objectContaining({
+      coilValues: '1 0 1 1',
+      registerValues: '24 42',
+    }))
+  })
+
+  it('documents that graph Modbus slave uses lightweight default responses', () => {
+    const modbusSlave = serialGraphProviders.find(item => item.type === 'serial.modbus.slave')
+
+    expect(modbusSlave?.description).toContain('协议合法的零值/默认响应')
+    expect(modbusSlave?.description).toContain('完整可编辑的多 Unit 数据模型请使用 Modbus 会话面板')
+  })
+
   it('removes legacy and unused topology config fields when restoring graph state', () => {
     const state = cloneSerialGraphState({
       graphs: [{

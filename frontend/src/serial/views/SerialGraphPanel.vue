@@ -103,7 +103,7 @@ const selectedEdge = computed(() => (
 const selectedProvider = computed(() => (
   selectedNode.value ? providerByType(selectedNode.value.type) : null
 ))
-const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script'))
+const selectedConfigEntries = computed(() => Object.entries(selectedNode.value?.config ?? {}).filter(([key]) => key !== 'script' && key !== 'autoScroll'))
 const selectedStatus = computed(() => (
   selectedNode.value ? panelRuntime.value.nodeStatuses.get(selectedNode.value.id) ?? null : null
 ))
@@ -135,8 +135,8 @@ const showDetailsWorkbench = computed(() => (
 ))
 const showCanvas = computed(() => graphViewMode.value !== 'content')
 const showWorkbenchPane = computed(() => graphViewMode.value !== 'topology' && showDetailsWorkbench.value)
-const showEmptyContentPane = computed(() => graphViewMode.value === 'content' && !showDetailsWorkbench.value)
-const showSplitResizeHandle = computed(() => graphViewMode.value === 'split' && showDetailsWorkbench.value)
+const showEmptyContentPane = computed(() => graphViewMode.value !== 'topology' && !showDetailsWorkbench.value)
+const showSplitResizeHandle = computed(() => graphViewMode.value === 'split')
 const workbenchStyle = computed(() => {
   if (graphViewMode.value === 'split') {
     return { flex: `0 0 ${workbenchHeight.value}px` }
@@ -426,6 +426,10 @@ function supportsScriptEditor(node: SerialGraphNode): boolean {
 
 function bufferViewModeForNode(node: SerialGraphNode): string {
   return String(node.config.viewMode ?? 'ascii')
+}
+
+function autoScrollEnabledForNode(node: SerialGraphNode): boolean {
+  return node.config.autoScroll !== false
 }
 
 function frameDisplayModeForNode(node: SerialGraphNode): string {
@@ -1313,6 +1317,15 @@ onUnmounted(() => {
               >
                 复位计数
               </button>
+              <label class="serial-graph__inline-toggle">
+                <input
+                  type="checkbox"
+                  :checked="autoScrollEnabledForNode(selectedNode)"
+                  data-testid="serial-graph-config-autoScroll"
+                  @change="updateConfig('autoScroll', ($event.target as HTMLInputElement).checked)"
+                >
+                <span>自动滚动</span>
+              </label>
             </div>
             <pre
               ref="selectedBufferRef"
@@ -1508,9 +1521,19 @@ onUnmounted(() => {
       </section>
       <section
         v-else-if="showEmptyContentPane"
-        class="serial-graph__node-workbench serial-graph__node-workbench--full serial-graph__node-workbench--empty"
+        class="serial-graph__node-workbench serial-graph__node-workbench--empty"
+        :class="{ 'serial-graph__node-workbench--full': graphViewMode === 'content' }"
+        :style="workbenchStyle"
         data-testid="serial-graph-node-workbench"
-      />
+      >
+        <div
+          class="serial-graph__empty-content"
+          data-testid="serial-graph-empty-content"
+        >
+          <strong>内容区</strong>
+          <span>选择节点或连线后在这里编辑和查看详情</span>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -1731,7 +1754,27 @@ onUnmounted(() => {
   border-top: 0;
 }
 .serial-graph__node-workbench--empty {
+  flex: 0 0 320px;
+  min-height: 160px;
+}
+.serial-graph__node-workbench--empty.serial-graph__node-workbench--full {
+  flex: 1 1 auto;
+}
+.serial-graph__empty-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 0;
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
+  text-align: center;
+}
+.serial-graph__empty-content strong {
+  color: var(--app-text, #cccccc);
+  font-size: 13px;
 }
 .serial-graph__node-tabs {
   display: flex;
@@ -2005,8 +2048,19 @@ onUnmounted(() => {
 .serial-graph__button-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin-bottom: 8px;
+}
+.serial-graph__inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
+}
+.serial-graph__inline-toggle input {
+  margin: 0;
 }
 .serial-graph__buffer {
   min-height: 120px;

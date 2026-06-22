@@ -89,6 +89,7 @@ const serialDefaults = {
   parity: 'none',
   flowMode: 'none',
   readBufKB: 32,
+  autoScroll: true,
 }
 
 const bytesIn: SerialGraphPortSpec = { id: 'in', label: '接收', kind: 'bytes', direction: 'input' }
@@ -252,7 +253,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     description: 'FECbus 主控请求和帧解析。',
     inputs: [{ id: 'rx', label: '接收', kind: 'bytes', direction: 'input' }],
     outputs: [{ id: 'tx', label: '发送', kind: 'bytes', direction: 'output' }],
-    defaultConfig: { sourceAddress: 1, targetAddress: 2, priority: 3, messageNumber: 1, groupNumber: 0, functionCode: 44, dataHex: '' },
+    defaultConfig: { sourceAddress: 1, targetAddress: 2, priority: 3, messageNumber: 1, groupNumber: 0, functionCode: 44, dataHex: '', autoScroll: true },
   },
   {
     type: 'serial.fecbus.slave',
@@ -261,7 +262,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     description: 'FECbus 从机应答和设备状态。',
     inputs: [{ id: 'rx', label: '接收', kind: 'bytes', direction: 'input' }],
     outputs: [{ id: 'tx', label: '发送', kind: 'bytes', direction: 'output' }],
-    defaultConfig: { address: 2, defaultStatus: 10, autoStatusAnswer: true },
+    defaultConfig: { address: 2, defaultStatus: 10, autoStatusAnswer: true, autoScroll: true },
   },
 ]
 

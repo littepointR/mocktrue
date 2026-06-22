@@ -158,6 +158,57 @@ describe('workspaceFileStore graph tab files', () => {
     expect(files.graphState(graphId)?.sourceKind).toBe('file')
   })
 
+  it('replaces existing clean empty topology tabs when loading an example', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    graph.createGraph('拓扑图 2')
+    files.syncAllGraphSnapshots()
+    files.markClean('/tmp/empty.mocktrue.json', JSON.parse(graphFile('/tmp/empty.mocktrue.json', '空拓扑')), 'graph-1')
+
+    const result = await files.loadDemo('bridge-demo')
+
+    expect(result.graphIds).toHaveLength(1)
+    expect(graph.graphList.map(item => item.id)).toEqual([result.activeGraphId])
+    expect(graph.graphList.map(item => item.name)).toEqual(['串口桥接演示'])
+  })
+
+  it('keeps only the demo graph when startup restore races with loading an example', async () => {
+    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/startup.mocktrue.json']))
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    const releaseRead = deferred<void>()
+    workspaceServiceMock.ReadWorkspace.mockImplementationOnce(async (path: string) => {
+      await releaseRead.promise
+      return { Path: path, Content: graphFile(path, '拓扑图 1') }
+    })
+
+    const startupRestore = files.loadLast()
+    const result = await files.loadDemo('bridge-demo')
+    releaseRead.resolve()
+    await startupRestore
+
+    expect(workspaceServiceMock.ReadWorkspace).toHaveBeenCalledWith('/tmp/startup.mocktrue.json')
+    expect(result.graphIds).toHaveLength(1)
+    expect(graph.graphList.map(item => item.id)).toEqual([result.activeGraphId])
+    expect(graph.graphList.map(item => item.name)).toEqual(['串口桥接演示'])
+  })
+
+  it('replaces a clean empty topology restored from a workspace without graph state when loading an example', async () => {
+    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/empty-workspace.mocktrue.json']))
+    workspaceServiceMock.readFiles.set('/tmp/empty-workspace.mocktrue.json', workspaceFileWithoutGraph())
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    await files.loadLast()
+    expect(graph.graphList.map(item => item.name)).toContain('拓扑图 1')
+
+    const result = await files.loadDemo('bridge-demo')
+
+    expect(result.graphIds).toHaveLength(1)
+    expect(graph.graphList.map(item => item.id)).toEqual([result.activeGraphId])
+    expect(graph.graphList.map(item => item.name)).toEqual(['串口桥接演示'])
+  })
+
   it('prevents two graph tabs from binding to the same file path', async () => {
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
@@ -210,4 +261,37 @@ function graphFile(path: string, name: string, serialSettings: Partial<typeof de
     },
     runtime: { nodeBuffers: {}, nodeFrames: {} },
   })
+}
+
+function workspaceFileWithoutGraph() {
+  return JSON.stringify({
+    kind: 'mocktrue.workspace.v1',
+    settings: { serial: defaultSerialSettings },
+    serial: {
+      activePortId: '',
+      handles: [],
+      virtualPorts: [],
+      bridges: [],
+      buffers: {},
+      monitors: undefined,
+      modbus: undefined,
+      fecbus: undefined,
+      workspace: {
+        selectedOperation: null,
+        editorLayout: { type: 'group', id: 'group-empty', tabs: [] },
+        activeByGroup: { 'group-empty': null },
+        tabStates: {},
+      },
+    },
+  })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }

@@ -57,7 +57,12 @@ describe('MonitorPanel auto virtual monitor', () => {
   it('starts monitoring from one selected real port', async () => {
     const monitor = useMonitorStore()
     const start = vi.spyOn(monitor, 'startAutoVirtualMonitor').mockResolvedValue('mon-1')
-    const wrapper = mount(MonitorPanel)
+    const started: string[] = []
+    const wrapper = mount({
+      components: { MonitorPanel },
+      template: '<MonitorPanel @started="started.push($event)" />',
+      setup: () => ({ started }),
+    })
     await flushPromises()
 
     expect(wrapper.text()).toContain('被监听端口')
@@ -65,11 +70,12 @@ describe('MonitorPanel auto virtual monitor', () => {
 
     await wrapper.findAll('select')[0].setValue('/dev/tty.usbserial')
     await wrapper.findAll('button').find(button => button.text() === '开始监控')?.trigger('click')
+    await flushPromises()
 
     expect(start).toHaveBeenCalledWith(expect.objectContaining({
       sourcePort: '/dev/tty.usbserial',
       baudRate: 115200,
     }))
-    expect(wrapper.emitted('started')?.[0]).toEqual(['mon-1'])
+    expect(started).toEqual(['mon-1'])
   })
 })

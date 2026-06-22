@@ -26,6 +26,9 @@ describe('SerialView graph workspace layout', () => {
       ],
       activeGraphId: 'graph-2',
     })
+    graph.renameGraph('graph-1', '拓扑 A')
+    graph.renameGraph('graph-2', '拓扑 B')
+
     const workspace = useSerialWorkspaceStore()
     workspace.setEditorLayout({
       type: 'split',
@@ -40,19 +43,21 @@ describe('SerialView graph workspace layout', () => {
 
     const first = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
+    await nextTick()
     first.unmount()
+
     const second = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
-    expect(second.find('.layout-json').text()).toContain('split-1')
-    expect(second.find('.layout-json').text()).toContain('group-left')
-    expect(second.find('.layout-json').text()).toContain('graph:graph-1')
-    expect(second.find('.layout-json').text()).toContain('graph:graph-2')
+    expect(second.findAll('.editor-group')).toHaveLength(2)
+    expect(second.find('[data-editor-group-id="group-left"]').exists()).toBe(true)
+    expect(second.find('[data-editor-group-id="group-right"]').exists()).toBe(true)
+    expect(second.findAll('.editor-tab__label').map(tab => tab.text())).toEqual(['拓扑 A', '拓扑 B'])
   })
 
   it('creates one editor graph tab for each graph document', async () => {
@@ -64,18 +69,17 @@ describe('SerialView graph workspace layout', () => {
       ],
       activeGraphId: 'graph-2',
     })
+    graph.renameGraph('graph-1', '拓扑 A')
+    graph.renameGraph('graph-2', '拓扑 B')
 
     const wrapper = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
-    expect(wrapper.find('.tabs-json').text()).toContain('"id":"graph:graph-1"')
-    expect(wrapper.find('.tabs-json').text()).toContain('"id":"graph:graph-2"')
-    expect(wrapper.find('.tabs-json').text()).toContain('"name":"拓扑 A"')
-    expect(wrapper.find('.tabs-json').text()).toContain('"name":"拓扑 B"')
-    expect(wrapper.find('[data-testid="graph-panel-graph-1"]').exists()).toBe(true)
+    expect(wrapper.findAll('.editor-tab__label').map(tab => tab.text())).toEqual(expect.arrayContaining(['拓扑 A', '拓扑 B']))
+    expect(wrapper.find('[data-testid="graph-panel-graph-1"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="graph-panel-graph-2"]').exists()).toBe(true)
 
     const layout = useSerialWorkspaceStore().editorLayout
@@ -89,6 +93,10 @@ describe('SerialView graph workspace layout', () => {
   it('shows unsaved state and path metadata on graph editor tabs', async () => {
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
+    graph.restoreState({
+      graphs: [defaultSerialGraphDocument('graph-1', '生产拓扑')],
+      activeGraphId: 'graph-1',
+    })
     graph.renameGraph('graph-1', '生产拓扑')
     files.markClean('/tmp/production.mocktrue.json', { clean: true }, 'graph-1')
     graph.addNode('serial.sender')
@@ -96,44 +104,55 @@ describe('SerialView graph workspace layout', () => {
 
     const wrapper = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
-    expect(wrapper.find('.tabs-json').text()).toContain('生产拓扑*')
-    expect(wrapper.find('.tabs-json').text()).toContain('/tmp/production.mocktrue.json')
+    const tab = wrapper.find('[data-testid="editor-tab-graph-1"]')
+    expect(tab.find('.editor-tab__label').text()).toBe('生产拓扑*')
+    expect(tab.attributes('title')).toContain('/tmp/production.mocktrue.json')
   })
 
   it('filters legacy non-graph tabs from restored layout', async () => {
+    const graph = useSerialGraphStore()
+    graph.restoreState({
+      graphs: [defaultSerialGraphDocument('graph-1', '拓扑 A')],
+      activeGraphId: 'graph-1',
+    })
+    graph.renameGraph('graph-1', '拓扑 A')
+
     const workspace = useSerialWorkspaceStore()
     workspace.setEditorLayout({
       type: 'group',
       id: 'group-main',
       tabs: ['port-1', 'monitor:mon-1', 'modbus:modbus-1', 'fecbus:fec-1', 'graph:graph-1'],
     })
-    workspace.setActiveByGroup({ 'group-main': 'modbus:modbus-1' })
 
     const wrapper = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
-    expect(wrapper.find('.layout-json').text()).toContain('graph:graph-1')
-    expect(wrapper.find('.layout-json').text()).not.toContain('port-1')
-    expect(wrapper.find('.layout-json').text()).not.toContain('monitor:mon-1')
-    expect(wrapper.find('.layout-json').text()).not.toContain('modbus:modbus-1')
-    expect(wrapper.find('.layout-json').text()).not.toContain('fecbus:fec-1')
-    expect(wrapper.find('.tabs-json').text()).not.toContain('"kind":"serial"')
-    expect(wrapper.find('.tabs-json').text()).not.toContain('"kind":"monitor"')
-    expect(wrapper.find('.tabs-json').text()).not.toContain('"kind":"modbus"')
-    expect(wrapper.find('.tabs-json').text()).not.toContain('"kind":"fecbus"')
+    expect(wrapper.findAll('.editor-tab__label').map(tab => tab.text())).toEqual(['拓扑 A'])
+    expect(wrapper.find('[data-testid="editor-tab-graph-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="editor-tab-port-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="editor-tab-monitor-mon-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="editor-tab-modbus-modbus-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="editor-tab-fecbus-fec-1"]').exists()).toBe(false)
   })
 
   it('focuses the graph tab when legacy serial module view ids are selected', async () => {
+    const graph = useSerialGraphStore()
+    graph.restoreState({
+      graphs: [defaultSerialGraphDocument('graph-1', '拓扑 A')],
+      activeGraphId: 'graph-1',
+    })
+    graph.renameGraph('graph-1', '拓扑 A')
+
     const wrapper = mount(SerialView, {
       props: { activeViewId: 'serial.open', activeViewVersion: 1 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
@@ -162,10 +181,12 @@ describe('SerialView graph workspace layout', () => {
       ],
       activeGraphId: 'graph-1',
     })
+    graph.renameGraph('graph-1', '拓扑 A')
+    graph.renameGraph('graph-2', '拓扑 B')
 
     const wrapper = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
@@ -194,10 +215,11 @@ describe('SerialView graph workspace layout', () => {
       graphs: [defaultSerialGraphDocument('graph-1', '唯一拓扑')],
       activeGraphId: 'graph-1',
     })
+    graph.renameGraph('graph-1', '唯一拓扑')
 
     const wrapper = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
@@ -218,6 +240,10 @@ describe('SerialView graph workspace layout', () => {
   it('asks before closing a graph editor tab with unsaved changes', async () => {
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
+    graph.restoreState({
+      graphs: [defaultSerialGraphDocument('graph-1', '未保存拓扑')],
+      activeGraphId: 'graph-1',
+    })
     graph.renameGraph('graph-1', '未保存拓扑')
     files.markClean('/tmp/dirty.mocktrue.json', { clean: true }, 'graph-1')
     graph.addNode('serial.sender')
@@ -229,7 +255,7 @@ describe('SerialView graph workspace layout', () => {
 
     const wrapper = mount(SerialView, {
       props: { activeViewId: null, activeViewVersion: 0 },
-      global: { stubs },
+      global: { stubs: viewStubs },
     })
     await nextTick()
 
@@ -247,38 +273,15 @@ describe('SerialView graph workspace layout', () => {
   })
 })
 
-const stubs = {
-  EditorLayoutNode: {
-    props: ['node', 'activeByGroup', 'tabs'],
-    emits: ['setActiveTab', 'closeTab'],
-    template: `
-      <div>
-        <pre class="layout-json">{{ JSON.stringify(node) }} {{ JSON.stringify(activeByGroup) }}</pre>
-        <pre class="tabs-json">{{ JSON.stringify(tabs) }}</pre>
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          :data-testid="'editor-tab-' + tab.sourceId"
-          type="button"
-          @click="$emit('setActiveTab', 'group-1', tab.id)"
-        >
-          {{ tab.name }}
-        </button>
-        <button
-          v-for="tab in tabs"
-          :key="'close-' + tab.id"
-          :data-testid="'close-graph-' + tab.sourceId"
-          type="button"
-          @click="$emit('closeTab', tab.id)"
-        >
-          close
-        </button>
-        <div
-          v-for="tab in tabs"
-          :key="'panel-' + tab.id"
-          :data-testid="'graph-panel-' + tab.sourceId"
-        />
-      </div>
-    `,
+const viewStubs = {
+  SerialGraphPanel: {
+    props: ['graphId'],
+    template: '<div data-testid="serial-graph-panel-stub" />',
+  },
+  Splitpanes: {
+    template: '<div class="splitpanes"><slot /></div>',
+  },
+  Pane: {
+    template: '<div class="pane"><slot /></div>',
   },
 }

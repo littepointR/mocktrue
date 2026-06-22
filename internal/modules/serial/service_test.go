@@ -9,8 +9,16 @@ import (
 	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
 	"github.com/littepointR/mocktrue/internal/modules/serial/monitor"
 	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/modules/serial/porttest"
 	goserial "go.bug.st/serial"
 )
+
+func newMemoryServiceWithPair(t *testing.T, a, b string) (*Service, *porttest.MemoryBackend) {
+	t.Helper()
+	backend := porttest.NewMemoryBackend()
+	backend.AddPair(a, b)
+	return NewService(eventbus.New(), WithPortBackend(backend)), backend
+}
 
 func TestServicePing(t *testing.T) {
 	t.Parallel()
@@ -88,32 +96,23 @@ func TestServiceRestoreCountersRejectsInvalidInputs(t *testing.T) {
 }
 
 func TestServiceResetCountersClearsOpenHandleStats(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping socat integration test in short mode")
-	}
-	pair, err := port.StartVirtualPair(context.Background())
-	if err != nil {
-		t.Skipf("socat not available: %v", err)
-	}
-	defer pair.Stop()
-
-	svc := NewService(eventbus.New())
+	svc, backend := newMemoryServiceWithPair(t, "memA", "memB")
 	handle, err := svc.OpenPort(context.Background(), manager.OpenRequest{
-		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+		Config: porttest.DefaultSerialConfig("memA"),
 	})
 	if err != nil {
 		t.Fatalf("OpenPort: %v", err)
 	}
-	defer svc.ClosePort(handle.ID)
+	defer func() { _ = svc.ClosePort(handle.ID) }()
 
 	if _, err := svc.Send(SendRequest{PortID: handle.ID, Content: "tx", Mode: "ascii"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	conn, err := port.OpenForTest(pair.Port2, 115200)
+	conn, err := backend.Open(porttest.DefaultSerialConfig("memB"))
 	if err != nil {
-		t.Fatalf("OpenForTest: %v", err)
+		t.Fatalf("Open memory peer: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Write([]byte("rx")); err != nil {
 		t.Fatalf("Write rx: %v", err)
 	}
@@ -141,23 +140,14 @@ func TestServiceResetCountersClearsOpenHandleStats(t *testing.T) {
 }
 
 func TestServiceRestoreCountersSetsOpenHandleStats(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping socat integration test in short mode")
-	}
-	pair, err := port.StartVirtualPair(context.Background())
-	if err != nil {
-		t.Skipf("socat not available: %v", err)
-	}
-	defer pair.Stop()
-
-	svc := NewService(eventbus.New())
+	svc, _ := newMemoryServiceWithPair(t, "memA", "memB")
 	handle, err := svc.OpenPort(context.Background(), manager.OpenRequest{
-		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+		Config: porttest.DefaultSerialConfig("memA"),
 	})
 	if err != nil {
 		t.Fatalf("OpenPort: %v", err)
 	}
-	defer svc.ClosePort(handle.ID)
+	defer func() { _ = svc.ClosePort(handle.ID) }()
 
 	if err := svc.RestoreCounters(handle.ID, 42, 17); err != nil {
 		t.Fatalf("RestoreCounters: %v", err)
@@ -196,25 +186,16 @@ func TestServiceCreateVirtualPortRejectsEmptyInputs(t *testing.T) {
 }
 
 func TestServiceOpenPortReturnsExistingHandleForDuplicatePort(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping socat integration test in short mode")
-	}
-	pair, err := port.StartVirtualPair(context.Background())
-	if err != nil {
-		t.Skipf("socat not available: %v", err)
-	}
-	defer pair.Stop()
-
-	svc := NewService(eventbus.New())
+	svc, _ := newMemoryServiceWithPair(t, "memA", "memB")
 	req := manager.OpenRequest{
-		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+		Config: porttest.DefaultSerialConfig("memA"),
 	}
 
 	first, err := svc.OpenPort(context.Background(), req)
 	if err != nil {
 		t.Fatalf("first OpenPort failed: %v", err)
 	}
-	defer svc.ClosePort(first.ID)
+	defer func() { _ = svc.ClosePort(first.ID) }()
 
 	second, err := svc.OpenPort(context.Background(), req)
 	if err != nil {

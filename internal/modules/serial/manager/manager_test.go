@@ -7,7 +7,31 @@ import (
 
 	"github.com/littepointR/mocktrue/internal/core/eventbus"
 	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/mocktrue/internal/modules/serial/porttest"
 )
+
+func TestNewManagerUsesRealBackendByDefault(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager(eventbus.New())
+	if mgr.backend == nil {
+		t.Fatal("NewManager must initialize a default backend")
+	}
+	if _, ok := mgr.backend.(port.RealBackend); !ok {
+		t.Fatalf("NewManager backend = %T, want port.RealBackend", mgr.backend)
+	}
+}
+
+func TestNewManagerAcceptsInjectedBackend(t *testing.T) {
+	t.Parallel()
+	backend := fakeBackend{}
+	mgr := NewManager(eventbus.New(), WithBackend(backend))
+	if mgr.backend == nil {
+		t.Fatal("NewManager must keep injected backend")
+	}
+	if _, ok := mgr.backend.(fakeBackend); !ok {
+		t.Fatalf("NewManager backend = %T, want fakeBackend", mgr.backend)
+	}
+}
 
 func TestManagerOpenRejectsEmptyPortName(t *testing.T) {
 	t.Parallel()
@@ -56,21 +80,16 @@ func TestManagerListReturnsSnapshot(t *testing.T) {
 	}
 }
 
-// TestReadLoopWithSocat verifies the full read loop using a socat virtual
-// serial pair. This is the core integration test for stage 1.
-func TestReadLoopWithSocat(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping socat integration test in short mode")
-	}
-	// Start socat virtual pair
-	pair, err := port.StartVirtualPair(context.Background())
-	if err != nil {
-		t.Skipf("socat not available: %v", err)
-	}
-	defer pair.Stop()
+// TestReadLoopWithMemoryBackend verifies the full read loop using a deterministic
+// in-memory serial pair. Real OS serial-pair checks live in opt-in integration
+// tests so default tests stay cross-platform.
+func TestReadLoopWithMemoryBackend(t *testing.T) {
+	t.Parallel()
+	backend := porttest.NewMemoryBackend()
+	backend.AddPair("memA", "memB")
 
 	bus := eventbus.New()
-	mgr := NewManager(bus)
+	mgr := NewManager(bus, WithBackend(backend))
 
 	// Collect DataEvents
 	received := make(chan DataEvent, 64)
@@ -82,18 +101,18 @@ func TestReadLoopWithSocat(t *testing.T) {
 
 	// Open one end of the pair
 	handle, err := mgr.Open(context.Background(), OpenRequest{
-		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+		Config: porttest.DefaultSerialConfig("memA"),
 	})
 	if err != nil {
-		t.Fatalf("Open %s failed: %v", pair.Port1, err)
+		t.Fatalf("Open memA failed: %v", err)
 	}
 
 	// Write to the other end
-	conn, err := port.OpenForTest(pair.Port2, 115200)
+	conn, err := backend.Open(porttest.DefaultSerialConfig("memB"))
 	if err != nil {
-		t.Fatalf("OpenForTest %s failed: %v", pair.Port2, err)
+		t.Fatalf("Open memB failed: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	testData := []byte("hello")
 	_, err = conn.Write(testData)
@@ -129,17 +148,12 @@ func TestReadLoopWithSocat(t *testing.T) {
 }
 
 func TestReadLoopSurvivesRequestContextCancellation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping socat integration test in short mode")
-	}
-	pair, err := port.StartVirtualPair(context.Background())
-	if err != nil {
-		t.Skipf("socat not available: %v", err)
-	}
-	defer pair.Stop()
+	t.Parallel()
+	backend := porttest.NewMemoryBackend()
+	backend.AddPair("memA", "memB")
 
 	bus := eventbus.New()
-	mgr := NewManager(bus)
+	mgr := NewManager(bus, WithBackend(backend))
 
 	received := make(chan DataEvent, 1)
 	bus.Subscribe("serial:data", func(data any) {
@@ -150,21 +164,21 @@ func TestReadLoopSurvivesRequestContextCancellation(t *testing.T) {
 
 	reqCtx, cancel := context.WithCancel(context.Background())
 	handle, err := mgr.Open(reqCtx, OpenRequest{
-		Config: port.SerialConfig{PortName: pair.Port1, BaudRate: 115200},
+		Config: porttest.DefaultSerialConfig("memA"),
 	})
 	if err != nil {
-		t.Fatalf("Open %s failed: %v", pair.Port1, err)
+		t.Fatalf("Open memA failed: %v", err)
 	}
-	defer mgr.Close(handle.ID)
+	defer func() { _ = mgr.Close(handle.ID) }()
 
 	cancel()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := port.OpenForTest(pair.Port2, 115200)
+	conn, err := backend.Open(porttest.DefaultSerialConfig("memB"))
 	if err != nil {
-		t.Fatalf("OpenForTest %s failed: %v", pair.Port2, err)
+		t.Fatalf("Open memB failed: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write([]byte("alive")); err != nil {
 		t.Fatalf("Write failed: %v", err)
@@ -178,4 +192,14 @@ func TestReadLoopSurvivesRequestContextCancellation(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timeout waiting for DataEvent after request context cancellation")
 	}
+}
+
+type fakeBackend struct{}
+
+func (fakeBackend) Enumerate(ctx context.Context) ([]port.PortInfo, error) {
+	return nil, nil
+}
+
+func (fakeBackend) Open(cfg port.SerialConfig) (port.Port, error) {
+	return nil, nil
 }

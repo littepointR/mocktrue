@@ -17,15 +17,35 @@ type PortManager struct {
 	mu      sync.RWMutex
 	handles map[string]*Handle
 	bus     *eventbus.EventBus
+	backend port.Backend
 	nextID  atomic.Int64
 }
 
+// Option customizes a PortManager during construction.
+type Option func(*PortManager)
+
+// WithBackend injects the serial backend used to open ports. A nil backend is
+// ignored so callers can compose options without disabling the production
+// default.
+func WithBackend(backend port.Backend) Option {
+	return func(m *PortManager) {
+		if backend != nil {
+			m.backend = backend
+		}
+	}
+}
+
 // NewManager constructs a PortManager that emits events on the given bus.
-func NewManager(bus *eventbus.EventBus) *PortManager {
-	return &PortManager{
+func NewManager(bus *eventbus.EventBus, options ...Option) *PortManager {
+	m := &PortManager{
 		handles: make(map[string]*Handle),
 		bus:     bus,
+		backend: port.RealBackend{},
 	}
+	for _, option := range options {
+		option(m)
+	}
+	return m
 }
 
 // Open opens a serial port and starts a read loop. Returns the handle ID.
@@ -50,7 +70,7 @@ func (m *PortManager) Open(ctx context.Context, req OpenRequest) (*HandleStatus,
 	}
 
 	// Open the port
-	p, err := port.Open(req.Config)
+	p, err := m.backend.Open(req.Config)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeIO, fmt.Sprintf("open port %s", req.Config.PortName), err)
 	}

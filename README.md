@@ -95,6 +95,8 @@ go test ./internal/modules/serial/... -count=1
 go test ./... -count=1
 ```
 
+Windows 虚拟 COM 集成测试是可选流程，详见 [Windows Serial Testing](docs/development/windows-serial-testing.md)。
+
 ## 项目结构 / Project Structure
 
 ```text

@@ -1,4 +1,11 @@
 import { vi } from 'vitest'
+import { config } from '@vue/test-utils'
+
+config.global.renderStubDefaultSlot = true
+config.global.stubs = {
+  transition: false,
+  'transition-group': false,
+}
 
 if (!document.queryCommandSupported) {
   document.queryCommandSupported = vi.fn(() => false)

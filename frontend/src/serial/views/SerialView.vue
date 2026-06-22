@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import EditorLayoutNode from './EditorLayoutNode.vue'
 import type {
   EditorGroupNode,
@@ -47,10 +47,6 @@ const tabs = computed(() => graphStore.graphList.map(graph => ({
   sourceId: graph.id,
   tooltip: workspaceFile.graphTooltip(graph.id),
 })))
-
-onMounted(() => {
-  focusGraphTab()
-})
 
 onUnmounted(() => {
   stopTabDrag()

@@ -46,6 +46,8 @@ For broader backend changes:
 go test ./... -count=1
 ```
 
+Optional Windows real-COM integration uses a preconfigured com0com pair; see [Windows Serial Testing](docs/development/windows-serial-testing.md).
+
 ## Commit Guidelines
 
 Use focused commits and Conventional Commit messages, for example:

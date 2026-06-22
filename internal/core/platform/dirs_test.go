@@ -3,6 +3,7 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -16,13 +17,7 @@ func TestResolvePathsRequiresAppName(t *testing.T) {
 
 func TestResolvePathsCreatesAllDirsAbsoluteUnderIsolatedHome(t *testing.T) {
 	// Not parallel: mutates process environment via t.Setenv.
-	tmp := t.TempDir()
-	// os.UserConfigDir/UserCacheDir read $HOME on macOS and the XDG_* vars
-	// on Linux, so redirecting HOME isolates every platform.
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+	tmp := isolateUserDirs(t)
 
 	paths, err := ResolvePaths("mocktrue-test")
 	if err != nil {
@@ -52,6 +47,24 @@ func TestResolvePathsCreatesAllDirsAbsoluteUnderIsolatedHome(t *testing.T) {
 			t.Fatalf("%s must exist as a directory, got err=%v", name, err)
 		}
 	}
+}
+
+func isolateUserDirs(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	// os.UserConfigDir/UserCacheDir read $HOME on macOS, XDG_* on Linux,
+	// and APPDATA/LOCALAPPDATA/USERPROFILE on Windows, so redirect every
+	// platform's inputs to keep this test isolated from the real user profile.
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+	if runtime.GOOS == "windows" {
+		t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+		t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "AppData", "Local"))
+		t.Setenv("USERPROFILE", tmp)
+	}
+	return tmp
 }
 
 func TestEnsureDirCreatesNested(t *testing.T) {

@@ -29,15 +29,32 @@ type Service struct {
 	modbus              *mb.Manager
 	fecbus              *fb.Manager
 	vmgr                *virtualserial.Manager
+	serialBackend       port.Backend
 	buffers             map[string]*buffer.RingBuffer // keyed by handle ID
 	autoMonitorVirtuals map[string]string
 	graphs              map[string]*serialGraphRuntime
 	subscribed          bool
 }
 
+// ServiceOption customizes a Service during construction.
+type ServiceOption func(*Service)
+
+// WithPortBackend injects the serial backend used for enumeration and opening
+// ports. A nil backend is ignored so production defaults remain safe.
+func WithPortBackend(backend port.Backend) ServiceOption {
+	return func(s *Service) {
+		if backend != nil {
+			s.serialBackend = backend
+		}
+	}
+}
+
 // NewService constructs a Service with the given event bus.
-func NewService(bus *eventbus.EventBus) *Service {
+func NewService(bus *eventbus.EventBus, options ...ServiceOption) *Service {
 	svc := &Service{}
+	for _, option := range options {
+		option(svc)
+	}
 	svc.init(bus)
 	return svc
 }
@@ -51,8 +68,11 @@ func (s *Service) init(bus *eventbus.EventBus) {
 		s.bus = bus
 	}
 	activeBus := s.bus
+	if s.serialBackend == nil {
+		s.serialBackend = port.RealBackend{}
+	}
 	if s.manager == nil {
-		s.manager = manager.NewManager(activeBus)
+		s.manager = manager.NewManager(activeBus, manager.WithBackend(s.serialBackend))
 	}
 	if s.monitors == nil {
 		s.monitors = monitor.NewManager()
@@ -112,7 +132,8 @@ func (s *Service) Ping(ctx context.Context, msg string) (string, error) {
 
 // EnumeratePorts returns available serial ports.
 func (s *Service) EnumeratePorts(ctx context.Context) ([]port.PortInfo, error) {
-	ports, err := port.Enumerate(ctx)
+	s.init(nil)
+	ports, err := s.serialBackend.Enumerate(ctx)
 	if err != nil {
 		return nil, err
 	}

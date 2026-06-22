@@ -30,6 +30,14 @@ function forwardCloseTab(handleId: string) {
 function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: string) {
   emit('tabPointerDown', event, groupId, handleId)
 }
+
+function tabInfo(handleId: string) {
+  return tabById.value.get(handleId)
+}
+
+function tabSourceId(handleId: string) {
+  return tabInfo(handleId)?.sourceId ?? handleId
+}
 </script>
 
 <template>
@@ -65,14 +73,16 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
         :key="handleId"
         class="editor-tab n-tabs-tab"
         :class="{ 'editor-tab--active': activeByGroup[node.id] === handleId }"
-        :title="tabById.get(handleId)?.tooltip ?? tabById.get(handleId)?.name ?? handleId"
+        :title="tabInfo(handleId)?.tooltip ?? tabInfo(handleId)?.name ?? handleId"
+        :data-testid="'editor-tab-' + tabSourceId(handleId)"
         type="button"
         @click="emit('setActiveTab', node.id, handleId)"
         @pointerdown="emit('tabPointerDown', $event, node.id, handleId)"
       >
-        <span class="editor-tab__label">{{ tabById.get(handleId)?.name ?? handleId }}</span>
+        <span class="editor-tab__label">{{ tabInfo(handleId)?.name ?? handleId }}</span>
         <span
           class="editor-tab__close n-tabs-tab__close"
+          :data-testid="'close-graph-' + tabSourceId(handleId)"
           role="button"
           tabindex="0"
           @pointerdown.stop
@@ -83,10 +93,13 @@ function forwardTabPointerDown(event: PointerEvent, groupId: string, handleId: s
       </button>
     </div>
     <div class="editor-group__content">
-      <SerialGraphPanel
+      <div
         v-if="activeByGroup[node.id] && tabById.get(activeByGroup[node.id]!)?.kind === 'graph'"
-        :graph-id="tabById.get(activeByGroup[node.id]!)!.sourceId"
-      />
+        class="editor-group__panel"
+        :data-testid="'graph-panel-' + tabById.get(activeByGroup[node.id]!)!.sourceId"
+      >
+        <SerialGraphPanel :graph-id="tabById.get(activeByGroup[node.id]!)!.sourceId" />
+      </div>
     </div>
   </div>
 </template>

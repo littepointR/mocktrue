@@ -13,7 +13,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="sidebar">
+  <div class="sidebar" data-testid="sidebar">
     <template v-for="c in contributions" :key="c.moduleId">
       <div v-if="c.moduleId === activeId" class="sidebar__group">
         <div class="sidebar__title">{{ c.activity.title }}</div>
@@ -23,6 +23,7 @@ defineEmits<{
           class="sidebar__item"
           :class="{ 'is-active': v.id === activeViewId }"
           :title="v.title"
+          :data-testid="'sidebar-view-' + v.id"
           type="button"
           @click="$emit('selectView', v.id)"
         >

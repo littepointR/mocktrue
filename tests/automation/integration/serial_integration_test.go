@@ -1,4 +1,4 @@
-//go:build integration
+//go:build (darwin || linux) && integration
 
 // Package integration 提供后端的真实集成测试。
 // 使用 socat 创建虚拟串口对，验证端到端数据流。

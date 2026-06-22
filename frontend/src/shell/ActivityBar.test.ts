@@ -34,15 +34,15 @@ describe('ActivityBar', () => {
   })
 
   it('emits the selected module id when an activity is clicked', async () => {
-    const wrapper = mount(ActivityBar, {
-      props: {
-        contributions,
-        activeId: null,
-      },
+    const selected: string[] = []
+    const wrapper = mount({
+      components: { ActivityBar },
+      setup: () => ({ contributions, activeId: null, selected }),
+      template: '<ActivityBar :contributions="contributions" :active-id="activeId" @select="selected.push($event)" />',
     })
 
     await wrapper.findAll('.activity-bar__item')[0].trigger('click')
 
-    expect(wrapper.emitted('select')).toEqual([['serial']])
+    expect(selected).toEqual(['serial'])
   })
 })

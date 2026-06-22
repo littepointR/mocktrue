@@ -51,8 +51,15 @@ jobs:
         run: pnpm run build:dev
 
   backend:
-    name: backend
-    runs-on: macos-latest
+    name: backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -66,5 +73,8 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
-      - name: Run serial backend tests
-        run: go test ./internal/modules/serial/... -count=1
+      - name: Run core and serial backend tests
+        run: go test ./internal/core/... ./internal/modules/serial/... -count=1
+
+      - name: Run opt-in integration packages without hardware
+        run: go test -tags integration -timeout 120s ./tests/go/integration ./tests/automation/integration -count=1

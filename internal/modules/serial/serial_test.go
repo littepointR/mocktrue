@@ -68,6 +68,17 @@ func TestModuleInitWiresEmptyService(t *testing.T) {
 	}
 }
 
+func TestNewServiceAcceptsPortBackend(t *testing.T) {
+	backend := fakePortBackend{}
+	svc := NewService(eventbus.New(), WithPortBackend(backend))
+	if svc.serialBackend == nil {
+		t.Fatal("NewService must keep injected serial backend")
+	}
+	if _, ok := svc.serialBackend.(fakePortBackend); !ok {
+		t.Fatalf("NewService backend = %T, want fakePortBackend", svc.serialBackend)
+	}
+}
+
 func TestNewServiceNilBusIsUsable(t *testing.T) {
 	t.Parallel()
 	svc := NewService(nil)
@@ -224,4 +235,14 @@ func TestModuleStopCleansSerialResources(t *testing.T) {
 	}
 
 	m.Dispose()
+}
+
+type fakePortBackend struct{}
+
+func (fakePortBackend) Enumerate(ctx context.Context) ([]port.PortInfo, error) {
+	return nil, nil
+}
+
+func (fakePortBackend) Open(cfg port.SerialConfig) (port.Port, error) {
+	return nil, nil
 }

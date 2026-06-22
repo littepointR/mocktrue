@@ -13,6 +13,10 @@ function iconGlyph(icon: string): string {
 function isBottomActivity(moduleId: string): boolean {
   return moduleId === 'settings'
 }
+
+function handleSelect(moduleId: string) {
+  emit('select', moduleId)
+}
 </script>
 
 <template>
@@ -26,7 +30,8 @@ function isBottomActivity(moduleId: string): boolean {
         'activity-bar__item--bottom': isBottomActivity(c.moduleId),
       }"
       :title="c.activity.title"
-      @click="emit('select', c.moduleId)"
+      :data-testid="'activity-' + c.moduleId"
+      @click="handleSelect(c.moduleId)"
     >
       <span class="activity-bar__icon">{{ iconGlyph(c.activity.icon) }}</span>
     </button>

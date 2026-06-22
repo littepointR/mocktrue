@@ -172,6 +172,149 @@ func TestSerialGraphRuntimeTapFansOut(t *testing.T) {
 	}
 }
 
+func TestSerialGraphRuntimeFilterForwardsPlainMatchesAndDropsMismatches(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-filter-plain",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender"},
+			{ID: "filter", Type: "serial.filter", Config: map[string]any{"mode": "plain", "expression": "OK"}},
+			{ID: "receiver", Type: "serial.receiver"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-sender-filter", Source: "sender", SourceHandle: "out", Target: "filter", TargetHandle: "in"},
+			{ID: "edge-filter-receiver", Source: "filter", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: "ok telemetry", Mode: "ascii"}); err != nil {
+		t.Fatalf("SendSerialGraphNode(match) returned error: %v", err)
+	}
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: "drop telemetry", Mode: "ascii"}); err != nil {
+		t.Fatalf("SendSerialGraphNode(drop) returned error: %v", err)
+	}
+
+	page, err := svc.QuerySerialGraphNodeBuffer(SerialGraphBufferQuery{GraphID: graph.ID, NodeID: "receiver", Offset: 0, Length: 64})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeBuffer returned error: %v", err)
+	}
+	if string(page.Data) != "ok telemetry" {
+		t.Fatalf("receiver data = %q, want only matching payload", string(page.Data))
+	}
+	info, err := svc.GetSerialGraphStatus(graph.ID)
+	if err != nil {
+		t.Fatalf("GetSerialGraphStatus returned error: %v", err)
+	}
+	filter := graphNodeStatus(info, "filter")
+	if filter.RxBytes != int64(len("ok telemetry")+len("drop telemetry")) || filter.TxBytes != int64(len("ok telemetry")) {
+		t.Fatalf("filter rx/tx = %d/%d, want all input counted and only matching bytes forwarded", filter.RxBytes, filter.TxBytes)
+	}
+}
+
+func TestSerialGraphRuntimeFilterHonorsCaseSensitiveWholeWordRegexAndExpression(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     map[string]any
+		sends      []SerialGraphSendRequest
+		wantBuffer string
+	}{
+		{
+			name:   "case sensitive whole word plain filter",
+			config: map[string]any{"mode": "plain", "expression": "ok", "caseSensitive": true, "wholeWord": true},
+			sends: []SerialGraphSendRequest{
+				{Content: "token", Mode: "ascii"},
+				{Content: "OK", Mode: "ascii"},
+				{Content: "ok", Mode: "ascii"},
+			},
+			wantBuffer: "ok",
+		},
+		{
+			name:       "case insensitive regex filter",
+			config:     map[string]any{"mode": "regex", "expression": `temp=\d+`},
+			sends:      []SerialGraphSendRequest{{Content: "TEMP=42", Mode: "ascii"}, {Content: "humidity=10", Mode: "ascii"}},
+			wantBuffer: "TEMP=42",
+		},
+		{
+			name:       "wireshark-like expression filter",
+			config:     map[string]any{"mode": "expression", "expression": `len >= 4 and hex contains "0d0a"`},
+			sends:      []SerialGraphSendRequest{{Content: "00 ff", Mode: "hex"}, {Content: "0d 0a ff aa", Mode: "hex"}},
+			wantBuffer: string([]byte{0x0d, 0x0a, 0xff, 0xaa}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(nil)
+			defer svc.cleanup()
+			graph := startTestGraph(t, svc, SerialGraphStartRequest{
+				ID: "graph-filter-" + strings.ReplaceAll(tt.name, " ", "-"),
+				Nodes: []SerialGraphNodeSpec{
+					{ID: "sender", Type: "serial.sender"},
+					{ID: "filter", Type: "serial.filter", Config: tt.config},
+					{ID: "receiver", Type: "serial.receiver"},
+				},
+				Edges: []SerialGraphEdgeSpec{
+					{ID: "edge-sender-filter", Source: "sender", SourceHandle: "out", Target: "filter", TargetHandle: "in"},
+					{ID: "edge-filter-receiver", Source: "filter", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+				},
+			})
+			for _, send := range tt.sends {
+				send.GraphID = graph.ID
+				send.NodeID = "sender"
+				if _, err := svc.SendSerialGraphNode(send); err != nil {
+					t.Fatalf("SendSerialGraphNode(%q) returned error: %v", send.Content, err)
+				}
+			}
+			page, err := svc.QuerySerialGraphNodeBuffer(SerialGraphBufferQuery{GraphID: graph.ID, NodeID: "receiver", Offset: 0, Length: 64})
+			if err != nil {
+				t.Fatalf("QuerySerialGraphNodeBuffer returned error: %v", err)
+			}
+			if string(page.Data) != tt.wantBuffer {
+				t.Fatalf("receiver data = %q (%s), want %q (%s)", string(page.Data), formatHexBytes(page.Data), tt.wantBuffer, formatHexBytes([]byte(tt.wantBuffer)))
+			}
+		})
+	}
+}
+
+func TestSerialGraphRuntimeFilterInvalidExpressionMarksErrorAndDrops(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-filter-invalid",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender"},
+			{ID: "filter", Type: "serial.filter", Config: map[string]any{"mode": "regex", "expression": "[unterminated"}},
+			{ID: "receiver", Type: "serial.receiver"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-sender-filter", Source: "sender", SourceHandle: "out", Target: "filter", TargetHandle: "in"},
+			{ID: "edge-filter-receiver", Source: "filter", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: "anything", Mode: "ascii"}); err != nil {
+		t.Fatalf("SendSerialGraphNode returned error: %v", err)
+	}
+	page, err := svc.QuerySerialGraphNodeBuffer(SerialGraphBufferQuery{GraphID: graph.ID, NodeID: "receiver", Offset: 0, Length: 64})
+	if err != nil {
+		t.Fatalf("QuerySerialGraphNodeBuffer returned error: %v", err)
+	}
+	if page.Total != 0 || len(page.Data) != 0 {
+		t.Fatalf("receiver buffer total=%d len=%d, want invalid filter to drop", page.Total, len(page.Data))
+	}
+	info, err := svc.GetSerialGraphStatus(graph.ID)
+	if err != nil {
+		t.Fatalf("GetSerialGraphStatus returned error: %v", err)
+	}
+	filter := graphNodeStatus(info, "filter")
+	if filter.Status != SerialGraphStatusError || !strings.Contains(filter.Error, "invalid regex") {
+		t.Fatalf("filter status=%q error=%q, want invalid regex error", filter.Status, filter.Error)
+	}
+}
+
 func TestSerialGraphRuntimeBridgeRoutesOppositeSide(t *testing.T) {
 	svc := NewService(nil)
 	defer svc.cleanup()

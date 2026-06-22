@@ -762,6 +762,8 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 		node.appendBuffer(data)
 	case "serial.monitor":
 		node.appendFrame(data)
+	case "serial.filter":
+		r.handleFilter(node, data)
 	case "serial.script.transform":
 		r.handleScriptTransform(node, data)
 	case "serial.script.analyzer":
@@ -806,6 +808,44 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 	case "serial.fecbus.master":
 		node.appendBuffer(data)
 	}
+}
+
+func (r *serialGraphRuntime) handleFilter(node *serialGraphRuntimeNode, data []byte) {
+	text, err := decodeSerialText(data, graphStringConfigWithDefault(node.spec.Config, "encoding", "utf-8"))
+	if err != nil {
+		text = string(data)
+	}
+	hex := formatHexBytes(data)
+	matched, err := matchSerialGraphFilter(serialGraphFilterCandidate{
+		Len:         len(data),
+		ByteLength:  len(data),
+		ByteCount:   len(data),
+		Text:        text,
+		Hex:         hex,
+		Source:      "serial.filter",
+		GraphID:     r.id,
+		NodeID:      node.spec.ID,
+		NodeType:    node.spec.Type,
+		Direction:   "rx",
+		PayloadText: text,
+		PayloadHex:  hex,
+		Action:      "filter",
+		Category:    "serial.graph",
+	}, serialGraphFilterOptions{
+		Mode:          graphStringConfigWithDefault(node.spec.Config, "mode", "plain"),
+		Expression:    graphStringConfigRaw(node.spec.Config, "expression"),
+		CaseSensitive: graphBoolConfig(node.spec.Config, "caseSensitive", false),
+		WholeWord:     graphBoolConfig(node.spec.Config, "wholeWord", false),
+	})
+	if err != nil {
+		node.setStatus(SerialGraphStatusError, err.Error())
+		return
+	}
+	if !matched {
+		return
+	}
+	node.addTx(len(data))
+	r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, data)
 }
 
 func (r *serialGraphRuntime) handleScriptTransform(node *serialGraphRuntimeNode, data []byte) {
@@ -1979,6 +2019,7 @@ func serialGraphRuntimeProviders() []serialGraphProviderSpec {
 		{Type: "serial.virtual", Inputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "output"}}, ResourceOwner: true, ResourceKeys: []string{"portName"}},
 		{Type: "serial.bridge", Inputs: []serialGraphPortSpec{{ID: "a-in", Kind: "bytes", Direction: "input"}, {ID: "b-in", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "a-out", Kind: "bytes", Direction: "output"}, {ID: "b-out", Kind: "bytes", Direction: "output"}}},
 		{Type: "serial.monitor", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{}},
+		{Type: "serial.filter", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{bytesOut}},
 		{Type: "serial.tap", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
 		{Type: "serial.tee", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
 		{Type: "serial.sender", Outputs: []serialGraphPortSpec{bytesOut}},

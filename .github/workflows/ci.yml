@@ -70,6 +70,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install Linux backend dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config \
+            socat
+
       - name: Download Go modules
         run: go mod download
 

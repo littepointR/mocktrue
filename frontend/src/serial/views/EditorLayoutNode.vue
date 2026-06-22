@@ -190,4 +190,12 @@ function tabSourceId(handleId: string) {
   min-width: 0;
   overflow: hidden;
 }
+.editor-group__panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 </style>

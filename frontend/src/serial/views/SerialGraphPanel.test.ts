@@ -225,7 +225,7 @@ describe('SerialGraphPanel', () => {
     expect(store.nodes.map(node => node.id)).toEqual([sender.id])
     expect(store.nodeTabs).toHaveLength(0)
     expect(wrapper.find(`[data-testid="serial-graph-node-${sender.id}"]`).exists()).toBe(true)
-    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').classes()).toContain('serial-graph__node-workbench--empty')
 
     await wrapper.find(`[data-testid="serial-graph-node-${sender.id}"]`).trigger('click')
 
@@ -275,6 +275,25 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find('[data-testid="serial-graph-canvas"]').isVisible()).toBe(true)
     expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').isVisible()).toBe(true)
     expect(wrapper.find('[data-testid="serial-graph-split-resize-handle"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('keeps an empty content pane visible in split view before a node is selected', async () => {
+    const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
+
+    expect(wrapper.find('[data-testid="serial-graph-view-split"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="serial-graph-canvas"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').classes()).toContain('serial-graph__node-workbench--empty')
+    expect(wrapper.find('[data-testid="serial-graph-empty-content"]').text()).toContain('内容区')
+    expect(wrapper.find('[data-testid="serial-graph-split-resize-handle"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="serial-graph-view-topology"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="serial-graph-canvas"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-split-resize-handle"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

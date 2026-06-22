@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SerialView from './SerialView.vue'
+import editorLayoutNodeSource from './EditorLayoutNode.vue?raw'
 import { useSerialWorkspaceStore } from '../stores/workspaceStore'
 import { useSerialGraphStore } from '../stores/graphStore'
 import { defaultSerialGraphDocument } from '../graph/serialGraph'
@@ -88,6 +89,26 @@ describe('SerialView graph workspace layout', () => {
       expect(layout.tabs).toEqual(['graph:graph-1', 'graph:graph-2'])
       expect(useSerialWorkspaceStore().activeByGroup[layout.id]).toBe('graph:graph-2')
     }
+  })
+
+  it('constrains graph panels to the editor content height so split view panes are visible', async () => {
+    const graph = useSerialGraphStore()
+    graph.restoreState({
+      graphs: [defaultSerialGraphDocument('graph-1', '拓扑 A')],
+      activeGraphId: 'graph-1',
+    })
+
+    const wrapper = mount(SerialView, {
+      props: { activeViewId: null, activeViewVersion: 0 },
+      global: { stubs: viewStubs },
+    })
+    await nextTick()
+
+    const panel = wrapper.find('[data-testid="graph-panel-graph-1"]')
+    expect(panel.classes()).toContain('editor-group__panel')
+    expect(editorLayoutNodeSource).toContain('.editor-group__panel')
+    expect(editorLayoutNodeSource).toContain('height: 100%;')
+    expect(editorLayoutNodeSource).toContain('overflow: hidden;')
   })
 
   it('shows unsaved state and path metadata on graph editor tabs', async () => {

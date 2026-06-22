@@ -53,8 +53,7 @@ They are excluded from Windows builds by `//go:build (darwin || linux) && integr
 PowerShell example:
 
 ```powershell
-$env:PATH = "$HOME\goin;C:\Program Files\Goin;D:\Program Files
-odejs;$env:PATH"
+$env:PATH = "$HOME\go\bin;C:\Program Files\Go\bin;D:\Program Files\nodejs;$env:PATH"
 wails3 dev -config ./build/config.yml -port 9245
 ```
 

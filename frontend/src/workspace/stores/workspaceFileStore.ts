@@ -22,6 +22,11 @@ import { useSettingsStore, type SerialModuleSettings } from '../../settings/stor
 
 type WorkspaceSourceKind = 'empty' | 'file' | 'demo' | 'legacy'
 
+interface OpenGraphOptions {
+  cancelPendingStartup?: boolean
+  shouldAbort?: () => boolean
+}
+
 interface GraphFileState {
   graphId: string
   path: string
@@ -39,6 +44,7 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   const states = ref<Record<string, GraphFileState>>({})
   const lastError = ref<string | null>(null)
   const selectedDemoId = ref(demos[0]?.id ?? '')
+  const startupRestoreVersion = ref(0)
 
   const graphStore = useSerialGraphStore()
   const settingsStore = useSettingsStore()
@@ -218,8 +224,11 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     return openFromPath(path)
   }
 
-  async function openFromPath(path: string) {
+  async function openFromPath(path: string, options: OpenGraphOptions = {}) {
     try {
+      if (options.cancelPendingStartup !== false) {
+        cancelPendingStartupRestore()
+      }
       const existing = graphIdByPath(path)
       if (existing) {
         graphStore.setActiveGraph(existing)
@@ -228,6 +237,9 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
       }
 
       const file = await ReadWorkspace(path)
+      if (options.shouldAbort?.()) {
+        return { graphIds: [], activeGraphId: null, reused: false, aborted: true }
+      }
       if (!file) throw new Error('config file is empty')
       const snapshot = JSON.parse(file.Content)
       const originalKind = snapshot?.kind
@@ -287,13 +299,16 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
 
   async function loadLast(): Promise<boolean> {
     try {
+      const restoreVersion = startupRestoreVersion.value
+      const shouldAbort = () => startupRestoreVersion.value !== restoreVersion
       const paths = loadRecentFiles()
       if (paths.length > 0) {
         let opened = false
         for (const path of paths) {
           try {
-            await openFromPath(path)
-            opened = true
+            if (shouldAbort()) return opened
+            const result = await openFromPath(path, { cancelPendingStartup: false, shouldAbort })
+            opened = opened || result.graphIds.length > 0
           } catch {
             // Continue opening the rest of the last session.
           }
@@ -302,9 +317,10 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
       }
 
       const file = await LoadLastWorkspace()
+      if (shouldAbort()) return false
       if (!file?.Found) return false
-      await openFromPath(file.Path)
-      return true
+      const result = await openFromPath(file.Path, { cancelPendingStartup: false, shouldAbort })
+      return result.graphIds.length > 0
     } catch (e: any) {
       setError(e?.message ?? 'Load last config failed')
       throw e
@@ -317,6 +333,8 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
       if (!snapshot) {
         throw new Error(`Unknown demo workspace: ${demoId}`)
       }
+      cancelPendingStartupRestore()
+      await removePristineEmptyGraphs()
       const tabSnapshots = graphTabSnapshotsFromUnknown(snapshot)
       const result = await restoreGraphTabSnapshot(snapshot, { activate: true })
       for (const [index, graphId] of result.graphIds.entries()) {
@@ -343,6 +361,45 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
     delete next[graphId]
     states.value = next
     persistRecentFiles()
+  }
+
+  function cancelPendingStartupRestore() {
+    startupRestoreVersion.value += 1
+  }
+
+  async function removePristineEmptyGraphs() {
+    const emptyGraphIds = graphStore.graphList
+      .map(graph => graph.id)
+      .filter(isPristineEmptyGraph)
+    for (const graphId of emptyGraphIds) {
+      await graphStore.removeGraph(graphId)
+      removeGraphState(graphId)
+    }
+  }
+
+  function isPristineEmptyGraph(graphId: string): boolean {
+    const graph = graphStore.graphById(graphId)
+    if (!graph || graph.nodes.length > 0 || graph.edges.length > 0) {
+      return false
+    }
+    const state = states.value[graphId]
+    if (!state) {
+      return true
+    }
+    return (state.sourceKind === 'empty' || state.sourceKind === 'file' || state.sourceKind === 'legacy')
+      && state.currentSnapshot === state.savedSnapshot
+      && serializedSnapshotIsEmptyGraph(state.currentSnapshot)
+  }
+
+  function serializedSnapshotIsEmptyGraph(serialized: string): boolean {
+    if (!serialized) return true
+    try {
+      const snapshot = JSON.parse(serialized)
+      const graphs = graphTabSnapshotsFromUnknown(snapshot).map(item => item.graph)
+      return graphs.length > 0 && graphs.every(graph => graph.nodes.length === 0 && graph.edges.length === 0)
+    } catch {
+      return false
+    }
   }
 
   function applyGraphSerialSettings(graphId = activeGraphId.value): boolean {

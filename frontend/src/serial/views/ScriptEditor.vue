@@ -39,6 +39,9 @@ onMounted(() => {
     scrollBeyondLastLine: false,
     wordWrap: 'on',
     fontSize: 12,
+    quickSuggestions: { other: true, comments: false, strings: false },
+    suggestOnTriggerCharacters: true,
+    tabCompletion: 'on',
   })
   syncModelNodeType()
   changeDisposable = editor.onDidChangeModelContent(() => {

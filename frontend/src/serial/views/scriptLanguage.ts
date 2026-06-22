@@ -27,8 +27,15 @@ interface ScriptSymbol {
   detail: string
   documentation: string
   kind: 'function' | 'variable' | 'field'
+  memberOf?: 'input' | 'output' | 'state'
+  memberLabel?: string
+  memberInsertText?: string
   unavailableFor?: ScriptNodeType[]
 }
+
+type CompletionContext =
+  | { kind: 'all' }
+  | { kind: 'member'; objectName: 'input' | 'output' | 'state' }
 
 type MonacoLike = {
   MarkerSeverity?: {
@@ -37,10 +44,101 @@ type MonacoLike = {
   }
   languages: {
     CompletionItemKind?: Record<string, unknown>
+    CompletionItemInsertTextRule?: Record<string, unknown>
     register?: (language: { id: string }) => unknown
     registerCompletionItemProvider?: (...args: any[]) => unknown
     registerHoverProvider?: (...args: any[]) => unknown
+    setMonarchTokensProvider?: (...args: any[]) => unknown
+    setLanguageConfiguration?: (...args: any[]) => unknown
   }
+}
+
+const scriptKeywords = [
+  'break', 'case', 'catch', 'const', 'continue', 'default', 'do', 'else', 'false',
+  'finally', 'for', 'function', 'if', 'let', 'new', 'null', 'return', 'switch',
+  'throw', 'true', 'try', 'typeof', 'undefined', 'var', 'while',
+]
+
+const scriptBuiltins = [
+  'input', 'output', 'state', 'field', 'error', 'drop', 'crc16', 'sum8', 'now',
+]
+
+const scriptMonarchLanguage = {
+  defaultToken: '',
+  tokenPostfix: '.mocktrue-script',
+  keywords: scriptKeywords,
+  builtins: scriptBuiltins,
+  tokenizer: {
+    root: [
+      [/\/\/.*$/, 'comment'],
+      [/\/\*/, 'comment', '@comment'],
+      [/"([^"\\]|\\.)*$/, 'string.invalid'],
+      [/"/, 'string', '@string_double'],
+      [/'([^'\\]|\\.)*$/, 'string.invalid'],
+      [/'/, 'string', '@string_single'],
+      [/`/, 'string', '@string_backtick'],
+      [/\b(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?)\b/, 'number'],
+      [/[{}()[\]]/, '@brackets'],
+      [/[;,.]/, 'delimiter'],
+      [/[+\-*\/%=<>!&|?:]+/, 'operator'],
+      [/[a-zA-Z_$][\w$]*/, {
+        cases: {
+          '@keywords': 'keyword',
+          '@builtins': 'predefined',
+          '@default': 'identifier',
+        },
+      }],
+      [/\s+/, 'white'],
+    ],
+    comment: [
+      [/[^/*]+/, 'comment'],
+      [/\*\//, 'comment', '@pop'],
+      [/[/*]/, 'comment'],
+    ],
+    string_double: [
+      [/[^\\"]+/, 'string'],
+      [/\\./, 'string.escape'],
+      [/"/, 'string', '@pop'],
+    ],
+    string_single: [
+      [/[^\\']+/, 'string'],
+      [/\\./, 'string.escape'],
+      [/'/, 'string', '@pop'],
+    ],
+    string_backtick: [
+      [/[^\\`]+/, 'string'],
+      [/\\./, 'string.escape'],
+      [/`/, 'string', '@pop'],
+    ],
+  },
+}
+
+const scriptLanguageConfiguration = {
+  comments: {
+    lineComment: '//',
+    blockComment: ['/*', '*/'],
+  },
+  brackets: [
+    ['{', '}'],
+    ['[', ']'],
+    ['(', ')'],
+  ],
+  autoClosingPairs: [
+    { open: '{', close: '}' },
+    { open: '[', close: ']' },
+    { open: '(', close: ')' },
+    { open: '"', close: '"' },
+    { open: "'", close: "'" },
+    { open: '`', close: '`' },
+  ],
+  surroundingPairs: [
+    { open: '{', close: '}' },
+    { open: '[', close: ']' },
+    { open: '(', close: ')' },
+    { open: '"', close: '"' },
+    { open: "'", close: "'" },
+    { open: '`', close: '`' },
+  ],
 }
 
 const symbols: ScriptSymbol[] = [
@@ -48,6 +146,9 @@ const symbols: ScriptSymbol[] = [
     label: 'input.bytes()',
     hoverWord: 'input.bytes',
     insertText: 'input.bytes()',
+    memberOf: 'input',
+    memberLabel: 'bytes()',
+    memberInsertText: 'bytes()',
     detail: 'input.bytes(): number[]',
     documentation: '返回当前节点接收到的输入字节数组。generator 节点没有 input.* 上下文。',
     kind: 'function',
@@ -57,6 +158,9 @@ const symbols: ScriptSymbol[] = [
     label: 'input.hex()',
     hoverWord: 'input.hex',
     insertText: 'input.hex()',
+    memberOf: 'input',
+    memberLabel: 'hex()',
+    memberInsertText: 'hex()',
     detail: 'input.hex(): string',
     documentation: '返回当前输入字节的空格分隔 hex 字符串。generator 节点没有 input.* 上下文。',
     kind: 'function',
@@ -66,6 +170,9 @@ const symbols: ScriptSymbol[] = [
     label: 'input.text(encoding)',
     hoverWord: 'input.text',
     insertText: 'input.text("${1:utf-8}")',
+    memberOf: 'input',
+    memberLabel: 'text(encoding)',
+    memberInsertText: 'text("${1:utf-8}")',
     detail: 'input.text(encoding?: string): string',
     documentation: '按编码把当前输入字节解码为文本。generator 节点没有 input.* 上下文。',
     kind: 'function',
@@ -75,6 +182,9 @@ const symbols: ScriptSymbol[] = [
     label: 'output.bytes(bytes)',
     hoverWord: 'output.bytes',
     insertText: 'output.bytes($1)',
+    memberOf: 'output',
+    memberLabel: 'bytes(bytes)',
+    memberInsertText: 'bytes($1)',
     detail: 'output.bytes(bytes: number[]): void',
     documentation: '输出字节流到下游节点。analyzer 节点不提供 output.*。',
     kind: 'function',
@@ -84,6 +194,9 @@ const symbols: ScriptSymbol[] = [
     label: 'output.hex(hex)',
     hoverWord: 'output.hex',
     insertText: 'output.hex("$1")',
+    memberOf: 'output',
+    memberLabel: 'hex(hex)',
+    memberInsertText: 'hex("$1")',
     detail: 'output.hex(hex: string): void',
     documentation: '输出空格分隔的 hex 字节流到下游节点。analyzer 节点不提供 output.*。',
     kind: 'function',
@@ -93,6 +206,9 @@ const symbols: ScriptSymbol[] = [
     label: 'output.text(text, encoding)',
     hoverWord: 'output.text',
     insertText: 'output.text("$1", "${2:utf-8}")',
+    memberOf: 'output',
+    memberLabel: 'text(text, encoding)',
+    memberInsertText: 'text("$1", "${2:utf-8}")',
     detail: 'output.text(text: string, encoding?: string): void',
     documentation: '按编码输出文本到下游节点。analyzer 节点不提供 output.*。',
     kind: 'function',
@@ -126,6 +242,9 @@ const symbols: ScriptSymbol[] = [
     label: 'state.get(key)',
     hoverWord: 'state.get',
     insertText: 'state.get("$1")',
+    memberOf: 'state',
+    memberLabel: 'get(key)',
+    memberInsertText: 'get("$1")',
     detail: 'state.get(key: string): unknown',
     documentation: '读取当前脚本节点的受限状态值。',
     kind: 'function',
@@ -134,6 +253,9 @@ const symbols: ScriptSymbol[] = [
     label: 'state.set(key, value)',
     hoverWord: 'state.set',
     insertText: 'state.set("$1", $2)',
+    memberOf: 'state',
+    memberLabel: 'set(key, value)',
+    memberInsertText: 'set("$1", $2)',
     detail: 'state.set(key: string, value: unknown): void',
     documentation: '写入当前脚本节点的受限状态值，受 maxStateBytes 限制。',
     kind: 'function',
@@ -142,6 +264,9 @@ const symbols: ScriptSymbol[] = [
     label: 'state.delete(key)',
     hoverWord: 'state.delete',
     insertText: 'state.delete("$1")',
+    memberOf: 'state',
+    memberLabel: 'delete(key)',
+    memberInsertText: 'delete("$1")',
     detail: 'state.delete(key: string): void',
     documentation: '删除当前脚本节点的状态值。',
     kind: 'function',
@@ -214,8 +339,12 @@ export function scriptHoverForWord(nodeType: string, word: string): { contents: 
   }
 }
 
-export function completionItemsForModel(monaco: MonacoLike, model: ScriptModelLike) {
-  return completionItemsForNode(monaco, scriptNodeTypeForModel(model))
+export function completionItemsForModel(
+  monaco: MonacoLike,
+  model: ScriptModelLike,
+  position?: { lineNumber: number; column: number }
+) {
+  return completionItemsForNode(monaco, scriptNodeTypeForModel(model), completionContextForModel(model, position))
 }
 
 export function scriptHoverForModel(model: ScriptModelLike, position: { lineNumber: number; column: number }) {
@@ -262,9 +391,12 @@ export function registerScriptLanguage(monaco: MonacoLike) {
   registered = true
 
   monaco.languages.register?.({ id: scriptLanguageId })
+  monaco.languages.setMonarchTokensProvider?.(scriptLanguageId, scriptMonarchLanguage)
+  monaco.languages.setLanguageConfiguration?.(scriptLanguageId, scriptLanguageConfiguration)
   monaco.languages.registerCompletionItemProvider?.(scriptLanguageId, {
-    provideCompletionItems: (model: ScriptModelLike) => ({
-      suggestions: completionItemsForModel(monaco, model),
+    triggerCharacters: ['.', '('],
+    provideCompletionItems: (model: ScriptModelLike, position: { lineNumber: number; column: number }) => ({
+      suggestions: completionItemsForModel(monaco, model, position),
     }),
   })
   monaco.languages.registerHoverProvider?.(scriptLanguageId, {
@@ -272,15 +404,23 @@ export function registerScriptLanguage(monaco: MonacoLike) {
   })
 }
 
-export function completionItemsForNode(monaco: MonacoLike, nodeType: string) {
+export function completionItemsForNode(
+  monaco: MonacoLike,
+  nodeType: string,
+  context: CompletionContext = { kind: 'all' }
+) {
   const kinds = monaco.languages.CompletionItemKind ?? {}
-  return symbolsForNode(nodeType).map(symbol => ({
-    label: symbol.label,
-    kind: kindForSymbol(symbol, kinds),
-    detail: symbol.detail,
-    documentation: symbol.documentation,
-    insertText: symbol.insertText,
-  }))
+  const insertTextRules = monaco.languages.CompletionItemInsertTextRule ?? {}
+  return symbolsForNode(nodeType)
+    .filter(symbol => context.kind === 'all' || symbol.memberOf === context.objectName)
+    .map(symbol => ({
+      label: context.kind === 'member' ? (symbol.memberLabel ?? symbol.label) : symbol.label,
+      kind: kindForSymbol(symbol, kinds),
+      detail: symbol.detail,
+      documentation: symbol.documentation,
+      insertText: context.kind === 'member' ? (symbol.memberInsertText ?? symbol.insertText) : symbol.insertText,
+      insertTextRules: numberKind(insertTextRules.InsertAsSnippet, 4),
+    }))
 }
 
 function symbolsForNode(nodeType: string): ScriptSymbol[] {
@@ -291,6 +431,20 @@ function symbolsForNode(nodeType: string): ScriptSymbol[] {
 function scriptNodeTypeForModel(model: ScriptModelLike): ScriptNodeType {
   const uri = model.uri?.toString() ?? ''
   return (scriptModelNodeTypes.get(uri) ?? 'serial.script.transform') as ScriptNodeType
+}
+
+function completionContextForModel(
+  model: ScriptModelLike,
+  position?: { lineNumber: number; column: number }
+): CompletionContext {
+  if (!position) return { kind: 'all' }
+  const line = model.getLineContent(position.lineNumber) ?? ''
+  const beforeCursor = line.slice(0, Math.max(0, position.column - 1))
+  const memberMatch = /\b(input|output|state)\.$/.exec(beforeCursor)
+  if (memberMatch) {
+    return { kind: 'member', objectName: memberMatch[1] as 'input' | 'output' | 'state' }
+  }
+  return { kind: 'all' }
 }
 
 function scriptWordAtPosition(model: ScriptModelLike, position: { lineNumber: number; column: number }): string | null {

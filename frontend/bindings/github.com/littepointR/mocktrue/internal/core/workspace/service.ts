@@ -18,14 +18,14 @@ import * as $models from "./models.js";
  * DefaultWorkspacePath returns the built-in workspace save location.
  */
 export function DefaultWorkspacePath(): $CancellablePromise<string> {
-    return $Call.ByID(3669313538);
+    return $Call.ByID(1261633533);
 }
 
 /**
  * ExportWorkspace writes content to path without changing the last workspace.
  */
 export function ExportWorkspace(path: string, content: string): $CancellablePromise<void> {
-    return $Call.ByID(255321186, path, content);
+    return $Call.ByID(283208511, path, content);
 }
 
 /**
@@ -33,40 +33,40 @@ export function ExportWorkspace(path: string, content: string): $CancellableProm
  * fatal: the app should start clean if the previous file is unavailable.
  */
 export function LoadLastWorkspace(): $CancellablePromise<$models.LastWorkspaceResult | null> {
-    return $Call.ByID(622967056);
+    return $Call.ByID(2791366641);
 }
 
 /**
  * ReadWorkspace reads a workspace JSON file from path.
  */
 export function ReadWorkspace(path: string): $CancellablePromise<$models.FileResult | null> {
-    return $Call.ByID(3417128836, path);
+    return $Call.ByID(2438766809, path);
 }
 
 /**
  * RememberLastWorkspace stores the last workspace file path for startup load.
  */
 export function RememberLastWorkspace(path: string): $CancellablePromise<void> {
-    return $Call.ByID(2258369793, path);
+    return $Call.ByID(1158211060, path);
 }
 
 /**
  * SaveWorkspace writes content to path and remembers it as the last workspace.
  */
 export function SaveWorkspace(path: string, content: string): $CancellablePromise<void> {
-    return $Call.ByID(1142504231, path, content);
+    return $Call.ByID(2500799126, path, content);
 }
 
 /**
  * SelectWorkspaceOpenPath prompts for a workspace JSON file to open.
  */
 export function SelectWorkspaceOpenPath(currentPath: string): $CancellablePromise<string> {
-    return $Call.ByID(1297267103, currentPath);
+    return $Call.ByID(1767511674, currentPath);
 }
 
 /**
  * SelectWorkspaceSavePath prompts for a workspace JSON file save target.
  */
 export function SelectWorkspaceSavePath(currentPath: string): $CancellablePromise<string> {
-    return $Call.ByID(3459475710, currentPath);
+    return $Call.ByID(469029959, currentPath);
 }

@@ -62,6 +62,9 @@ describe('ScriptEditor', () => {
         automaticLayout: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
+        quickSuggestions: { other: true, comments: false, strings: false },
+        suggestOnTriggerCharacters: true,
+        tabCompletion: 'on',
       })
     )
     expect(wrapper.find('[data-testid="serial-script-editor"]').classes()).toContain('serial-script-editor')

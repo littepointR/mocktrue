@@ -37,364 +37,364 @@ import * as $models from "./models.js";
  * AddFecbusSlaveUnit adds or replaces one FECbus simulated slave address.
  */
 export function AddFecbusSlaveUnit(sessionID: string, unit: fecbus$0.SlaveUnitState): $CancellablePromise<void> {
-    return $Call.ByID(1156162034, sessionID, unit);
+    return $Call.ByID(4099108661, sessionID, unit);
 }
 
 /**
  * AddModbusSlaveUnit adds or replaces one Unit ID in a slave simulation.
  */
 export function AddModbusSlaveUnit(sessionID: string, unit: modbus$0.SlaveUnitSnapshot): $CancellablePromise<void> {
-    return $Call.ByID(2829285044, sessionID, unit);
+    return $Call.ByID(777342691, sessionID, unit);
 }
 
 /**
  * CleanupVirtual stops all virtual pairs and bridges.
  */
 export function CleanupVirtual(): $CancellablePromise<void> {
-    return $Call.ByID(3380062301);
+    return $Call.ByID(1955108362);
 }
 
 /**
  * ClearFecbusFrames clears FECbus frame history and counters.
  */
 export function ClearFecbusFrames(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1260553897, id);
+    return $Call.ByID(3721185848, id);
 }
 
 /**
  * ClearMonitorFrames clears captured monitor frames and counters.
  */
 export function ClearMonitorFrames(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2442853029, id);
+    return $Call.ByID(3482111418, id);
 }
 
 /**
  * ClearSerialGraphNodeBuffer clears buffered data for one node.
  */
 export function ClearSerialGraphNodeBuffer(graphID: string, nodeID: string): $CancellablePromise<void> {
-    return $Call.ByID(2969054863, graphID, nodeID);
+    return $Call.ByID(302086400, graphID, nodeID);
 }
 
 /**
  * CloseFecbusSession closes and removes a FECbus serial session.
  */
 export function CloseFecbusSession(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1292629186, id);
+    return $Call.ByID(2204958285, id);
 }
 
 /**
  * CloseModbusSession closes and removes a Modbus serial session.
  */
 export function CloseModbusSession(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2804935884, id);
+    return $Call.ByID(2284577627, id);
 }
 
 /**
  * ClosePort closes a serial port and removes its buffer.
  */
 export function ClosePort(id: string): $CancellablePromise<void> {
-    return $Call.ByID(358686901, id);
+    return $Call.ByID(1401960128, id);
 }
 
 /**
  * CreateBridge creates a bridge between two serial ports.
  */
 export function CreateBridge(id: string, port1: string, port2: string, baudRate: number): $CancellablePromise<$models.BridgeInfo | null> {
-    return $Call.ByID(2000913547, id, port1, port2, baudRate);
+    return $Call.ByID(2762886140, id, port1, port2, baudRate);
 }
 
 /**
  * CreateVirtualPair creates a new virtual serial pair.
  */
 export function CreateVirtualPair(id: string, port1Name: string, port2Name: string): $CancellablePromise<$models.VirtualPairInfo | null> {
-    return $Call.ByID(3426122829, id, port1Name, port2Name);
+    return $Call.ByID(2020479260, id, port1Name, port2Name);
 }
 
 /**
  * CreateVirtualPort creates a user-facing virtual serial port.
  */
 export function CreateVirtualPort(id: string, portName: string): $CancellablePromise<$models.VirtualPortInfo | null> {
-    return $Call.ByID(4156784338, id, portName);
+    return $Call.ByID(2608908819, id, portName);
 }
 
 /**
  * DecodeHexToText converts formatted HEX to text using the requested encoding.
  */
 export function DecodeHexToText(req: $models.DecodeHexRequest): $CancellablePromise<string> {
-    return $Call.ByID(4017514483, req);
+    return $Call.ByID(2117196022, req);
 }
 
 /**
  * DeleteBridge removes a bridge.
  */
 export function DeleteBridge(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2952555164, id);
+    return $Call.ByID(2254159143, id);
 }
 
 /**
  * DeleteMonitor stops and removes a monitor session.
  */
 export function DeleteMonitor(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2925886253, id);
+    return $Call.ByID(717706064, id);
 }
 
 /**
  * DeleteVirtualPair removes a virtual serial pair.
  */
 export function DeleteVirtualPair(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1660406268, id);
+    return $Call.ByID(1145283865, id);
 }
 
 /**
  * DeleteVirtualPort removes a user-facing virtual serial port.
  */
 export function DeleteVirtualPort(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2248938995, id);
+    return $Call.ByID(872684174, id);
 }
 
 /**
  * EncodeTextToHex converts text to formatted HEX using the requested encoding.
  */
 export function EncodeTextToHex(req: $models.EncodeTextRequest): $CancellablePromise<string> {
-    return $Call.ByID(878865759, req);
+    return $Call.ByID(3021420962, req);
 }
 
 /**
  * EnumeratePorts returns available serial ports.
  */
 export function EnumeratePorts(): $CancellablePromise<port$0.PortInfo[] | null> {
-    return $Call.ByID(2380440348);
+    return $Call.ByID(1733819019);
 }
 
 /**
  * FecbusSendRequest sends one FECbus frame and optionally waits for an answer.
  */
 export function FecbusSendRequest(req: fecbus$0.SendRequest): $CancellablePromise<fecbus$0.Transaction | null> {
-    return $Call.ByID(3730420809, req);
+    return $Call.ByID(1614814800, req);
 }
 
 /**
  * GetSerialGraphStatus returns one graph runtime snapshot.
  */
 export function GetSerialGraphStatus(id: string): $CancellablePromise<$models.SerialGraphRuntimeInfo | null> {
-    return $Call.ByID(3195045016, id);
+    return $Call.ByID(683655879, id);
 }
 
 /**
  * ListBridges returns all active bridges.
  */
 export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> {
-    return $Call.ByID(2577893816);
+    return $Call.ByID(1403135401);
 }
 
 /**
  * ListFecbusSessions returns all open FECbus serial sessions.
  */
 export function ListFecbusSessions(): $CancellablePromise<fecbus$0.SessionInfo[] | null> {
-    return $Call.ByID(3393047171);
+    return $Call.ByID(3990317688);
 }
 
 /**
  * ListFecbusSlaveUnits returns configured FECbus slave addresses.
  */
 export function ListFecbusSlaveUnits(sessionID: string): $CancellablePromise<fecbus$0.SlaveUnitInfo[] | null> {
-    return $Call.ByID(2350231212, sessionID);
+    return $Call.ByID(1845460971, sessionID);
 }
 
 /**
  * ListModbusSessions returns all open Modbus serial sessions.
  */
 export function ListModbusSessions(): $CancellablePromise<modbus$0.SessionInfo[] | null> {
-    return $Call.ByID(2367745677);
+    return $Call.ByID(1890837082);
 }
 
 /**
  * ListModbusSlaveUnits returns configured Unit IDs for a Modbus session.
  */
 export function ListModbusSlaveUnits(sessionID: string): $CancellablePromise<modbus$0.SlaveUnitInfo[] | null> {
-    return $Call.ByID(1676937614, sessionID);
+    return $Call.ByID(2892472157, sessionID);
 }
 
 /**
  * ListMonitors returns all serial monitor sessions.
  */
 export function ListMonitors(): $CancellablePromise<monitor$0.SessionInfo[] | null> {
-    return $Call.ByID(3764334461);
+    return $Call.ByID(1787991150);
 }
 
 /**
  * ListPorts returns a snapshot of all open handles.
  */
 export function ListPorts(): $CancellablePromise<manager$0.HandleStatus[] | null> {
-    return $Call.ByID(2409741650);
+    return $Call.ByID(1650518431);
 }
 
 /**
  * ListSerialGraphs returns all active graph runtimes.
  */
 export function ListSerialGraphs(): $CancellablePromise<$models.SerialGraphRuntimeInfo[] | null> {
-    return $Call.ByID(3236808863);
+    return $Call.ByID(510819592);
 }
 
 /**
  * ListSystemFonts returns available font family candidates for terminal display.
  */
 export function ListSystemFonts(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(887368283);
+    return $Call.ByID(3237509534);
 }
 
 /**
  * ListVirtualPairs returns all virtual serial pairs.
  */
 export function ListVirtualPairs(): $CancellablePromise<$models.VirtualPairInfo[] | null> {
-    return $Call.ByID(3694945770);
+    return $Call.ByID(278682761);
 }
 
 /**
  * ListVirtualPorts returns all user-facing virtual serial ports.
  */
 export function ListVirtualPorts(): $CancellablePromise<$models.VirtualPortInfo[] | null> {
-    return $Call.ByID(1806471203);
+    return $Call.ByID(4065885500);
 }
 
 /**
  * ModbusMasterRequest runs one Modbus master transaction.
  */
 export function ModbusMasterRequest(req: modbus$0.MasterRequest): $CancellablePromise<modbus$0.Transaction | null> {
-    return $Call.ByID(3881180191, req);
+    return $Call.ByID(2528278794, req);
 }
 
 /**
  * ModbusReadRegisters reads and decodes one Modbus register block.
  */
 export function ModbusReadRegisters(req: modbus$0.RegisterReadRequest): $CancellablePromise<modbus$0.RegisterReadResult | null> {
-    return $Call.ByID(2930160550, req);
+    return $Call.ByID(2813492567, req);
 }
 
 /**
  * ModbusScanRegisters scans a Modbus register range.
  */
 export function ModbusScanRegisters(req: modbus$0.RegisterScanRequest): $CancellablePromise<modbus$0.RegisterScanResult | null> {
-    return $Call.ByID(1992987289, req);
+    return $Call.ByID(4013022044, req);
 }
 
 /**
  * ModbusScanUnitIDs probes a set of Modbus Unit IDs.
  */
 export function ModbusScanUnitIDs(req: modbus$0.UnitScanRequest): $CancellablePromise<modbus$0.UnitScanResult | null> {
-    return $Call.ByID(2190012875, req);
+    return $Call.ByID(2669970626, req);
 }
 
 /**
  * OpenFecbusSession opens a dedicated FECbus serial session.
  */
 export function OpenFecbusSession(req: fecbus$0.OpenSessionRequest): $CancellablePromise<fecbus$0.SessionInfo | null> {
-    return $Call.ByID(3696073086, req);
+    return $Call.ByID(499498715, req);
 }
 
 /**
  * OpenModbusSession opens a dedicated Modbus serial session.
  */
 export function OpenModbusSession(req: modbus$0.OpenSessionRequest): $CancellablePromise<modbus$0.SessionInfo | null> {
-    return $Call.ByID(95138080, req);
+    return $Call.ByID(3235011597, req);
 }
 
 /**
  * OpenPort opens a serial port and starts a read loop.
  */
 export function OpenPort(req: manager$0.OpenRequest): $CancellablePromise<manager$0.HandleStatus | null> {
-    return $Call.ByID(1403721065, req);
+    return $Call.ByID(3754403638, req);
 }
 
 /**
  * Ping echoes msg back as "pong:<msg>", validating the binding channel.
  */
 export function Ping(msg: string): $CancellablePromise<string> {
-    return $Call.ByID(3334354438, msg);
+    return $Call.ByID(2839307101, msg);
 }
 
 /**
  * QueryFecbusFrames returns a filtered FECbus frame history page.
  */
 export function QueryFecbusFrames(req: fecbus$0.QueryRequest): $CancellablePromise<fecbus$0.FramePage | null> {
-    return $Call.ByID(3006540140, req);
+    return $Call.ByID(187143977, req);
 }
 
 /**
  * QueryMonitorFrames returns a filtered page of monitor frames.
  */
 export function QueryMonitorFrames(req: monitor$0.QueryRequest): $CancellablePromise<monitor$0.FramePage | null> {
-    return $Call.ByID(1659843558, req);
+    return $Call.ByID(1502868517, req);
 }
 
 /**
  * QueryPage returns a snapshot of the buffer for a given port handle.
  */
 export function QueryPage(portID: string, offset: number, length: number): $CancellablePromise<buffer$0.Snapshot | null> {
-    return $Call.ByID(257355161, portID, offset, length);
+    return $Call.ByID(1242357924, portID, offset, length);
 }
 
 /**
  * QuerySerialGraphNodeBuffer reads buffered bytes for a receiver-like node.
  */
 export function QuerySerialGraphNodeBuffer(req: $models.SerialGraphBufferQuery): $CancellablePromise<buffer$0.Snapshot | null> {
-    return $Call.ByID(2736010660, req);
+    return $Call.ByID(3861305359, req);
 }
 
 /**
  * QuerySerialGraphNodeFrames reads captured frames for a graph monitor node.
  */
 export function QuerySerialGraphNodeFrames(req: $models.SerialGraphFrameQuery): $CancellablePromise<$models.SerialGraphFramePage | null> {
-    return $Call.ByID(514153512, req);
+    return $Call.ByID(4031508859, req);
 }
 
 /**
  * RemoveFecbusSlaveUnit removes one FECbus simulated slave address.
  */
 export function RemoveFecbusSlaveUnit(sessionID: string, address: number): $CancellablePromise<void> {
-    return $Call.ByID(3188425671, sessionID, address);
+    return $Call.ByID(1631160958, sessionID, address);
 }
 
 /**
  * RemoveModbusSlaveUnit removes one Unit ID from a slave simulation.
  */
 export function RemoveModbusSlaveUnit(sessionID: string, unitID: number): $CancellablePromise<void> {
-    return $Call.ByID(648861305, sessionID, unitID);
+    return $Call.ByID(2262837704, sessionID, unitID);
 }
 
 /**
  * ResetCounters clears RX and TX byte counters for an open port handle.
  */
 export function ResetCounters(portID: string): $CancellablePromise<void> {
-    return $Call.ByID(4017649972, portID);
+    return $Call.ByID(344976241, portID);
 }
 
 /**
  * ResetSerialGraphNodeCounters resets RX/TX counters for one graph node.
  */
 export function ResetSerialGraphNodeCounters(graphID: string, nodeID: string): $CancellablePromise<void> {
-    return $Call.ByID(151526110, graphID, nodeID);
+    return $Call.ByID(3144020029, graphID, nodeID);
 }
 
 /**
  * RestoreCounters sets RX and TX byte counters for an open port handle.
  */
 export function RestoreCounters(portID: string, rxBytes: number, txBytes: number): $CancellablePromise<void> {
-    return $Call.ByID(3925129033, portID, rxBytes, txBytes);
+    return $Call.ByID(2408546472, portID, rxBytes, txBytes);
 }
 
 /**
  * Send sends data to the specified port.
  */
 export function Send(req: $models.SendRequest): $CancellablePromise<number> {
-    return $Call.ByID(304932660, req);
+    return $Call.ByID(2622880523, req);
 }
 
 /**
  * SendSerialGraphNode injects a payload into a sender/protocol-capable graph node.
  */
 export function SendSerialGraphNode(req: $models.SerialGraphSendRequest): $CancellablePromise<number> {
-    return $Call.ByID(3331981752, req);
+    return $Call.ByID(2404770757, req);
 }
 
 /**
@@ -402,82 +402,82 @@ export function SendSerialGraphNode(req: $models.SerialGraphSendRequest): $Cance
  * user-facing virtual port that external serial tools can connect to.
  */
 export function StartAutoVirtualMonitor(req: $models.AutoVirtualMonitorRequest): $CancellablePromise<monitor$0.SessionInfo | null> {
-    return $Call.ByID(999938326, req);
+    return $Call.ByID(3805143419, req);
 }
 
 /**
  * StartFecbusSlave starts FECbus device simulation for an open session.
  */
 export function StartFecbusSlave(req: fecbus$0.StartSlaveRequest): $CancellablePromise<fecbus$0.SessionInfo | null> {
-    return $Call.ByID(4144070753, req);
+    return $Call.ByID(407196390, req);
 }
 
 /**
  * StartModbusSlave starts slave simulation for an open Modbus session.
  */
 export function StartModbusSlave(req: modbus$0.StartSlaveRequest): $CancellablePromise<modbus$0.SessionInfo | null> {
-    return $Call.ByID(551114279, req);
+    return $Call.ByID(1265218168, req);
 }
 
 /**
  * StartMonitor starts a bridge-based serial monitor session.
  */
 export function StartMonitor(req: monitor$0.StartRequest): $CancellablePromise<monitor$0.SessionInfo | null> {
-    return $Call.ByID(3071407328, req);
+    return $Call.ByID(1995636203, req);
 }
 
 /**
  * StartSerialGraph validates and starts a graph runtime.
  */
 export function StartSerialGraph(req: $models.SerialGraphStartRequest): $CancellablePromise<$models.SerialGraphRuntimeInfo | null> {
-    return $Call.ByID(1844679930, req);
+    return $Call.ByID(1012747357, req);
 }
 
 /**
  * StopFecbusSlave stops FECbus device simulation for an open session.
  */
 export function StopFecbusSlave(id: string): $CancellablePromise<void> {
-    return $Call.ByID(915799721, id);
+    return $Call.ByID(2389937072, id);
 }
 
 /**
  * StopModbusSlave stops slave simulation for an open Modbus session.
  */
 export function StopModbusSlave(id: string): $CancellablePromise<void> {
-    return $Call.ByID(755939087, id);
+    return $Call.ByID(2590647966, id);
 }
 
 /**
  * StopMonitor stops a monitor session while keeping captured frames available.
  */
 export function StopMonitor(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2368061992, id);
+    return $Call.ByID(1663962605, id);
 }
 
 /**
  * StopSerialGraph stops one graph and releases every graph-owned resource.
  */
 export function StopSerialGraph(id: string): $CancellablePromise<void> {
-    return $Call.ByID(746778178, id);
+    return $Call.ByID(3006074319, id);
 }
 
 /**
  * UpdateFecbusSlaveState replaces FECbus device simulation state.
  */
 export function UpdateFecbusSlaveState(sessionID: string, state: fecbus$0.SlaveState): $CancellablePromise<void> {
-    return $Call.ByID(367919167, sessionID, state);
+    return $Call.ByID(3497072960, sessionID, state);
 }
 
 /**
  * UpdateModbusSlaveData replaces the slave simulation data model.
  */
 export function UpdateModbusSlaveData(sessionID: string, data: modbus$0.DataModelSnapshot): $CancellablePromise<void> {
-    return $Call.ByID(184207884, sessionID, data);
+    return $Call.ByID(3301657073, sessionID, data);
 }
 
 /**
  * UpdateModbusSlaveUnitData replaces one Unit ID data model.
  */
 export function UpdateModbusSlaveUnitData(sessionID: string, unitID: number, data: modbus$0.DataModelSnapshot): $CancellablePromise<void> {
-    return $Call.ByID(1856574682, sessionID, unitID, data);
+    return $Call.ByID(2394035011, sessionID, unitID, data);
 }

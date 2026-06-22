@@ -15,10 +15,11 @@ import {
   useModbusStore,
 } from './modbusStore'
 import { DataType, WordOrder } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
+import type { SessionInfo, SlaveUnitInfo } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
 import { FrameMode } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
 
 const serialServiceMock = vi.hoisted(() => ({
-  listModbusSessions: vi.fn(async () => []),
+  listModbusSessions: vi.fn(async (): Promise<SessionInfo[]> => []),
   openModbusSession: vi.fn(async (request: any) => sampleSession(request.ID ?? 'modbus-1', request.Role ?? 'master')),
   closeModbusSession: vi.fn(async () => undefined),
   modbusMasterRequest: vi.fn(async () => null),
@@ -44,6 +45,7 @@ const serialServiceMock = vi.hoisted(() => ({
   updateModbusSlaveUnitData: vi.fn(async () => undefined),
   addModbusSlaveUnit: vi.fn(async () => undefined),
   removeModbusSlaveUnit: vi.fn(async () => undefined),
+  listModbusSlaveUnits: vi.fn(async (): Promise<SlaveUnitInfo[]> => []),
 }))
 
 vi.mock('../services/serialService', () => ({
@@ -366,7 +368,7 @@ describe('modbusStore workspace state', () => {
     expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.mappings[0].comment).toBe('unit 2')
   })
 
-  it('rejects duplicate and out-of-range Unit IDs', () => {
+  it('rejects duplicate and out-of-range Unit IDs', async () => {
     const store = useModbusStore()
 
     expect(store.addMasterUnit(2)).toBe(true)
@@ -374,7 +376,7 @@ describe('modbusStore workspace state', () => {
     expect(store.error).toContain('Unit 2 已存在')
     expect(store.addMasterUnit(0)).toBe(false)
     expect(store.error).toContain('Unit ID 必须在 1-247')
-    expect(store.addSlaveUnit(300)).resolves.toBe(false)
+    await expect(store.addSlaveUnit(300)).resolves.toBe(false)
   })
 
   it('defaults old snapshots to master role', () => {
@@ -551,6 +553,150 @@ describe('modbusStore workspace state', () => {
     })
   })
 
+  it.each([
+    {
+      functionCode: 5,
+      form: { value: 0xff00 },
+      backend: { Value: 0xff00 },
+    },
+    {
+      functionCode: 6,
+      form: { value: 42 },
+      backend: { Value: 42 },
+    },
+    {
+      functionCode: 15,
+      form: { quantity: 4, coilValues: '1 0 true off' },
+      backend: { Quantity: 4, CoilValues: [true, false, true, false] },
+    },
+    {
+      functionCode: 16,
+      form: { quantity: 3, registerValues: '11 0x16 33' },
+      backend: { Quantity: 3, RegisterValues: [11, 22, 33] },
+    },
+  ])('passes function $functionCode write request fields through to backend master request', async ({ functionCode, form, backend }) => {
+    const store = useModbusStore()
+    openRealSession(store, 'modbus-1', 'master')
+    store.masterForm = {
+      ...store.masterForm,
+      unitId: 7,
+      functionCode,
+      addressMode: 'plc',
+      address: 40010,
+      timeoutMs: 500,
+      retries: 2,
+      ...form,
+    }
+
+    await store.sendMasterRequest()
+
+    expect(serialServiceMock.modbusMasterRequest).toHaveBeenCalledWith(expect.objectContaining({
+      SessionID: 'modbus-1',
+      UnitID: 7,
+      Function: functionCode,
+      AddressMode: 'plc',
+      Address: 40010,
+      TimeoutMs: 500,
+      Retries: 2,
+      ...backend,
+    }))
+  })
+
+  it('loads slave unit data models from backend when refreshing a slave session', async () => {
+    const store = useModbusStore()
+    store.sessions.set('modbus-1', sampleSession('modbus-1', 'slave'))
+    store.setActiveSession('modbus-1')
+    serialServiceMock.listModbusSessions.mockResolvedValueOnce([sampleSession('modbus-1', 'slave')])
+    serialServiceMock.listModbusSlaveUnits.mockResolvedValueOnce([
+      {
+        UnitID: 2,
+        DataModel: {
+          Coils: [{ Address: 0, Value: true }],
+          DiscreteInputs: [{ Address: 1, Value: false }],
+          InputRegisters: [{ Address: 2, Value: 24 }],
+          HoldingRegisters: [{ Address: 3, Value: 42 }],
+        },
+      },
+    ])
+
+    await store.refreshSessions()
+
+    expect(serialServiceMock.listModbusSlaveUnits).toHaveBeenCalledWith('modbus-1')
+    expect(store.slaveUnitGrids).toEqual([
+      expect.objectContaining({
+        unitId: 2,
+        coils: [expect.objectContaining({ address: 0, value: true })],
+        discreteInputs: [expect.objectContaining({ address: 1, value: false })],
+        inputRegisters: [expect.objectContaining({ address: 2, value: 24, dataType: 'uint16', comment: '' })],
+        holdingRegisters: [expect.objectContaining({ address: 3, value: 42, dataType: 'uint16', comment: '' })],
+      }),
+    ])
+    expect(store.slaveUnitForms).toEqual([
+      expect.objectContaining({
+        unitId: 2,
+        coils: '0=1',
+        discreteInputs: '1=0',
+        inputRegisters: '2=24',
+        holdingRegisters: '3=42',
+      }),
+    ])
+    expect(store.activeSlaveUnitId).toBe(2)
+    expect(store.slaveForm).toMatchObject({ unitId: 2, holdingRegisters: '3=42' })
+  })
+
+  it('keeps local-only restored slave sessions from listing backend slave units', async () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-restored',
+      sessions: [sampleSession('modbus-restored', 'slave')],
+    })
+    serialServiceMock.listModbusSessions.mockResolvedValueOnce([])
+
+    await store.refreshSessions()
+    await store.syncSlaveUnitsFromBackend('modbus-restored')
+
+    expect(serialServiceMock.listModbusSlaveUnits).not.toHaveBeenCalled()
+  })
+
+  it('does not list backend slave units for master sessions', async () => {
+    const store = useModbusStore()
+    openRealSession(store, 'modbus-master', 'master')
+    serialServiceMock.listModbusSessions.mockResolvedValueOnce([sampleSession('modbus-master', 'master')])
+
+    await store.refreshSessions()
+    await store.syncSlaveUnitsFromBackend('modbus-master')
+
+    expect(serialServiceMock.listModbusSlaveUnits).not.toHaveBeenCalled()
+  })
+
+  it('refreshes slave unit data from backend after slave mutations', async () => {
+    const store = useModbusStore()
+    openRealSession(store, 'modbus-1', 'slave')
+    serialServiceMock.listModbusSessions.mockResolvedValue([sampleSession('modbus-1', 'slave')])
+    serialServiceMock.listModbusSlaveUnits
+      .mockResolvedValueOnce([slaveUnitSnapshot(1, 10)])
+      .mockResolvedValueOnce([slaveUnitSnapshot(1, 20)])
+      .mockResolvedValueOnce([slaveUnitSnapshot(1, 20), slaveUnitSnapshot(2, 30)])
+      .mockResolvedValueOnce([slaveUnitSnapshot(1, 40)])
+
+    await store.startSlave()
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 1)?.holdingRegisters[0].value).toBe(10)
+
+    store.slaveUnitGrids.find(unit => unit.unitId === 1)!.holdingRegisters[0].value = 22
+    await store.applySlaveData()
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 1)?.holdingRegisters[0].value).toBe(20)
+
+    await store.addSlaveUnit(2)
+    expect(store.slaveUnitGrids.map(unit => unit.unitId)).toEqual([1, 2])
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 2)?.holdingRegisters[0].value).toBe(30)
+
+    await store.removeSlaveUnit(2)
+    expect(store.slaveUnitGrids.map(unit => unit.unitId)).toEqual([1])
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 1)?.holdingRegisters[0].value).toBe(40)
+    expect(serialServiceMock.listModbusSlaveUnits).toHaveBeenCalledTimes(4)
+  })
+
   it('starts and applies only the active slave Unit ID', async () => {
     const store = useModbusStore()
     openRealSession(store, 'modbus-1', 'slave')
@@ -628,7 +774,19 @@ function openRealSession(store: ReturnType<typeof useModbusStore>, id: string, r
   store.setActiveSession(id)
 }
 
-function sampleSession(id: string, role: 'master' | 'slave' = 'slave') {
+function slaveUnitSnapshot(unitId: number, holdingValue: number): SlaveUnitInfo {
+  return {
+    UnitID: unitId,
+    DataModel: {
+      Coils: [{ Address: 0, Value: true }],
+      DiscreteInputs: [],
+      InputRegisters: [],
+      HoldingRegisters: [{ Address: 0, Value: holdingValue }],
+    },
+  }
+}
+
+function sampleSession(id: string, role: 'master' | 'slave' = 'slave'): SessionInfo {
   return {
     ID: id,
     Name: 'Modbus',

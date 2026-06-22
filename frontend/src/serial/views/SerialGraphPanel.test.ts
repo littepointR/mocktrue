@@ -66,6 +66,8 @@ describe('SerialGraphPanel', () => {
 
     expect(wrapper.find('[data-testid="serial-graph-panel"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="serial-graph-node-palette"]').text()).toContain('发送器')
+    expect(wrapper.find('[data-testid="serial-graph-provider-serial.modbus.slave"]').text()).toContain('协议合法的零值/默认响应')
+    expect(wrapper.find('[data-testid="serial-graph-provider-serial.modbus.slave"]').text()).toContain('完整可编辑的多 Unit 数据模型请使用 Modbus 会话面板')
 
     await wrapper.find('[data-testid="serial-graph-provider-serial.sender"]').trigger('click')
 

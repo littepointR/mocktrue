@@ -49,6 +49,7 @@ const reading = ref(false)
 const scanningUnits = ref(false)
 const scanningRegisters = ref(false)
 const masterConfigOpen = ref(false)
+const masterRequestOpen = ref(false)
 const slaveConfigOpen = ref(false)
 const masterUnitDialogOpen = ref(false)
 const slaveUnitDialogOpen = ref(false)
@@ -776,6 +777,80 @@ function responseSummary(tx: any): string {
         </div>
       </section>
 
+      <section class="modbus-panel__section modbus-panel__collapsible">
+        <button
+          class="modbus-panel__collapse-header"
+          data-testid="modbus-master-request-toggle"
+          type="button"
+          @click="masterRequestOpen = !masterRequestOpen"
+        >
+          <span class="modbus-panel__collapse-label">
+            <span class="modbus-panel__section-title">请求</span>
+            <span class="modbus-panel__collapse-state">{{ masterRequestOpen ? '收起' : '展开' }}</span>
+          </span>
+          <span class="modbus-panel__collapse-summary">
+            FC {{ modbusStore.masterForm.functionCode }} · Unit {{ modbusStore.masterForm.unitId }}
+          </span>
+        </button>
+        <div
+          v-if="masterRequestOpen"
+          class="modbus-panel__config-strip modbus-panel__request-form"
+          data-testid="modbus-master-request-form"
+        >
+          <NFormItem label="Unit ID">
+            <NInputNumber v-model:value="modbusStore.masterForm.unitId" :min="1" :max="247" data-testid="modbus-master-request-unit" />
+          </NFormItem>
+          <NFormItem label="功能码">
+            <NSelect
+              v-model:value="modbusStore.masterForm.functionCode"
+              :options="functionOptions"
+              data-testid="modbus-master-request-function"
+              data-functions="1,2,3,4,5,6,15,16"
+            />
+          </NFormItem>
+          <NFormItem label="地址模式">
+            <NSelect v-model:value="modbusStore.masterForm.addressMode" :options="addressModeOptions" data-testid="modbus-master-request-address-mode" />
+          </NFormItem>
+          <NFormItem label="地址">
+            <NInputNumber v-model:value="modbusStore.masterForm.address" :min="0" data-testid="modbus-master-request-address" />
+          </NFormItem>
+          <NFormItem v-if="isReadFunction || isMultiCoilWrite || isMultiRegisterWrite" label="数量">
+            <NInputNumber v-model:value="modbusStore.masterForm.quantity" :min="1" :max="isMultiCoilWrite ? 1968 : 125" data-testid="modbus-master-request-quantity" />
+          </NFormItem>
+          <NFormItem v-if="isSingleWrite" label="值">
+            <NInputNumber v-model:value="modbusStore.masterForm.value" :min="0" :max="65535" data-testid="modbus-master-request-value" />
+          </NFormItem>
+          <NFormItem v-if="isMultiCoilWrite" label="线圈值">
+            <NInput v-model:value="modbusStore.masterForm.coilValues" placeholder="1 0 true off" data-testid="modbus-master-request-coil-values" />
+          </NFormItem>
+          <NFormItem v-if="isMultiRegisterWrite" label="寄存器值">
+            <NInput v-model:value="modbusStore.masterForm.registerValues" placeholder="24 42 0x2a" data-testid="modbus-master-request-register-values" />
+          </NFormItem>
+          <NFormItem label="超时 ms">
+            <NInputNumber v-model:value="modbusStore.masterForm.timeoutMs" :min="10" :step="50" data-testid="modbus-master-request-timeout" />
+          </NFormItem>
+          <NFormItem label="重试">
+            <NInputNumber v-model:value="modbusStore.masterForm.retries" :min="0" :step="1" data-testid="modbus-master-request-retries" />
+          </NFormItem>
+          <div class="modbus-panel__request-actions">
+            <NButton
+              type="primary"
+              size="small"
+              :loading="sending"
+              :disabled="!activeSession || activeSession.SlaveRunning"
+              data-testid="modbus-master-request-send"
+              @click="sendRequest"
+            >
+              发送请求
+            </NButton>
+          </div>
+          <div v-if="lastTransaction" class="modbus-panel__frame-preview modbus-panel__request-result" data-testid="modbus-master-request-result">
+            <div><span>TX</span><code>{{ lastTransaction.RequestFrameHex }}</code></div>
+            <div><span>RX</span><code>{{ lastTransaction.ResponseFrameHex || lastTransaction.Error }}</code></div>
+          </div>
+        </div>
+      </section>
+
       <div class="modbus-panel__register-grid">
         <section
           v-for="table in modbusStore.masterRegisterTables"
@@ -1007,6 +1082,10 @@ function responseSummary(tx: any): string {
             Unit {{ unit.unitId }}
           </button>
         </div>
+      </div>
+
+      <div class="modbus-panel__hint" data-testid="modbus-slave-model-hint">
+        Backend-backed slave fields are addresses and values only. dataType, comment, and word order are UI-only until the backend data model is expanded.
       </div>
 
       <section class="modbus-panel__section modbus-panel__collapsible">

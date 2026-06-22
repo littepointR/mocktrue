@@ -11,6 +11,7 @@ import type {
   RegisterScanRequest,
   RegisterScanResult,
   SessionInfo,
+  SlaveUnitInfo,
   StartSlaveRequest,
   Transaction,
   UnitScanRequest,
@@ -450,6 +451,9 @@ export const useModbusStore = defineStore('serialModbus', () => {
         localOnlySessionIds.value.delete(session.ID)
       }
       sessions.value = next
+      if (activeSessionId.value) {
+        await syncSlaveUnitsFromBackend(activeSessionId.value)
+      }
       error.value = null
     } catch (e: any) {
       error.value = e?.message ?? 'Failed to refresh Modbus sessions'
@@ -486,6 +490,7 @@ export const useModbusStore = defineStore('serialModbus', () => {
       localOnlySessionIds.value.delete(session.ID)
       portForm.value.sessionId = defaultSessionId()
       portForm.value.name = ''
+      await syncSlaveUnitsFromBackend(session.ID)
       error.value = null
       return session.ID
     } catch (e: any) {
@@ -572,6 +577,7 @@ export const useModbusStore = defineStore('serialModbus', () => {
     try {
       const next = await serialService.startModbusSlave(request)
       sessions.value.set(next.ID, next)
+      await syncSlaveUnitsFromBackend(next.ID)
       error.value = null
       return next
     } catch (e: any) {
@@ -614,6 +620,22 @@ export const useModbusStore = defineStore('serialModbus', () => {
   function slaveDataModel(form = slaveForm.value): DataModelSnapshot {
     const grid = slaveUnitGrids.value.find(unit => unit.unitId === normalizeUnitId(form.unitId))
     return grid ? slaveGridToDataModel(grid) : slaveGridToDataModel(slaveFormToGrid(form))
+  }
+
+  async function syncSlaveUnitsFromBackend(sessionId = activeSessionId.value): Promise<void> {
+    if (!sessionId || localOnlySessionIds.value.has(sessionId)) return
+    const session = sessions.value.get(sessionId)
+    if (!session || normalizeSessionInfo(session).Role !== SessionRole.SessionRoleSlave) return
+    const units = await serialService.listModbusSlaveUnits(sessionId)
+    if (!units.length) return
+    const grids = units
+      .map(dataModelToSlaveGrid)
+      .sort((a, b) => a.unitId - b.unitId)
+    slaveUnitGrids.value = grids
+    slaveUnitForms.value = grids.map(gridToSlaveForm)
+    const selected = grids.find(unit => unit.unitId === activeSlaveUnitId.value) ?? grids[0]
+    activeSlaveUnitId.value = selected.unitId
+    slaveForm.value = gridToSlaveForm(selected)
   }
 
   function syncActiveSlaveForm() {
@@ -1247,6 +1269,7 @@ export const useModbusStore = defineStore('serialModbus', () => {
     startSlave,
     stopSlave,
     applySlaveData,
+    syncSlaveUnitsFromBackend,
     selectMasterUnit,
     addMasterUnit,
     removeMasterUnit,
@@ -1363,6 +1386,43 @@ export function slaveGridToDataModel(grid: ModbusSlaveUnitGridState): DataModelS
     InputRegisters: normalized.inputRegisters.map(row => ({ Address: row.address, Value: row.value })),
     HoldingRegisters: normalized.holdingRegisters.map(row => ({ Address: row.address, Value: row.value })),
   }
+}
+
+export function dataModelToSlaveGrid(unit: SlaveUnitInfo): ModbusSlaveUnitGridState {
+  const unitId = normalizeUnitId(unit.UnitID)
+  const dataModel = unit.DataModel ?? {
+    Coils: [],
+    DiscreteInputs: [],
+    InputRegisters: [],
+    HoldingRegisters: [],
+  }
+  return normalizeSlaveGrid({
+    unitId,
+    coils: (dataModel.Coils ?? []).map((point, index) => ({
+      id: `u${unitId}-coil-${point.Address}-${index}`,
+      address: point.Address,
+      value: point.Value,
+    })),
+    discreteInputs: (dataModel.DiscreteInputs ?? []).map((point, index) => ({
+      id: `u${unitId}-di-${point.Address}-${index}`,
+      address: point.Address,
+      value: point.Value,
+    })),
+    inputRegisters: (dataModel.InputRegisters ?? []).map((point, index) => ({
+      id: `u${unitId}-ir-${point.Address}-${index}`,
+      address: point.Address,
+      value: point.Value,
+      dataType: 'uint16',
+      comment: '',
+    })),
+    holdingRegisters: (dataModel.HoldingRegisters ?? []).map((point, index) => ({
+      id: `u${unitId}-hr-${point.Address}-${index}`,
+      address: point.Address,
+      value: point.Value,
+      dataType: 'uint16',
+      comment: '',
+    })),
+  })
 }
 
 export function registerTypeToFunction(type: ModbusRegisterType): number {

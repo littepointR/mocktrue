@@ -1,8 +1,9 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ModbusPanel from './ModbusPanel.vue'
 import { useModbusStore } from '../stores/modbusStore'
+import { serialService } from '../services/serialService'
 import { FrameMode, SessionRole } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
 
 vi.mock('../services/serialService', () => ({
@@ -11,6 +12,7 @@ vi.mock('../services/serialService', () => ({
     listPorts: vi.fn(async () => []),
     listModbusSessions: vi.fn(async () => []),
     openModbusSession: vi.fn(async () => null),
+    modbusMasterRequest: vi.fn(async () => null),
     addModbusSlaveUnit: vi.fn(async () => undefined),
     removeModbusSlaveUnit: vi.fn(async () => undefined),
   },
@@ -322,6 +324,122 @@ describe('ModbusPanel', () => {
     expect(wrapper.text()).toContain('重试')
   })
 
+  it('renders arbitrary master request form with all supported function options', async () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-master',
+      sessions: [sampleSession('modbus-master', SessionRole.SessionRoleMaster)],
+    })
+
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+
+    expect(wrapper.find('[data-testid="modbus-master-request-toggle"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('线圈值')
+
+    await wrapper.find('[data-testid="modbus-master-request-toggle"]').trigger('click')
+
+    const form = wrapper.find('[data-testid="modbus-master-request-form"]')
+    expect(form.exists()).toBe(true)
+    expect(form.text()).toContain('Unit ID')
+    expect(form.text()).toContain('功能码')
+    expect(form.text()).toContain('地址模式')
+    expect(form.text()).toContain('地址')
+    expect(form.text()).toContain('数量')
+    expect(form.text()).toContain('超时 ms')
+    expect(form.text()).toContain('重试')
+    expect(form.text()).toContain('发送请求')
+    expect(form.find('[data-testid="modbus-master-request-function"]').attributes('data-functions')).toBe('1,2,3,4,5,6,15,16')
+  })
+
+  it('shows request value fields for single and multi-write function codes', async () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-master',
+      sessions: [sampleSession('modbus-master', SessionRole.SessionRoleMaster)],
+    })
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+    await wrapper.find('[data-testid="modbus-master-request-toggle"]').trigger('click')
+
+    store.masterForm.functionCode = 5
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="modbus-master-request-value"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="modbus-master-request-coil-values"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="modbus-master-request-register-values"]').exists()).toBe(false)
+
+    store.masterForm.functionCode = 15
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="modbus-master-request-value"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="modbus-master-request-coil-values"]').exists()).toBe(true)
+
+    store.masterForm.functionCode = 16
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="modbus-master-request-coil-values"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="modbus-master-request-register-values"]').exists()).toBe(true)
+  })
+
+  it('sends a function 16 request through the existing store path', async () => {
+    vi.mocked(serialService.modbusMasterRequest).mockResolvedValueOnce({
+      ID: 'tx-1',
+      SessionID: 'modbus-master',
+      StartedAt: '',
+      CompletedAt: '',
+      UnitID: 2,
+      Mode: FrameMode.FrameModeRTU,
+      RequestPDU: { Function: 16, Data: '' },
+      ResponsePDU: { Function: 16, Data: '' },
+      RequestFrameHex: '02 10 00 0A 00 03',
+      ResponseFrameHex: '02 10 00 0A 00 03',
+      BytesWritten: 13,
+      Response: {
+        Function: 16,
+        Exception: false,
+        ExceptionCode: 0,
+        Address: 10,
+        Quantity: 3,
+        Value: 0,
+        Values: [],
+        Bits: [],
+        Raw: '',
+      },
+      Error: '',
+    } as any)
+    const store = useModbusStore()
+    store.sessions.set('modbus-master', sampleSession('modbus-master', SessionRole.SessionRoleMaster))
+    store.setActiveSession('modbus-master')
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+    await wrapper.find('[data-testid="modbus-master-request-toggle"]').trigger('click')
+
+    await wrapper.find('[data-testid="modbus-master-request-unit"] input').setValue('2')
+    store.masterForm.functionCode = 16
+    await wrapper.vm.$nextTick()
+    await wrapper.find('[data-testid="modbus-master-request-address"] input').setValue('10')
+    await wrapper.find('[data-testid="modbus-master-request-quantity"] input').setValue('3')
+    await wrapper.find('[data-testid="modbus-master-request-register-values"] input').setValue('11 22 33')
+    await wrapper.find('[data-testid="modbus-master-request-send"]').trigger('click')
+    await flushPromises()
+
+    expect(serialService.modbusMasterRequest).toHaveBeenCalledWith(expect.objectContaining({
+      SessionID: 'modbus-master',
+      UnitID: 2,
+      Function: 16,
+      Address: 10,
+      Quantity: 3,
+      RegisterValues: [11, 22, 33],
+    }))
+    expect(wrapper.find('[data-testid="modbus-master-request-result"]').text()).toContain('02 10 00 0A 00 03')
+  })
+
   it('renders a slave workbench with unit tabs and four data sections instead of textareas', () => {
     const store = useModbusStore()
     store.restoreState({
@@ -355,6 +473,29 @@ describe('ModbusPanel', () => {
     expect(wrapper.find('[data-testid="modbus-slave-table-inputRegisters"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="modbus-slave-table-holdingRegisters"]').exists()).toBe(true)
     expect(wrapper.find('.modbus-panel__row-actions').exists()).toBe(true)
+  })
+
+  it('explains slave backend persistence only covers addresses and values', () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-slave',
+      sessions: [sampleSession('modbus-slave', SessionRole.SessionRoleSlave)],
+    })
+
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-slave' },
+      global: { stubs },
+    })
+    const hint = wrapper.find('[data-testid="modbus-slave-model-hint"]')
+
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('addresses')
+    expect(hint.text()).toContain('values')
+    expect(hint.text()).toContain('UI-only')
+    expect(hint.text()).toContain('dataType')
+    expect(hint.text()).toContain('comment')
+    expect(hint.text()).toContain('word order')
   })
 
   it('adds and switches slave Unit tabs with independent data grids', async () => {
@@ -418,7 +559,7 @@ function sampleSession(id: string, role: SessionRole) {
 
 const stubs = {
   NAlert: { template: '<div><slot /></div>' },
-  NButton: { template: '<button v-bind="$attrs" @click="$emit(\'click\', $event)"><slot /></button>' },
+  NButton: { props: ['disabled'], emits: ['click'], template: '<button v-bind="$attrs" :disabled="disabled" @click="$emit(\'click\', $event)"><slot /></button>' },
   NButtonGroup: { template: '<div><slot /></div>' },
   NCheckbox: { template: '<label><input type="checkbox" /><slot /></label>' },
   NForm: { template: '<form><slot /></form>' },

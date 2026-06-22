@@ -16,6 +16,11 @@ export interface Snapshot {
     "Data": string | null;
 
     /**
+     * chunk metadata overlapping the returned Data range
+     */
+    "Chunks": SnapshotChunk[] | null;
+
+    /**
      * total bytes seen by the stream
      */
     "Total": number;
@@ -24,4 +29,24 @@ export interface Snapshot {
      * true if offset >= Total
      */
     "EOF": boolean;
+}
+
+/**
+ * SnapshotChunk is one retained received block that overlaps a Snapshot range.
+ */
+export interface SnapshotChunk {
+    /**
+     * byte offset from the start of the stream
+     */
+    "Offset": number;
+
+    /**
+     * capture time for this block, empty when unknown
+     */
+    "Timestamp": string;
+
+    /**
+     * bytes in this block slice (copy, safe to hold)
+     */
+    "Data": string | null;
 }

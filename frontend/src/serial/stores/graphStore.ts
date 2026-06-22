@@ -39,13 +39,21 @@ interface GraphRuntimeState {
   nodeStatuses: Map<string, SerialGraphNodeStatus>
   nodeBuffers: Map<string, Uint8Array>
   nodeBufferText: Map<string, string>
+  nodeBufferChunks: Map<string, GraphBufferChunk[]>
   nodeFrames: Map<string, Frame[]>
+}
+
+export interface GraphBufferChunk {
+  offset: number
+  timestamp: string
+  data: Uint8Array
 }
 
 const defaultNodeFramePageSize = 1000
 
 export interface SerialGraphRuntimeSnapshot {
   nodeBuffers: Record<string, Uint8Array>
+  nodeBufferChunks?: Record<string, GraphBufferChunk[]>
   nodeFrames: Record<string, Frame[]>
 }
 
@@ -71,6 +79,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
   const nodeStatuses = computed(() => activeRuntimeState().nodeStatuses)
   const nodeBuffers = computed(() => activeRuntimeState().nodeBuffers)
   const nodeBufferText = computed(() => activeRuntimeState().nodeBufferText)
+  const nodeBufferChunks = computed(() => activeRuntimeState().nodeBufferChunks)
   const nodeFrames = computed(() => activeRuntimeState().nodeFrames)
   const validation = computed(() => activeGraph.value ? validateGraph(activeGraph.value) : { valid: true, errors: [] })
   const validationErrors = computed(() => validation.value.errors)
@@ -223,6 +232,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     runtime.nodeStatuses.delete(id)
     runtime.nodeBuffers.delete(id)
     runtime.nodeBufferText.delete(id)
+    runtime.nodeBufferChunks.delete(id)
     runtime.nodeFrames.delete(id)
   }
 
@@ -382,6 +392,14 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
         nodeId,
         new Uint8Array(bytes),
       ])),
+      nodeBufferChunks: Object.fromEntries(Array.from(runtime.nodeBufferChunks.entries()).map(([nodeId, chunks]) => [
+        nodeId,
+        chunks.map(chunk => ({
+          offset: chunk.offset,
+          timestamp: chunk.timestamp,
+          data: new Uint8Array(chunk.data),
+        })),
+      ])),
       nodeFrames: Object.fromEntries(Array.from(runtime.nodeFrames.entries()).map(([nodeId, frames]) => [
         nodeId,
         frames.map(frame => ({ ...frame })),
@@ -398,6 +416,14 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
       nodeBuffers.set(nodeId, nextBytes)
       nodeBufferText.set(nodeId, new TextDecoder().decode(nextBytes))
     }
+    const nodeBufferChunks = new Map<string, GraphBufferChunk[]>()
+    for (const [nodeId, chunks] of Object.entries(snapshot?.nodeBufferChunks ?? {})) {
+      nodeBufferChunks.set(nodeId, chunks.map(chunk => ({
+        offset: chunk.offset,
+        timestamp: chunk.timestamp,
+        data: chunk.data instanceof Uint8Array ? new Uint8Array(chunk.data) : new Uint8Array(chunk.data as any),
+      })))
+    }
     const nodeFrames = new Map<string, Frame[]>()
     for (const [nodeId, frames] of Object.entries(snapshot?.nodeFrames ?? {})) {
       nodeFrames.set(nodeId, (frames ?? []).map(frame => ({ ...frame })))
@@ -408,6 +434,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
         ...runtime,
         nodeBuffers,
         nodeBufferText,
+        nodeBufferChunks,
         nodeFrames,
       },
     }
@@ -548,6 +575,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     })
     if (!page) throw new Error('serial graph did not return buffer page')
     const bytes = snapshotBytes(page)
+    const chunks = snapshotChunks(page)
     const latestRuntime = runtimeFor(graph.id)
     runtimeStates.value = {
       ...runtimeStates.value,
@@ -555,6 +583,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
         ...latestRuntime,
         nodeBuffers: new Map(latestRuntime.nodeBuffers).set(nodeId, bytes),
         nodeBufferText: new Map(latestRuntime.nodeBufferText).set(nodeId, new TextDecoder().decode(bytes)),
+        nodeBufferChunks: new Map(latestRuntime.nodeBufferChunks).set(nodeId, chunks),
       },
     }
     return page
@@ -604,13 +633,15 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     const latestRuntime = runtimeFor(graph.id)
     const nodeBuffers = new Map(latestRuntime.nodeBuffers)
     const nodeBufferText = new Map(latestRuntime.nodeBufferText)
+    const nodeBufferChunks = new Map(latestRuntime.nodeBufferChunks)
     const nodeFrames = new Map(latestRuntime.nodeFrames)
     nodeBuffers.delete(nodeId)
     nodeBufferText.delete(nodeId)
+    nodeBufferChunks.delete(nodeId)
     nodeFrames.delete(nodeId)
     runtimeStates.value = {
       ...runtimeStates.value,
-      [graph.id]: { ...latestRuntime, nodeBuffers, nodeBufferText, nodeFrames },
+      [graph.id]: { ...latestRuntime, nodeBuffers, nodeBufferText, nodeBufferChunks, nodeFrames },
     }
   }
 
@@ -741,6 +772,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     nodeStatuses,
     nodeBuffers,
     nodeBufferText,
+    nodeBufferChunks,
     nodeFrames,
     validation,
     validationErrors,
@@ -805,6 +837,7 @@ function emptyRuntimeState(): GraphRuntimeState {
     nodeStatuses: new Map(),
     nodeBuffers: new Map(),
     nodeBufferText: new Map(),
+    nodeBufferChunks: new Map(),
     nodeFrames: new Map(),
   }
 }
@@ -845,11 +878,23 @@ function normalizeNodeStatus(status: string): 'idle' | 'running' | 'error' {
 }
 
 function snapshotBytes(page: Snapshot): Uint8Array {
-  if (!page.Data) return new Uint8Array(0)
+  return decodeSnapshotData(page.Data)
+}
+
+function snapshotChunks(page: Snapshot): GraphBufferChunk[] {
+  return (page.Chunks ?? []).map(chunk => ({
+    offset: chunk.Offset,
+    timestamp: chunk.Timestamp,
+    data: decodeSnapshotData(chunk.Data),
+  })).filter(chunk => chunk.data.length > 0)
+}
+
+function decodeSnapshotData(data: string | null | undefined): Uint8Array {
+  if (!data) return new Uint8Array(0)
   try {
-    return new Uint8Array(Array.from(atob(page.Data), char => char.charCodeAt(0)))
+    return new Uint8Array(Array.from(atob(data), char => char.charCodeAt(0)))
   } catch {
-    return new TextEncoder().encode(page.Data)
+    return new TextEncoder().encode(data)
   }
 }
 

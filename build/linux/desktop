@@ -1,13 +1,13 @@
 [Desktop Entry]
 Version=1.0
-Name=MockTrue
-Comment=Cross-platform embedded debugging toolkit
+Name=PortWeave
+Comment=跨平台高性能嵌入式调试工具
 # The Exec line includes %u to pass the URL to the application
-Exec=/usr/local/bin/mocktrue %u
+Exec=/usr/local/bin/portweave %u
 Terminal=false
 Type=Application
-Icon=mocktrue
+Icon=portweave
 Categories=Utility;
-StartupWMClass=mocktrue
+StartupWMClass=portweave
 
  

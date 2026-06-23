@@ -156,8 +156,8 @@ func (f *fakeSerialService) StartAutoVirtualMonitor(_ context.Context, req seria
 		Name:              req.Name,
 		Provider:          monitor.ProviderBridge,
 		PortA:             req.Port,
-		PortB:             "/tmp/mocktrue-monitor",
-		ExternalPort:      "/tmp/mocktrue-monitor",
+		PortB:             "/tmp/portweave-monitor",
+		ExternalPort:      "/tmp/portweave-monitor",
 		AutoVirtualPortID: "auto-monitor",
 		Config:            req.Config,
 		Encoding:          req.Encoding,
@@ -1206,7 +1206,7 @@ func TestSerialMonitorToolsCallSerialService(t *testing.T) {
 		"params":{"name":"serial_start_monitor","arguments":{"id":"mon-1","name":"监控","port":"/tmp/source","baud_rate":9600,"encoding":"utf-8"}}
 	}`)
 	monitorResult := start["structuredContent"].(map[string]any)["monitor"].(map[string]any)
-	if monitorResult["ID"] != "mon-1" || monitorResult["ExternalPort"] != "/tmp/mocktrue-monitor" {
+	if monitorResult["ID"] != "mon-1" || monitorResult["ExternalPort"] != "/tmp/portweave-monitor" {
 		t.Fatalf("monitor result = %#v", monitorResult)
 	}
 	if svc.startMonitor.ID != "mon-1" || svc.startMonitor.Port != "/tmp/source" || svc.startMonitor.Config.BaudRate != 9600 {

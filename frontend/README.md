@@ -1,6 +1,6 @@
-# MockTrue Frontend
+# PortWeave Frontend
 
-Vue 3, TypeScript, Vite, Naive UI, Pinia, and Monaco Editor frontend for the MockTrue Wails application.
+Vue 3, TypeScript, Vite, Naive UI, Pinia, and Monaco Editor frontend for the PortWeave Wails application.
 
 ## Development
 

@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "MockTrue",
-			"FileDescription": "Cross-platform embedded debugging toolkit",
-			"LegalCopyright": "© 2026, MockTrue",
-			"ProductName": "MockTrue",
-			"Comments": "MockTrue cross-platform embedded debugging toolkit"
+			"CompanyName": "PortWeave",
+			"FileDescription": "跨平台高性能嵌入式调试工具",
+			"LegalCopyright": "(c) 2026, PortWeave",
+			"ProductName": "PortWeave",
+			"Comments": "PortWeave — cross-platform embedded debugging toolkit"
 		}
 	}
 }

@@ -802,7 +802,7 @@ func TestSerialGraphRuntimeModbusMasterAutoSendsThroughVirtualPort(t *testing.T)
 		ID: "graph-modbus-auto-virtual",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.modbus.master", Config: graphModbusMasterConfig(map[string]any{"autoSend": true, "intervalMs": 10, "quantity": 2})},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("mocktrue-graph-modbus-auto-vp")},
+			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("portweave-graph-modbus-auto-vp")},
 			{ID: "slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
 			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
 		},
@@ -843,7 +843,7 @@ func TestSerialGraphRuntimeFecbusMasterAutoSendsThroughVirtualPort(t *testing.T)
 		ID: "graph-fecbus-auto-virtual",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig(map[string]any{"autoSend": true, "intervalMs": 10})},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("mocktrue-graph-fecbus-auto-vp")},
+			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("portweave-graph-fecbus-auto-vp")},
 			{ID: "slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
 			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
 		},
@@ -986,7 +986,7 @@ func TestSerialGraphRuntimeVirtualPortExposesExternalEndpoint(t *testing.T) {
 	}
 	svc := NewService(nil)
 	defer svc.cleanup()
-	portName := "mocktrue-graph-test-vp"
+	portName := "portweave-graph-test-vp"
 	graph, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
 		ID: "graph-virtual",
 		Nodes: []SerialGraphNodeSpec{
@@ -1059,7 +1059,7 @@ func TestSerialGraphRuntimeAutoSenderThroughVirtualPort(t *testing.T) {
 		ID: "graph-auto-virtual",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.sender", Config: map[string]any{"mode": "ascii", "payload": "vp", "autoSend": true, "intervalMs": 10}},
-			{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": "mocktrue-graph-auto-vp", "baudRate": 115200}},
+			{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": "portweave-graph-auto-vp", "baudRate": 115200}},
 			{ID: "receiver", Type: "serial.receiver", Config: map[string]any{"viewMode": "ascii"}},
 		},
 		Edges: []SerialGraphEdgeSpec{
@@ -1088,7 +1088,7 @@ func TestSerialGraphRuntimeAutoSenderThroughVirtualPortSurvivesExternalBackpress
 		ID: "graph-auto-virtual-backpressure",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.sender", Config: map[string]any{"mode": "ascii", "payload": payload, "autoSend": true, "intervalMs": 10}},
-			{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": "mocktrue-graph-auto-backpressure-vp", "baudRate": 115200}},
+			{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": "portweave-graph-auto-backpressure-vp", "baudRate": 115200}},
 			{ID: "receiver", Type: "serial.receiver", Config: map[string]any{"viewMode": "ascii"}},
 		},
 		Edges: []SerialGraphEdgeSpec{
@@ -1283,7 +1283,7 @@ func TestSerialGraphRuntimeRejectsDuplicateVirtualPortNameAcrossGraphs(t *testin
 		return SerialGraphStartRequest{
 			ID: id,
 			Nodes: []SerialGraphNodeSpec{
-				{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": "mocktrue-graph-dup-vp", "baudRate": 115200}},
+				{ID: "vport", Type: "serial.virtual", Config: map[string]any{"portName": "portweave-graph-dup-vp", "baudRate": 115200}},
 			},
 		}
 	}
@@ -1310,7 +1310,7 @@ func startTestGraph(t *testing.T, svc *Service, req SerialGraphStartRequest) *Se
 func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase {
 	portToken := strings.NewReplacer("-", "_").Replace(demoID)
 	portName := func(name string) string {
-		return fmt.Sprintf("mocktrue-load-%s-%s-%d", portToken, name, time.Now().UnixNano())
+		return fmt.Sprintf("portweave-load-%s-%s-%d", portToken, name, time.Now().UnixNano())
 	}
 	request := func(nodes []SerialGraphNodeSpec, edges []SerialGraphEdgeSpec) SerialGraphStartRequest {
 		return SerialGraphStartRequest{ID: fmt.Sprintf("load-%s", demoID), Nodes: nodes, Edges: edges}

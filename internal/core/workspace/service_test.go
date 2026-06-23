@@ -11,7 +11,7 @@ import (
 func TestServiceSaveReadAndRememberLastWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(&platform.Paths{ConfigDir: dir, DataDir: dir})
-	path := filepath.Join(dir, "session.mocktrue.json")
+	path := filepath.Join(dir, "session.portweave.json")
 	content := `{"kind":"mocktrue.workspace.v1","settings":{"global":{"Theme":"dark"}}}`
 
 	if err := svc.SaveWorkspace(context.Background(), path, content); err != nil {
@@ -38,7 +38,7 @@ func TestServiceSaveReadAndRememberLastWorkspace(t *testing.T) {
 func TestServiceLoadLastWorkspaceMissingFileReturnsCleanEmptyResult(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(&platform.Paths{ConfigDir: dir, DataDir: dir})
-	missing := filepath.Join(dir, "missing.mocktrue.json")
+	missing := filepath.Join(dir, "missing.portweave.json")
 
 	if err := svc.RememberLastWorkspace(context.Background(), missing); err != nil {
 		t.Fatalf("RememberLastWorkspace: %v", err)
@@ -56,8 +56,8 @@ func TestServiceLoadLastWorkspaceMissingFileReturnsCleanEmptyResult(t *testing.T
 func TestServiceExportWorkspaceDoesNotRememberLastWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(&platform.Paths{ConfigDir: dir, DataDir: dir})
-	activePath := filepath.Join(dir, "active.mocktrue.json")
-	copyPath := filepath.Join(dir, "copy.mocktrue.json")
+	activePath := filepath.Join(dir, "active.portweave.json")
+	copyPath := filepath.Join(dir, "copy.portweave.json")
 
 	if err := svc.SaveWorkspace(context.Background(), activePath, `{"active":true}`); err != nil {
 		t.Fatalf("SaveWorkspace: %v", err)
@@ -85,8 +85,8 @@ func TestServiceExportWorkspaceDoesNotRememberLastWorkspace(t *testing.T) {
 func TestServiceSelectWorkspaceOpenPathUsesCurrentDirectory(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(&platform.Paths{ConfigDir: dir})
-	currentPath := filepath.Join(dir, "nested", "session.mocktrue.json")
-	selectedPath := filepath.Join(dir, "selected.mocktrue.json")
+	currentPath := filepath.Join(dir, "nested", "session.portweave.json")
+	selectedPath := filepath.Join(dir, "selected.portweave.json")
 	var gotDir string
 	svc.selectOpenPathFunc = func(directory string) (string, error) {
 		gotDir = directory
@@ -108,7 +108,7 @@ func TestServiceSelectWorkspaceOpenPathUsesCurrentDirectory(t *testing.T) {
 func TestServiceSelectWorkspaceSavePathUsesDefaultWhenNoCurrentPath(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(&platform.Paths{ConfigDir: dir})
-	selectedPath := filepath.Join(dir, "selected.mocktrue.json")
+	selectedPath := filepath.Join(dir, "selected.portweave.json")
 	var gotDir string
 	var gotFilename string
 	svc.selectSavePathFunc = func(directory string, filename string) (string, error) {
@@ -127,8 +127,8 @@ func TestServiceSelectWorkspaceSavePathUsesDefaultWhenNoCurrentPath(t *testing.T
 	if gotDir != dir {
 		t.Fatalf("dialog directory = %q, want %q", gotDir, dir)
 	}
-	if gotFilename != "workspace.mocktrue.json" {
-		t.Fatalf("dialog filename = %q, want workspace.mocktrue.json", gotFilename)
+	if gotFilename != "workspace.portweave.json" {
+		t.Fatalf("dialog filename = %q, want workspace.portweave.json", gotFilename)
 	}
 }
 

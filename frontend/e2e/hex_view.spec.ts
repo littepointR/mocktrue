@@ -22,7 +22,7 @@ test.describe('HEX View E2E', () => {
   test('should display correct HEX format', async ({ page }) => {
     await switchDataView(page, 'HEX 经典');
     await page.evaluate(() => {
-      window.dispatchEvent(new CustomEvent('mocktrue:serial-data', {
+      window.dispatchEvent(new CustomEvent('portweave:serial-data', {
         detail: { PortID: 'port-1', Data: [0xaa, 0x55, 0x01, 0x02, 0x03] },
       }));
     });

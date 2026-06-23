@@ -119,7 +119,7 @@ describe('SerialView graph workspace layout', () => {
       activeGraphId: 'graph-1',
     })
     graph.renameGraph('graph-1', '生产拓扑')
-    files.markClean('/tmp/production.mocktrue.json', { clean: true }, 'graph-1')
+    files.markClean('/tmp/production.portweave.json', { clean: true }, 'graph-1')
     graph.addNode('serial.sender')
     files.syncGraphSnapshot('graph-1')
 
@@ -131,7 +131,7 @@ describe('SerialView graph workspace layout', () => {
 
     const tab = wrapper.find('[data-testid="editor-tab-graph-1"]')
     expect(tab.find('.editor-tab__label').text()).toBe('生产拓扑*')
-    expect(tab.attributes('title')).toContain('/tmp/production.mocktrue.json')
+    expect(tab.attributes('title')).toContain('/tmp/production.portweave.json')
   })
 
   it('filters legacy non-graph tabs from restored layout', async () => {
@@ -266,7 +266,7 @@ describe('SerialView graph workspace layout', () => {
       activeGraphId: 'graph-1',
     })
     graph.renameGraph('graph-1', '未保存拓扑')
-    files.markClean('/tmp/dirty.mocktrue.json', { clean: true }, 'graph-1')
+    files.markClean('/tmp/dirty.portweave.json', { clean: true }, 'graph-1')
     graph.addNode('serial.sender')
     files.syncGraphSnapshot('graph-1')
     const confirm = vi.fn()

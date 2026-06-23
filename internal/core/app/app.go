@@ -31,7 +31,7 @@ func assetsFS(assets embed.FS, dir string) fs.FS {
 	return sub
 }
 
-// Options bundles the inputs needed to assemble the MockTrue application.
+// Options bundles the inputs needed to assemble the PortWeave application.
 type Options struct {
 	Name          string
 	Description   string

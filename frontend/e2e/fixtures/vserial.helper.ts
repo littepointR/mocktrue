@@ -16,8 +16,8 @@ export interface VirtualPair {
  */
 export function startVirtualPair(): VirtualPair {
   const suffix = `${process.pid}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  const port1 = `/tmp/mocktrue-${suffix}-a`;
-  const port2 = `/tmp/mocktrue-${suffix}-b`;
+  const port1 = `/tmp/portweave-${suffix}-a`;
+  const port2 = `/tmp/portweave-${suffix}-b`;
 
   // Remove old symlinks
   try {
@@ -93,7 +93,7 @@ export function readFromPort(portPath: string, timeoutMs: number = 1000): string
 }
 
 function writeTempData(data: string | Buffer): string {
-  const file = path.join(tmpdir(), `mocktrue-e2e-${process.pid}-${Date.now()}-${Math.random()}`);
+  const file = path.join(tmpdir(), `portweave-e2e-${process.pid}-${Date.now()}-${Math.random()}`);
   writeFileSync(file, data);
   return file;
 }

@@ -112,12 +112,12 @@ func SkipIfNoSocat(t *testing.T) {
 	}
 }
 
-// AppExecutable 返回 mocktrue 可执行文件路径
+// AppExecutable 返回 portweave 可执行文件路径
 func AppExecutable() string {
 	wd, _ := os.Getwd()
 	// 从 tests/go/integration 或类似位置回到项目根
 	for i := 0; i < 5; i++ {
-		bin := filepath.Join(wd, "bin", "mocktrue")
+		bin := filepath.Join(wd, "bin", "portweave")
 		if _, err := os.Stat(bin); err == nil {
 			return bin
 		}

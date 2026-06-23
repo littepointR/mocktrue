@@ -8,15 +8,15 @@
         AllowPromptForPassword="false">
     </Settings>
     <Installer
-        Path="mocktrue"
+        Path="portweave"
         Arguments=""
-        InstallLocation="C:\Program Files\MockTrue\MockTrue">
+        InstallLocation="C:\Program Files\PortWeave\PortWeave">
     </Installer>
     <PackageInformation
-        PackageName="MockTrue"
-        PackageDisplayName="MockTrue"
-        PublisherName="CN=MockTrue"
-        PublisherDisplayName="MockTrue"
+        PackageName="PortWeave"
+        PackageDisplayName="PortWeave"
+        PublisherName="CN=PortWeave"
+        PublisherDisplayName="PortWeave"
         Version="0.1.0.0"
         PackageDescription="Cross-platform embedded debugging toolkit">
         <Capabilities>
@@ -27,8 +27,8 @@
             <Application
                 Id="com.mocktrue.app"
                 Description="Cross-platform embedded debugging toolkit"
-                DisplayName="MockTrue"
-                ExecutableName="mocktrue"
+                DisplayName="PortWeave"
+                ExecutableName="portweave"
                 EntryPoint="Windows.FullTrustApplication">
                 
             </Application>
@@ -41,13 +41,13 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>MockTrue</DisplayName>
-            <PublisherDisplayName>MockTrue</PublisherDisplayName>
+            <DisplayName>PortWeave</DisplayName>
+            <PublisherDisplayName>PortWeave</PublisherDisplayName>
             <Description>Cross-platform embedded debugging toolkit</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>
-    <SaveLocation PackagePath="mocktrue.msix" />
+    <SaveLocation PackagePath="portweave.msix" />
     <PackageIntegrity>
         <CertificatePath></CertificatePath>
     </PackageIntegrity>

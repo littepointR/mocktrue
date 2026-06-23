@@ -1,6 +1,6 @@
 .PHONY: build build-all test test-race vet lint clean
 
-APP_NAME := mocktrue
+APP_NAME := portweave
 BUILD_DIR := bin
 
 # Default: build for current platform

@@ -1,4 +1,4 @@
-# MockTrue Agent Instructions
+# PortWeave Agent Instructions
 
 ## Multi-Agent Development Workflow
 

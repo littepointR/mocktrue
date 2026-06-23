@@ -35,12 +35,12 @@ test.describe('App Shell Smoke', () => {
     await expect(serialIcon).toHaveAttribute('title', '串口调试');
   });
 
-  test('should display MockTrue version in the status bar', async ({ page }) => {
+  test('should display PortWeave version in the status bar', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.status-bar', { timeout: 10000 });
 
     const statusBar = page.locator('.status-bar');
-    await expect(statusBar).toContainText('MockTrue v0.1.0');
+    await expect(statusBar).toContainText('PortWeave v0.1.0');
   });
 
   test('should display live CPU and memory usage in the status bar', async ({ page }) => {

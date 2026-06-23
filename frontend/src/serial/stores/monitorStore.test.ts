@@ -53,8 +53,8 @@ describe('monitor store', () => {
     const session = {
       ...sampleSession('mon-auto'),
       PortA: '/dev/tty.usbserial',
-      PortB: '/tmp/mocktrue-tty-usbserial',
-      ExternalPort: '/tmp/mocktrue-tty-usbserial',
+      PortB: '/tmp/portweave-tty-usbserial',
+      ExternalPort: '/tmp/portweave-tty-usbserial',
       AutoVirtualPortID: 'mon-auto-virtual',
     }
     bindings.StartAutoVirtualMonitor.mockResolvedValue(session)
@@ -69,7 +69,7 @@ describe('monitor store', () => {
     })
 
     expect(id).toBe('mon-auto')
-    expect(store.sessions.get('mon-auto')?.ExternalPort).toBe('/tmp/mocktrue-tty-usbserial')
+    expect(store.sessions.get('mon-auto')?.ExternalPort).toBe('/tmp/portweave-tty-usbserial')
     expect(bindings.StartAutoVirtualMonitor).toHaveBeenCalledWith(expect.objectContaining({
       ID: 'mon-auto',
       Name: 'USB 串口监听',

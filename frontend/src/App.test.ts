@@ -12,7 +12,7 @@ import { useSerialGraphStore } from './serial/stores/graphStore'
 
 const workspaceBindings = vi.hoisted(() => ({
   LoadLastWorkspace: vi.fn(async () => ({ Found: false, Path: '', Content: '' })),
-  DefaultWorkspacePath: vi.fn(async () => '/tmp/default.mocktrue.json'),
+  DefaultWorkspacePath: vi.fn(async () => '/tmp/default.portweave.json'),
   ExportWorkspace: vi.fn(async () => undefined),
   SaveWorkspace: vi.fn(async () => undefined),
   ReadWorkspace: vi.fn(async (path: string) => ({
@@ -34,8 +34,8 @@ const workspaceBindings = vi.hoisted(() => ({
     }),
   })),
   RememberLastWorkspace: vi.fn(async () => undefined),
-  SelectWorkspaceOpenPath: vi.fn(async () => '/tmp/opened.mocktrue.json'),
-  SelectWorkspaceSavePath: vi.fn(async () => '/tmp/save-as.mocktrue.json'),
+  SelectWorkspaceOpenPath: vi.fn(async () => '/tmp/opened.portweave.json'),
+  SelectWorkspaceSavePath: vi.fn(async () => '/tmp/save-as.portweave.json'),
 }))
 
 vi.mock('../bindings/github.com/littepointR/mocktrue/internal/core/workspace/service.js', () => workspaceBindings)
@@ -134,8 +134,8 @@ describe('App settings effects', () => {
     const files = useWorkspaceFileStore()
     const settings = useSettingsStore()
     const second = graph.createGraph('第二拓扑')
-    files.markClean('/tmp/first.mocktrue.json', graphSnapshot('graph-1', '第一拓扑', 15), 'graph-1')
-    files.markClean('/tmp/second.mocktrue.json', graphSnapshot(second.id, '第二拓扑', 21), second.id)
+    files.markClean('/tmp/first.portweave.json', graphSnapshot('graph-1', '第一拓扑', 15), 'graph-1')
+    files.markClean('/tmp/second.portweave.json', graphSnapshot(second.id, '第二拓扑', 21), second.id)
 
     graph.setActiveGraph(second.id)
     await wrapper.vm.$nextTick()
@@ -205,22 +205,22 @@ describe('App settings effects', () => {
     await wrapper.find('[data-testid="app-titlebar-open-graph"]').trigger('click')
     await flushPromises()
     expect(workspaceBindings.SelectWorkspaceOpenPath).toHaveBeenCalled()
-    expect(workspaceBindings.ReadWorkspace).toHaveBeenCalledWith('/tmp/opened.mocktrue.json')
+    expect(workspaceBindings.ReadWorkspace).toHaveBeenCalledWith('/tmp/opened.portweave.json')
     expect(useSerialGraphStore().activeGraph?.name).toBe('打开拓扑')
 
     useSerialGraphStore().renameGraph('opened-graph', '保存拓扑')
     await wrapper.find('[data-testid="app-titlebar-save-graph"]').trigger('click')
     await flushPromises()
     expect(workspaceBindings.SaveWorkspace).toHaveBeenCalledWith(
-      '/tmp/opened.mocktrue.json',
+      '/tmp/opened.portweave.json',
       expect.stringContaining('保存拓扑')
     )
 
     await wrapper.find('[data-testid="app-titlebar-save-as-graph"]').trigger('click')
     await flushPromises()
-    expect(workspaceBindings.SelectWorkspaceSavePath).toHaveBeenCalledWith('/tmp/opened.mocktrue.json')
+    expect(workspaceBindings.SelectWorkspaceSavePath).toHaveBeenCalledWith('/tmp/opened.portweave.json')
     expect(workspaceBindings.SaveWorkspace).toHaveBeenLastCalledWith(
-      '/tmp/save-as.mocktrue.json',
+      '/tmp/save-as.portweave.json',
       expect.stringContaining('保存拓扑')
     )
   })

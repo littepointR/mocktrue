@@ -77,7 +77,7 @@ function formatBytes(value: number): string {
 
 <template>
   <div class="status-bar">
-    <span class="status-bar__left">MockTrue v0.1.0</span>
+    <span class="status-bar__left">PortWeave v0.1.0</span>
     <span class="status-bar__right">
       <span class="status-bar__metrics">CPU {{ cpuText }} · 内存 {{ memoryText }}</span>
       <span v-if="mcpText" class="status-bar__mcp">{{ mcpText }}</span>

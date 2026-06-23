@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { serialGraphProviders, validateGraph, type SerialGraphWorkspaceState } from '../serial/graph/serialGraph'
+import { matchSerialFilter } from '../serial/utils/serialFilter'
 import { createDemoWorkspaceSnapshot, getDemoWorkspace, listDemoWorkspaces } from './demoWorkspaces'
 import { workspaceKind } from './workspaceSnapshot'
 
@@ -202,11 +203,17 @@ describe('demoWorkspaces', () => {
       caseSensitive: false,
       wholeWord: false,
     }))
-    expect(filters.find(node => node.config.mode === 'regex')?.config).toEqual(expect.objectContaining({
-      expression: 'TEMP=\\d+',
+    const regexFilter = filters.find(node => node.config.mode === 'regex')
+    const regexExpression = String(regexFilter?.config.expression ?? '')
+    expect(regexFilter?.config).toEqual(expect.objectContaining({
+      expression: /TEMP=\d+/.source,
       caseSensitive: false,
       wholeWord: false,
     }))
+    expect(matchSerialFilter({ text: String(sender?.config.payload ?? '') }, {
+      mode: 'regex',
+      expression: regexExpression,
+    })).toEqual({ matched: true })
     expect(filters.find(node => node.config.mode === 'expression')?.config).toEqual(expect.objectContaining({
       expression: 'len >= 4 and text contains "OK"',
       caseSensitive: false,

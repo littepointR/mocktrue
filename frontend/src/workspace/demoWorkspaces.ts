@@ -526,7 +526,7 @@ function serialObservabilityGraphState(suffix: string, portName: string): Serial
     graphNode(suffix, 'observability-vport', 'serial.virtual', 280, 168, virtualConfig(portName)),
     graphNode(suffix, 'observability-tap', 'serial.tap', 528, 168),
     graphNode(suffix, 'observability-filter-plain', 'serial.filter', 776, 32, filterConfig('plain', 'STATUS OK')),
-    graphNode(suffix, 'observability-filter-regex', 'serial.filter', 776, 168, filterConfig('regex', 'TEMP=\\d+')),
+    graphNode(suffix, 'observability-filter-regex', 'serial.filter', 776, 168, filterConfig('regex', /TEMP=\d+/.source)),
     graphNode(suffix, 'observability-filter-expression', 'serial.filter', 776, 304, filterConfig('expression', 'len >= 4 and text contains "OK"')),
     graphNode(suffix, 'observability-receiver-plain', 'serial.receiver', 1040, 32, timestampReceiverConfig('ascii', 'debug')),
     graphNode(suffix, 'observability-receiver-regex', 'serial.receiver', 1040, 168, timestampReceiverConfig('hexClassic', 'info')),

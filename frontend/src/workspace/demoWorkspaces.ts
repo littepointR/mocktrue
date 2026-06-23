@@ -76,6 +76,12 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
     snapshotFactory: createSerialGraphDemo,
   },
   {
+    id: 'serial-observability-demo',
+    title: '串口过滤与日志演示',
+    description: '展示串口过滤器、收发日志模板、接收时间戳和运行后操作日志。',
+    snapshotFactory: createSerialObservabilityDemo,
+  },
+  {
     id: 'full-workspace-demo',
     title: '完整工作区演示',
     description: '展示设置以及拓扑图中的虚拟串口、桥接、监控、Modbus 和 FECbus 配置。',
@@ -191,6 +197,17 @@ function createSerialGraphDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `mocktrue-demo-graph-${suffix}`
   const graph = serialGraphState(suffix, portName)
+
+  return snapshot({
+    graph,
+    workspace: graphWorkspace(graph),
+  })
+}
+
+function createSerialObservabilityDemo(): WorkspaceSnapshot {
+  const suffix = nextDemoSuffix()
+  const portName = `mocktrue-demo-observability-${suffix}`
+  const graph = serialObservabilityGraphState(suffix, portName)
 
   return snapshot({
     graph,
@@ -499,6 +516,35 @@ function serialGraphState(suffix: string, portName: string): SerialGraphWorkspac
   ], selectedNodeId)
 }
 
+function serialObservabilityGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+  const selectedNodeId = `graph-observability-receiver-expression-${suffix}`
+  const nodes: SerialGraphNode[] = [
+    graphNode(suffix, 'observability-sender', 'serial.sender', 32, 168, {
+      ...senderConfig('TEMP=42 STATUS OK\r\n'),
+      ...loggingConfig('info', '[{timestamp}] {nodeName} {direction} {length} bytes {text}'),
+    }),
+    graphNode(suffix, 'observability-vport', 'serial.virtual', 280, 168, virtualConfig(portName)),
+    graphNode(suffix, 'observability-tap', 'serial.tap', 528, 168),
+    graphNode(suffix, 'observability-filter-plain', 'serial.filter', 776, 32, filterConfig('plain', 'STATUS OK')),
+    graphNode(suffix, 'observability-filter-regex', 'serial.filter', 776, 168, filterConfig('regex', /TEMP=\d+/.source)),
+    graphNode(suffix, 'observability-filter-expression', 'serial.filter', 776, 304, filterConfig('expression', 'len >= 4 and text contains "OK"')),
+    graphNode(suffix, 'observability-receiver-plain', 'serial.receiver', 1040, 32, timestampReceiverConfig('ascii', 'debug')),
+    graphNode(suffix, 'observability-receiver-regex', 'serial.receiver', 1040, 168, timestampReceiverConfig('hexClassic', 'info')),
+    graphNode(suffix, 'observability-receiver-expression', 'serial.receiver', 1040, 304, timestampReceiverConfig('ascii', 'info')),
+  ]
+
+  return graphState(suffix, '串口过滤与日志演示', nodes, [
+    graphEdge(suffix, 'observability-sender-vport', `graph-observability-sender-${suffix}`, 'out', `graph-observability-vport-${suffix}`, 'tx'),
+    graphEdge(suffix, 'observability-vport-tap', `graph-observability-vport-${suffix}`, 'rx', `graph-observability-tap-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-tap-filter-plain', `graph-observability-tap-${suffix}`, 'out', `graph-observability-filter-plain-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-filter-plain-receiver', `graph-observability-filter-plain-${suffix}`, 'out', `graph-observability-receiver-plain-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-tap-filter-regex', `graph-observability-tap-${suffix}`, 'out', `graph-observability-filter-regex-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-filter-regex-receiver', `graph-observability-filter-regex-${suffix}`, 'out', `graph-observability-receiver-regex-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-tap-filter-expression', `graph-observability-tap-${suffix}`, 'out', `graph-observability-filter-expression-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-filter-expression-receiver', `graph-observability-filter-expression-${suffix}`, 'out', selectedNodeId, 'in'),
+  ], selectedNodeId)
+}
+
 function serialOpenGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-open-receiver-${suffix}`
   const nodes = [
@@ -688,6 +734,7 @@ function fullWorkspaceGraphState(
     graphNode(suffix, 'full-sender', 'serial.sender', 32, 32, senderConfig(`full workspace ${suffix}\r\n`)),
     graphNode(suffix, 'full-vport', 'serial.virtual', 280, 32, virtualConfig(terminalPort)),
     graphNode(suffix, 'full-tap', 'serial.tap', 528, 32),
+    graphNode(suffix, 'full-filter', 'serial.filter', 652, 32, filterConfig('plain', 'full workspace')),
     graphNode(suffix, 'full-receiver', 'serial.receiver', 776, 32, receiverConfig('hexClassic')),
     graphNode(suffix, 'full-monitor', 'serial.monitor', 776, 168, monitorConfig()),
 
@@ -723,7 +770,8 @@ function fullWorkspaceGraphState(
   return graphState(suffix, '完整工作区演示', nodes, [
     graphEdge(suffix, 'full-sender-vport', `graph-full-sender-${suffix}`, 'out', `graph-full-vport-${suffix}`, 'tx'),
     graphEdge(suffix, 'full-vport-tap', `graph-full-vport-${suffix}`, 'rx', `graph-full-tap-${suffix}`, 'in'),
-    graphEdge(suffix, 'full-tap-receiver', `graph-full-tap-${suffix}`, 'out', selectedNodeId, 'in'),
+    graphEdge(suffix, 'full-tap-filter', `graph-full-tap-${suffix}`, 'out', `graph-full-filter-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-filter-receiver', `graph-full-filter-${suffix}`, 'out', selectedNodeId, 'in'),
     graphEdge(suffix, 'full-tap-monitor', `graph-full-tap-${suffix}`, 'out', `graph-full-monitor-${suffix}`, 'in'),
     graphEdge(suffix, 'full-bridge-sender-a-vport-a', `graph-full-bridge-sender-a-${suffix}`, 'out', `graph-full-bridge-vport-a-${suffix}`, 'tx'),
     graphEdge(suffix, 'full-bridge-vport-a-in', `graph-full-bridge-vport-a-${suffix}`, 'rx', `graph-full-bridge-${suffix}`, 'a-in'),
@@ -829,6 +877,35 @@ function virtualConfig(portName: string): Record<string, unknown> {
 
 function receiverConfig(viewMode = 'ascii'): Record<string, unknown> {
   return { viewMode, autoScroll: true }
+}
+
+function timestampReceiverConfig(viewMode = 'ascii', logLevel = 'info'): Record<string, unknown> {
+  return {
+    ...receiverConfig(viewMode),
+    showTimestamp: true,
+    ...loggingConfig(logLevel, '{nodeName} {direction} {length} bytes {hex}'),
+  }
+}
+
+function filterConfig(
+  mode: 'plain' | 'regex' | 'expression',
+  expression: string,
+  options: { caseSensitive?: boolean; wholeWord?: boolean } = {}
+): Record<string, unknown> {
+  return {
+    mode,
+    expression,
+    caseSensitive: options.caseSensitive ?? false,
+    wholeWord: options.wholeWord ?? false,
+  }
+}
+
+function loggingConfig(logLevel: string, logFormat: string): Record<string, unknown> {
+  return {
+    enableLogging: true,
+    logLevel,
+    logFormat,
+  }
 }
 
 function monitorConfig(): Record<string, unknown> {

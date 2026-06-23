@@ -500,6 +500,8 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 		"serial_delete_monitor",
 		"serial_clear_monitor_frames",
 		"serial_graph_provider_catalog",
+		"serial_graph_demo_catalog",
+		"serial_graph_demo_template",
 		"serial_graph_validate",
 		"serial_graph_start",
 		"serial_graph_stop",
@@ -551,10 +553,11 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		"params":{"name":"serial_graph_provider_catalog","arguments":{}}
 	}`)
 	providers := catalog["structuredContent"].(map[string]any)["providers"].([]any)
-	if len(providers) < 13 {
-		t.Fatalf("provider count = %d, want at least 13", len(providers))
+	if len(providers) < 14 {
+		t.Fatalf("provider count = %d, want at least 14", len(providers))
 	}
 	providerTypes := make(map[string]bool, len(providers))
+	providerSpecs := make(map[string]map[string]any, len(providers))
 	providerDefaults := make(map[string]map[string]any, len(providers))
 	for _, raw := range providers {
 		provider := raw.(map[string]any)
@@ -566,12 +569,16 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		}
 		providerType := provider["type"].(string)
 		providerTypes[providerType] = true
+		providerSpecs[providerType] = provider
 		providerDefaults[providerType] = provider["default_config"].(map[string]any)
 	}
 	for _, want := range []string{
 		"serial.physical",
 		"serial.virtual",
+		"serial.filter",
 		"serial.tap",
+		"serial.sender",
+		"serial.receiver",
 		"serial.modbus.master",
 		"serial.fecbus.slave",
 		"serial.script.transform",
@@ -592,13 +599,43 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		t.Fatalf("serial.modbus.slave unitIds default = %#v, want 1", got)
 	}
 	if got := providerDefaults["serial.sender"]; !reflect.DeepEqual(got, map[string]any{
-		"mode":       "ascii",
-		"encoding":   "utf-8",
-		"payload":    "",
-		"autoSend":   false,
-		"intervalMs": float64(1000),
+		"mode":          "ascii",
+		"encoding":      "utf-8",
+		"payload":       "",
+		"autoSend":      false,
+		"intervalMs":    float64(1000),
+		"enableLogging": false,
+		"logLevel":      "info",
+		"logFormat":     "",
 	}) {
 		t.Fatalf("serial.sender default_config = %#v, want frontend-compatible defaults", got)
+	}
+	if got := providerDefaults["serial.receiver"]; !reflect.DeepEqual(got, map[string]any{
+		"viewMode":      "ascii",
+		"autoScroll":    true,
+		"showTimestamp": false,
+		"enableLogging": false,
+		"logLevel":      "info",
+		"logFormat":     "",
+	}) {
+		t.Fatalf("serial.receiver default_config = %#v, want frontend-compatible defaults", got)
+	}
+	if got := providerDefaults["serial.filter"]; !reflect.DeepEqual(got, map[string]any{
+		"mode":          "plain",
+		"expression":    "",
+		"caseSensitive": false,
+		"wholeWord":     false,
+	}) {
+		t.Fatalf("serial.filter default_config = %#v, want frontend-compatible defaults", got)
+	}
+	filter := providerSpecs["serial.filter"]
+	filterInputs := filter["inputs"].([]any)
+	filterOutputs := filter["outputs"].([]any)
+	if len(filterInputs) != 1 || filterInputs[0].(map[string]any)["id"] != "in" || filterInputs[0].(map[string]any)["kind"] != "bytes" {
+		t.Fatalf("serial.filter inputs = %#v, want one bytes input named in", filterInputs)
+	}
+	if len(filterOutputs) != 1 || filterOutputs[0].(map[string]any)["id"] != "out" || filterOutputs[0].(map[string]any)["kind"] != "bytes" {
+		t.Fatalf("serial.filter outputs = %#v, want one bytes output named out", filterOutputs)
 	}
 	if got := providerDefaults["serial.script.transform"]; !reflect.DeepEqual(got, map[string]any{
 		"script":         "output.bytes(input.bytes())",
@@ -671,8 +708,8 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		"method":"tools/call",
 		"params":{"name":"serial_graph_validate","arguments":{
 			"nodes":[
-				{"id":"sender","type":"serial.sender","position":{"x":20,"y":20},"config":{}},
-				{"id":"receiver","type":"serial.receiver","position":{"x":260,"y":20},"config":{}}
+				{"id":"sender","type":"serial.sender","position":{"x":20,"y":20},"config":{"enableLogging":true,"logLevel":"debug","logFormat":"{text}"}},
+				{"id":"receiver","type":"serial.receiver","position":{"x":260,"y":20},"config":{"showTimestamp":true,"enableLogging":true,"logLevel":"info","logFormat":"{hex}"}}
 			],
 			"edges":[{"id":"edge-1","source":"sender","sourceHandle":"out","target":"receiver","targetHandle":"in"}]
 		}}
@@ -827,6 +864,117 @@ func TestSerialGraphRuntimeToolsCallSerialService(t *testing.T) {
 	}`)
 	if svc.stopGraph != "graph-mcp" {
 		t.Fatalf("stop graph = %q", svc.stopGraph)
+	}
+}
+
+func TestSerialGraphRuntimeMCPFiltersPassAndDrop(t *testing.T) {
+	svc := serial.NewService(nil)
+	handler := mcpHTTPHandler(newMCPServer(svc), true)
+
+	graphArgs := map[string]any{
+		"id": "graph-mcp-filter",
+		"nodes": []map[string]any{
+			{"id": "sender", "type": "serial.sender", "position": map[string]any{"x": 0, "y": 0}, "config": map[string]any{"mode": "ascii", "enableLogging": true, "logLevel": "info", "logFormat": "{text}"}},
+			{"id": "filter", "type": "serial.filter", "position": map[string]any{"x": 240, "y": 0}, "config": map[string]any{"mode": "plain", "expression": "OK", "caseSensitive": false, "wholeWord": false}},
+			{"id": "receiver", "type": "serial.receiver", "position": map[string]any{"x": 480, "y": 0}, "config": map[string]any{"viewMode": "ascii", "autoScroll": true, "showTimestamp": true, "enableLogging": true, "logLevel": "debug", "logFormat": "{hex}"}},
+		},
+		"edges": []map[string]any{
+			{"id": "edge-sender-filter", "source": "sender", "sourceHandle": "out", "target": "filter", "targetHandle": "in"},
+			{"id": "edge-filter-receiver", "source": "filter", "sourceHandle": "out", "target": "receiver", "targetHandle": "in"},
+		},
+	}
+
+	valid := callMCPTool(t, handler, 440, "serial_graph_validate", map[string]any{"nodes": graphArgs["nodes"], "edges": graphArgs["edges"]})
+	if valid["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("filter graph validate result = %#v", valid["structuredContent"])
+	}
+
+	start := callMCPTool(t, handler, 441, "serial_graph_start", graphArgs)
+	if start["structuredContent"].(map[string]any)["graph"].(map[string]any)["ID"] != "graph-mcp-filter" {
+		t.Fatalf("start content = %#v", start["structuredContent"])
+	}
+	defer func() { _ = svc.StopSerialGraph("graph-mcp-filter") }()
+
+	callMCPTool(t, handler, 442, "serial_graph_send", map[string]any{"graph_id": "graph-mcp-filter", "node_id": "sender", "content": "OK: keep", "mode": "ascii"})
+	callMCPTool(t, handler, 443, "serial_graph_send", map[string]any{"graph_id": "graph-mcp-filter", "node_id": "sender", "content": "DROP: ignore", "mode": "ascii"})
+
+	bufferPage := callMCPTool(t, handler, 444, "serial_graph_query_node_buffer", map[string]any{"graph_id": "graph-mcp-filter", "node_id": "receiver", "offset": 0, "length": 64})
+	bufferContent := bufferPage["structuredContent"].(map[string]any)
+	if bufferContent["data"] != "OK: keep" || bufferContent["hex"] != "4f4b3a206b656570" {
+		t.Fatalf("filtered receiver buffer = %#v, want only matching payload", bufferContent)
+	}
+}
+
+func TestSerialGraphDemoTemplateToolsReturnValidFilterLoggingGraph(t *testing.T) {
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	catalog := callMCPTool(t, handler, 450, "serial_graph_demo_catalog", map[string]any{})
+	templates := catalog["structuredContent"].(map[string]any)["templates"].([]any)
+	found := false
+	for _, raw := range templates {
+		template := raw.(map[string]any)
+		if template["id"] == "serial-observability-filter-logging" {
+			found = true
+			if template["operation_log_state"] != "not_in_backend" {
+				t.Fatalf("template metadata = %#v, want operation log limitation documented", template)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("serial_graph_demo_catalog templates = %#v, want serial-observability-filter-logging", templates)
+	}
+
+	templateResult := callMCPTool(t, handler, 451, "serial_graph_demo_template", map[string]any{
+		"id":        "serial-observability-filter-logging",
+		"graph_id":  "graph-from-template",
+		"port_name": "mcp-demo-vport",
+	})
+	template := templateResult["structuredContent"].(map[string]any)
+	if template["id"] != "serial-observability-filter-logging" || template["usage"] == nil {
+		t.Fatalf("template content = %#v, want id and usage", template)
+	}
+	nodes := template["nodes"].([]any)
+	edges := template["edges"].([]any)
+	if len(nodes) < 4 || len(edges) < 3 {
+		t.Fatalf("template nodes/edges = %d/%d, want sender -> virtual -> filter -> receiver graph", len(nodes), len(edges))
+	}
+
+	configsByID := make(map[string]map[string]any, len(nodes))
+	var sawVirtual, sawFilter, sawLoggedSender, sawLoggedReceiver bool
+	for _, raw := range nodes {
+		node := raw.(map[string]any)
+		config, _ := node["config"].(map[string]any)
+		configsByID[node["id"].(string)] = config
+		switch node["type"] {
+		case "serial.virtual":
+			sawVirtual = sawVirtual || config["portName"] == "mcp-demo-vport"
+		case "serial.filter":
+			sawFilter = sawFilter || config["mode"] == "plain" && config["expression"] == "OK"
+		case "serial.sender":
+			sawLoggedSender = sawLoggedSender || config["enableLogging"] == true && config["logLevel"] == "info" && config["logFormat"] != ""
+		case "serial.receiver":
+			sawLoggedReceiver = sawLoggedReceiver || config["showTimestamp"] == true && config["enableLogging"] == true && config["logLevel"] == "info" && config["logFormat"] != ""
+		}
+	}
+	if !sawVirtual || !sawFilter || !sawLoggedSender || !sawLoggedReceiver {
+		t.Fatalf("template nodes = %#v, want virtual port, plain filter, and sender/receiver logging config", nodes)
+	}
+	if got := configsByID["sender"]["logFormat"]; got != "tx {text}" {
+		t.Fatalf("sender logFormat = %#v, want frontend-compatible exact placeholder syntax", got)
+	}
+	if got := configsByID["receiver-plain"]["logFormat"]; got != "plain {timestamp} {text}" {
+		t.Fatalf("receiver-plain logFormat = %#v, want frontend-compatible exact placeholder syntax", got)
+	}
+	if got := configsByID["receiver-regex"]["logFormat"]; got != "regex {timestamp} {text}" {
+		t.Fatalf("receiver-regex logFormat = %#v, want frontend-compatible exact placeholder syntax", got)
+	}
+	if got := configsByID["receiver-expression"]["logFormat"]; got != "expr {timestamp} {hex}" {
+		t.Fatalf("receiver-expression logFormat = %#v, want frontend-compatible exact placeholder syntax", got)
+	}
+
+	valid := callMCPTool(t, handler, 452, "serial_graph_validate", map[string]any{"nodes": nodes, "edges": edges})
+	if valid["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("template validate result = %#v", valid["structuredContent"])
 	}
 }
 
@@ -1277,6 +1425,23 @@ func callMCP(t *testing.T, handler http.Handler, payload string) map[string]any 
 		t.Fatalf("MCP tool error response: %#v", result["content"])
 	}
 	return result
+}
+
+func callMCPTool(t *testing.T, handler http.Handler, id int, name string, arguments map[string]any) map[string]any {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      name,
+			"arguments": arguments,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal MCP tool call: %v", err)
+	}
+	return callMCP(t, handler, string(payload))
 }
 
 func extractToolNames(t *testing.T, result map[string]any) map[string]bool {

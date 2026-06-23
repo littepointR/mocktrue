@@ -26,12 +26,14 @@ const expectedDemoNodeTypes: Record<string, string[]> = {
   'modbus-demo': ['serial.virtual', 'serial.modbus.master', 'serial.modbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
   'fecbus-demo': ['serial.virtual', 'serial.fecbus.master', 'serial.fecbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
   'serial-graph-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.receiver', 'serial.modbus.master', 'serial.monitor'],
+  'serial-observability-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.filter', 'serial.receiver'],
   'full-workspace-demo': [
     'serial.sender',
     'serial.virtual',
     'serial.bridge',
     'serial.monitor',
     'serial.tap',
+    'serial.filter',
     'serial.receiver',
     'serial.script.generator',
     'serial.script.transform',
@@ -59,6 +61,7 @@ describe('demoWorkspaces', () => {
       'modbus-demo',
       'fecbus-demo',
       'serial-graph-demo',
+      'serial-observability-demo',
       'full-workspace-demo',
     ])
     expect(demos.every(demo => !('readonly' in demo))).toBe(true)
@@ -162,6 +165,96 @@ describe('demoWorkspaces', () => {
       expect(snapshot.serial.workspace.editorLayout.tabs).toContain(`graph:${graph.id}`)
       expect(snapshot.serial.workspace.activeByGroup[snapshot.serial.workspace.editorLayout.id]).toBe(`graph:${graph.id}`)
     }
+  })
+
+  it('opens the serial observability example with filter, logging, and timestamp configs', () => {
+    const demo = getDemoWorkspace('serial-observability-demo')
+    const snapshot = createDemoWorkspaceSnapshot('serial-observability-demo')
+    const graph = activeGraph(snapshot?.serial.graph)
+
+    expect(demo?.title).toBe('串口过滤与日志演示')
+    expect(snapshot?.serial.graph.graphs).toHaveLength(1)
+    expect(snapshot?.serial.graph.activeGraphId).toBe(graph.id)
+    expect(snapshot?.serial.workspace.selectedOperation).toBe('graph')
+    expect(validateGraph(graph).errors).toEqual([])
+
+    const providerTypes = new Set(serialGraphProviders.map(provider => provider.type))
+    expect(graph.nodes.every(node => providerTypes.has(node.type))).toBe(true)
+
+    const sender = graph.nodes.find(node => node.type === 'serial.sender')
+    const virtualPort = graph.nodes.find(node => node.type === 'serial.virtual')
+    const tap = graph.nodes.find(node => node.type === 'serial.tap')
+    const filters = graph.nodes.filter(node => node.type === 'serial.filter')
+    const receivers = graph.nodes.filter(node => node.type === 'serial.receiver')
+
+    expect(sender?.config).toEqual(expect.objectContaining({
+      autoSend: true,
+      mode: 'ascii',
+      payload: 'TEMP=42 STATUS OK\r\n',
+      enableLogging: true,
+      logLevel: 'info',
+      logFormat: '[{timestamp}] {nodeName} {direction} {length} bytes {text}',
+    }))
+    expect(filters).toHaveLength(3)
+    expect(filters.map(node => node.config.mode).sort()).toEqual(['expression', 'plain', 'regex'])
+    expect(filters.find(node => node.config.mode === 'plain')?.config).toEqual(expect.objectContaining({
+      expression: 'STATUS OK',
+      caseSensitive: false,
+      wholeWord: false,
+    }))
+    expect(filters.find(node => node.config.mode === 'regex')?.config).toEqual(expect.objectContaining({
+      expression: 'TEMP=\\d+',
+      caseSensitive: false,
+      wholeWord: false,
+    }))
+    expect(filters.find(node => node.config.mode === 'expression')?.config).toEqual(expect.objectContaining({
+      expression: 'len >= 4 and text contains "OK"',
+      caseSensitive: false,
+      wholeWord: false,
+    }))
+    expect(receivers).toHaveLength(3)
+    for (const receiver of receivers) {
+      expect(receiver.config).toEqual(expect.objectContaining({
+        autoScroll: true,
+        showTimestamp: true,
+        enableLogging: true,
+      }))
+      expect(String(receiver.config.logFormat)).toContain('{hex}')
+    }
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: sender?.id,
+        sourceHandle: 'out',
+        target: virtualPort?.id,
+        targetHandle: 'tx',
+      }),
+      expect.objectContaining({
+        source: virtualPort?.id,
+        sourceHandle: 'rx',
+        target: tap?.id,
+        targetHandle: 'in',
+      }),
+    ]))
+    for (const filter of filters) {
+      const receiverEdge = graph.edges.find(edge => (
+        edge.source === filter.id
+        && edge.sourceHandle === 'out'
+        && edge.targetHandle === 'in'
+        && receivers.some(receiver => receiver.id === edge.target)
+      ))
+      expect(graph.edges, `${filter.id} input`).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source: tap?.id,
+          sourceHandle: 'out',
+          target: filter.id,
+          targetHandle: 'in',
+        }),
+      ]))
+      expect(receiverEdge, `${filter.id} receiver edge`).toBeTruthy()
+    }
+    expect(graph.selectedNodeId).toBe(receivers.at(-1)?.id)
+    expect(graph.nodeTabs.map(tab => tab.nodeId)).toEqual(graph.nodes.map(node => node.id))
+    expect(graph.activeNodeTabId).toBe(graph.selectedNodeId)
   })
 
   it('opens protocol examples as normal topology nodes', () => {
@@ -442,6 +535,9 @@ function outputsAfterInput(nodeType: string, inputHandle: string): string[] {
     return ['out']
   }
   if (nodeType === 'serial.script.transform' && inputHandle === 'in') {
+    return ['out']
+  }
+  if (nodeType === 'serial.filter' && inputHandle === 'in') {
     return ['out']
   }
   if (nodeType === 'serial.bridge') {

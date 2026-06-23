@@ -1,6 +1,6 @@
 # Contributing
 
-MockTrue is a Wails v3 desktop application with a Go backend and a Vue/TypeScript frontend.
+PortWeave is a Wails v3 desktop application with a Go backend and a Vue/TypeScript frontend.
 
 ## Development
 

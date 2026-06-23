@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Metrics describes current resource usage for the running MockTrue process.
+// Metrics describes current resource usage for the running PortWeave process.
 type Metrics struct {
 	CPUPercent  float64
 	MemoryBytes uint64

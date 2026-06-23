@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pelletier/go-toml/v2"
 	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // Schema is the application configuration model.
@@ -73,7 +73,7 @@ type ModulesConfig struct {
 // Default returns the built-in default configuration.
 func Default() *Schema {
 	return &Schema{
-		App: AppConfig{Name: "MockTrue", Version: "0.1.0"},
+		App: AppConfig{Name: "PortWeave", Version: "0.1.0"},
 		MCP: MCPConfig{
 			Enabled:           true,
 			Host:              "127.0.0.1",

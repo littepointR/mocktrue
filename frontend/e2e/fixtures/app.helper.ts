@@ -78,7 +78,7 @@ export async function waitForDisplayText(page: Page, text: string) {
 export async function emitSerialData(page: Page, portId: string, text: string, encoding: 'bytes' | 'base64' = 'bytes') {
   await page.evaluate(({ portId, text, encoding }) => {
     const bytes = Array.from(new TextEncoder().encode(text));
-    window.dispatchEvent(new CustomEvent('mocktrue:serial-data', {
+    window.dispatchEvent(new CustomEvent('portweave:serial-data', {
       detail: {
         PortID: portId,
         Data: encoding === 'base64'

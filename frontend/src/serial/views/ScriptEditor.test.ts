@@ -58,7 +58,7 @@ describe('ScriptEditor', () => {
       expect.any(HTMLElement),
       expect.objectContaining({
         value: 'output.bytes(input.bytes())',
-        language: 'mocktrue-script',
+        language: 'portweave-script',
         automaticLayout: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
@@ -88,7 +88,7 @@ describe('ScriptEditor', () => {
 
     expect(monacoApi.api.editor.setModelMarkers).toHaveBeenCalledWith(
       expect.anything(),
-      'mocktrue-script',
+      'portweave-script',
       [expect.objectContaining({ message: 'generator 脚本没有 input.* 上下文' })]
     )
   })
@@ -122,7 +122,7 @@ describe('ScriptEditor', () => {
 
     expect(monacoApi.api.editor.setModelMarkers).toHaveBeenCalledWith(
       expect.anything(),
-      'mocktrue-script',
+      'portweave-script',
       [expect.objectContaining({ message: 'generator 脚本没有 input.* 上下文' })]
     )
   })
@@ -139,7 +139,7 @@ describe('ScriptEditor', () => {
 
     expect(monacoApi.api.editor.setModelMarkers).toHaveBeenCalledWith(
       expect.anything(),
-      'mocktrue-script',
+      'portweave-script',
       []
     )
   })

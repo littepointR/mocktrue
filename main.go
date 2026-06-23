@@ -49,7 +49,7 @@ func main() {
 	}
 
 	app, _, err := coreapp.Build(coreapp.Options{
-		Name:        "MockTrue",
+		Name:        "PortWeave",
 		Description: "跨平台高性能嵌入式调试工具",
 		Assets:      assets,
 		AssetsDir:   assetsDir,
@@ -67,7 +67,7 @@ func main() {
 	}
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "MockTrue",
+		Title: "PortWeave",
 		URL:   "/",
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,

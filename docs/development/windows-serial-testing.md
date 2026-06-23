@@ -1,6 +1,6 @@
 # Windows Serial Testing
 
-MockTrue's default test suite does not require real or virtual COM ports. The production serial backend still uses the Windows serial APIs through `go.bug.st/serial`, while default tests use deterministic in-memory ports where possible.
+PortWeave's default test suite does not require real or virtual COM ports. The production serial backend still uses the Windows serial APIs through `go.bug.st/serial`, while default tests use deterministic in-memory ports where possible.
 
 ## Default checks
 

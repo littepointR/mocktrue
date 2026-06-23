@@ -23,7 +23,7 @@ func TestLoadParsesValidTOML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := `
-app = { name = "MockTrue", version = "0.1.0" }
+app = { name = "PortWeave", version = "0.1.0" }
 [mcp]
 enabled = true
 host = "127.0.0.1"
@@ -44,7 +44,7 @@ baudrate = 115200
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if cfg.App.Name != "MockTrue" || cfg.Window.Width != 1200 || cfg.Window.Theme != "dark" {
+	if cfg.App.Name != "PortWeave" || cfg.Window.Width != 1200 || cfg.Window.Theme != "dark" {
 		t.Fatalf("parsed config wrong: %+v", cfg)
 	}
 	if !cfg.MCP.Enabled || cfg.MCP.Host != "127.0.0.1" || cfg.MCP.Port != 39391 || cfg.MCP.Path != "/mcp" || !cfg.MCP.AllowLocalOrigins {

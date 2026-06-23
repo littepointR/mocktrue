@@ -67,7 +67,7 @@ describe('scriptLanguage', () => {
     expect(scriptHoverForModel(model as any, { lineNumber: 1, column: 9 })?.contents[0].value).toContain('output.bytes')
   })
 
-  it('narrows completion items for dotted MockTrue API objects', () => {
+  it('narrows completion items for dotted PortWeave API objects', () => {
     const monaco = {
       languages: {
         CompletionItemKind: {
@@ -181,7 +181,7 @@ describe('scriptLanguage', () => {
     registerScriptLanguage(monaco as any)
 
     expect(monaco.languages.registerCompletionItemProvider).toHaveBeenCalledWith(
-      'mocktrue-script',
+      'portweave-script',
       expect.objectContaining({
         triggerCharacters: ['.', '('],
         provideCompletionItems: expect.any(Function),
@@ -210,7 +210,7 @@ describe('scriptLanguage', () => {
 
     expect(monaco.languages.setMonarchTokensProvider).toHaveBeenCalledTimes(1)
     expect(monaco.languages.setMonarchTokensProvider).toHaveBeenCalledWith(
-      'mocktrue-script',
+      'portweave-script',
       expect.objectContaining({
         tokenizer: expect.objectContaining({
           root: expect.any(Array),
@@ -219,7 +219,7 @@ describe('scriptLanguage', () => {
     )
     expect(monaco.languages.setLanguageConfiguration).toHaveBeenCalledTimes(1)
     expect(monaco.languages.setLanguageConfiguration).toHaveBeenCalledWith(
-      'mocktrue-script',
+      'portweave-script',
       expect.objectContaining({
         comments: expect.objectContaining({ lineComment: '//' }),
         brackets: expect.arrayContaining([['{', '}'], ['[', ']'], ['(', ')']]),

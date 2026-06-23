@@ -106,7 +106,7 @@ export function createDemoWorkspaceSnapshot(id: string): WorkspaceSnapshot | nul
 
 function createSerialOpenDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `mocktrue-demo-open-${suffix}`
+  const portName = `portweave-demo-open-${suffix}`
   const graph = serialOpenGraphState(suffix, `${portName}-graph`)
 
   return snapshot({
@@ -117,7 +117,7 @@ function createSerialOpenDemo(): WorkspaceSnapshot {
 
 function createVirtualPortDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portNames = ['sensor', 'gateway', 'logger'].map(name => `mocktrue-demo-${name}-${suffix}`)
+  const portNames = ['sensor', 'gateway', 'logger'].map(name => `portweave-demo-${name}-${suffix}`)
   const graph = virtualPortGraphState(suffix, portNames)
 
   return snapshot({
@@ -128,8 +128,8 @@ function createVirtualPortDemo(): WorkspaceSnapshot {
 
 function createBridgeDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portA = `mocktrue-demo-bridge-a-${suffix}`
-  const portB = `mocktrue-demo-bridge-b-${suffix}`
+  const portA = `portweave-demo-bridge-a-${suffix}`
+  const portB = `portweave-demo-bridge-b-${suffix}`
   const graph = bridgeGraphState(suffix, portA, portB)
 
   return snapshot({
@@ -140,7 +140,7 @@ function createBridgeDemo(): WorkspaceSnapshot {
 
 function createMonitorDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const sourcePort = `mocktrue-demo-monitor-${suffix}`
+  const sourcePort = `portweave-demo-monitor-${suffix}`
   const graph = monitorGraphState(suffix, `${sourcePort}-graph`)
 
   return snapshot({
@@ -151,7 +151,7 @@ function createMonitorDemo(): WorkspaceSnapshot {
 
 function createScriptTransformDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `mocktrue-demo-script-transform-${suffix}`
+  const portName = `portweave-demo-script-transform-${suffix}`
   const graph = scriptTransformGraphState(suffix, portName)
 
   return snapshot({
@@ -162,7 +162,7 @@ function createScriptTransformDemo(): WorkspaceSnapshot {
 
 function createScriptAnalyzerDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `mocktrue-demo-script-analyzer-${suffix}`
+  const portName = `portweave-demo-script-analyzer-${suffix}`
   const graph = scriptAnalyzerGraphState(suffix, portName)
 
   return snapshot({
@@ -173,7 +173,7 @@ function createScriptAnalyzerDemo(): WorkspaceSnapshot {
 
 function createModbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const requestPort = `mocktrue-demo-modbus-${suffix}`
+  const requestPort = `portweave-demo-modbus-${suffix}`
   const graph = modbusGraphState(suffix, requestPort)
 
   return snapshot({
@@ -184,7 +184,7 @@ function createModbusDemo(): WorkspaceSnapshot {
 
 function createFecbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const requestPort = `mocktrue-demo-fecbus-${suffix}`
+  const requestPort = `portweave-demo-fecbus-${suffix}`
   const graph = fecbusGraphState(suffix, requestPort)
 
   return snapshot({
@@ -195,7 +195,7 @@ function createFecbusDemo(): WorkspaceSnapshot {
 
 function createSerialGraphDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `mocktrue-demo-graph-${suffix}`
+  const portName = `portweave-demo-graph-${suffix}`
   const graph = serialGraphState(suffix, portName)
 
   return snapshot({
@@ -206,7 +206,7 @@ function createSerialGraphDemo(): WorkspaceSnapshot {
 
 function createSerialObservabilityDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `mocktrue-demo-observability-${suffix}`
+  const portName = `portweave-demo-observability-${suffix}`
   const graph = serialObservabilityGraphState(suffix, portName)
 
   return snapshot({
@@ -217,12 +217,12 @@ function createSerialObservabilityDemo(): WorkspaceSnapshot {
 
 function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const terminalPort = `mocktrue-demo-terminal-${suffix}`
-  const bridgePortA = `mocktrue-demo-full-a-${suffix}`
-  const bridgePortB = `mocktrue-demo-full-b-${suffix}`
-  const scriptPort = `mocktrue-demo-full-script-${suffix}`
-  const modbusPort = `mocktrue-demo-full-modbus-${suffix}`
-  const fecbusPort = `mocktrue-demo-full-fecbus-${suffix}`
+  const terminalPort = `portweave-demo-terminal-${suffix}`
+  const bridgePortA = `portweave-demo-full-a-${suffix}`
+  const bridgePortB = `portweave-demo-full-b-${suffix}`
+  const scriptPort = `portweave-demo-full-script-${suffix}`
+  const modbusPort = `portweave-demo-full-modbus-${suffix}`
+  const fecbusPort = `portweave-demo-full-fecbus-${suffix}`
   const graph = fullWorkspaceGraphState(suffix, terminalPort, bridgePortA, bridgePortB, scriptPort, modbusPort, fecbusPort)
 
   return snapshot({
@@ -499,7 +499,7 @@ function graphTabId(id: string): string {
 function serialGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-receiver-${suffix}`
   const nodes: SerialGraphNode[] = [
-    graphNode(suffix, 'sender', 'serial.sender', 32, 32, senderConfig(`MockTrue graph ${suffix}\r\n`)),
+    graphNode(suffix, 'sender', 'serial.sender', 32, 32, senderConfig(`PortWeave graph ${suffix}\r\n`)),
     graphNode(suffix, 'vport', 'serial.virtual', 264, 32, virtualConfig(portName)),
     graphNode(suffix, 'tap', 'serial.tap', 496, 32),
     graphNode(suffix, 'receiver', 'serial.receiver', 752, 32, receiverConfig('hexClassic')),

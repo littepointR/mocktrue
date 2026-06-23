@@ -153,7 +153,7 @@ func (s *Service) DefaultWorkspacePath(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return filepath.Join(s.configDir(), "workspace.mocktrue.json"), nil
+	return filepath.Join(s.configDir(), "workspace.portweave.json"), nil
 }
 
 type lastWorkspaceState struct {
@@ -203,7 +203,7 @@ func selectWorkspaceOpenPath(directory string) (string, error) {
 	}
 	return app.Dialog.OpenFile().
 		SetTitle("选择配置文件").
-		SetMessage("选择 MockTrue 配置文件").
+		SetMessage("选择 PortWeave 配置文件").
 		SetDirectory(directory).
 		SetButtonText("选择").
 		AddFilter("JSON 配置文件", "*.json").
@@ -217,7 +217,7 @@ func selectWorkspaceSavePath(directory string, filename string) (string, error) 
 	}
 	return app.Dialog.SaveFileWithOptions(&application.SaveFileDialogOptions{
 		Title:                "保存配置文件",
-		Message:              "保存 MockTrue 配置文件",
+		Message:              "保存 PortWeave 配置文件",
 		Directory:            directory,
 		Filename:             filename,
 		ButtonText:           "保存",

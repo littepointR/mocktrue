@@ -74,7 +74,7 @@ describe('StatusBar', () => {
       },
     })
 
-    expect(wrapper.find('.status-bar__left').text()).toContain('MockTrue v0.1.0')
+    expect(wrapper.find('.status-bar__left').text()).toContain('PortWeave v0.1.0')
   })
 
   it('does not render graph config file state in the status bar', () => {

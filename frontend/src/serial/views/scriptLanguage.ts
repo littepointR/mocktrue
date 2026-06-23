@@ -1,4 +1,4 @@
-export const scriptLanguageId = 'mocktrue-script'
+export const scriptLanguageId = 'portweave-script'
 
 export type ScriptNodeType =
   | 'serial.script.transform'
@@ -65,7 +65,7 @@ const scriptBuiltins = [
 
 const scriptMonarchLanguage = {
   defaultToken: '',
-  tokenPostfix: '.mocktrue-script',
+  tokenPostfix: '.portweave-script',
   keywords: scriptKeywords,
   builtins: scriptBuiltins,
   tokenizer: {

@@ -10,4 +10,4 @@ Include the affected version or commit, the operating system, reproduction steps
 
 ## Supported Versions
 
-MockTrue is under active early development. Security fixes are applied to the default branch first.
+PortWeave is under active early development. Security fixes are applied to the default branch first.

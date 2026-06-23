@@ -44,7 +44,7 @@ func TestWindowsVirtualCOMPairRoundTrip(t *testing.T) {
 		t.Fatalf("set %s read timeout: %v", portB, err)
 	}
 
-	payload := []byte("mocktrue-windows-com")
+	payload := []byte("portweave-windows-com")
 	if _, err := a.Write(payload); err != nil {
 		t.Fatalf("write %s: %v", portA, err)
 	}

@@ -470,7 +470,7 @@ type serialGraphProvider struct {
 }
 
 func newMCPServer(serialService SerialRuntime) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "mocktrue", Version: "0.1.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "portweave", Version: "0.1.0"}, nil)
 	registerTools(server, serialService)
 	return server
 }
@@ -1180,10 +1180,10 @@ func serialGraphProviders() []serialGraphProvider {
 			Type:          "serial.virtual",
 			Title:         "虚拟串口",
 			Category:      "串口",
-			Description:   "由 MockTrue 创建和管理的单端虚拟串口。",
+			Description:   "由 PortWeave 创建和管理的单端虚拟串口。",
 			Inputs:        []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "input"}},
 			Outputs:       []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "output"}},
-			DefaultConfig: withConfig(serialDefaults, map[string]any{"portName": "mocktrue-vport"}),
+			DefaultConfig: withConfig(serialDefaults, map[string]any{"portName": "portweave-vport"}),
 			ResourceOwner: true,
 			ResourceKeys:  []string{"portName"},
 		},
@@ -1354,7 +1354,7 @@ func serialGraphDemoTemplate(args serialGraphDemoTemplateArgs) (map[string]any, 
 	}
 	portName := strings.TrimSpace(args.PortName)
 	if portName == "" {
-		portName = "mocktrue-mcp-demo"
+		portName = "portweave-mcp-demo"
 	}
 
 	senderLogging := map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "OK: demo", "autoSend": false, "intervalMs": 1000, "enableLogging": true, "logLevel": "info", "logFormat": "tx {text}"}

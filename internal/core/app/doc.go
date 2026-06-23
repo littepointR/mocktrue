@@ -1,4 +1,4 @@
-// Package app wires the MockTrue application shell: it builds the Wails v3
+// Package app wires the PortWeave application shell: it builds the Wails v3
 // *application.App from a module registry, bridges the EventBus to the
 // frontend, and drives module InitAll/StartAll from the ApplicationStarted
 // event. This package is the only place that imports Wails; business modules

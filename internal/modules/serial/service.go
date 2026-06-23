@@ -676,7 +676,7 @@ func autoVirtualPortName(portName string, monitorID string) string {
 	if idToken == "" {
 		idToken = "monitor"
 	}
-	return fmt.Sprintf("mocktrue-%s-%s-%x", portToken, idToken, time.Now().UnixNano())
+	return fmt.Sprintf("portweave-%s-%s-%x", portToken, idToken, time.Now().UnixNano())
 }
 
 func sanitizeSerialToken(input string) string {

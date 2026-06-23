@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-// Logger is MockTrue's logging facade. It embeds *slog.Logger so all standard
+// Logger is PortWeave's logging facade. It embeds *slog.Logger so all standard
 // slog methods are available, and adds Named which returns a new Logger
 // tagged with a module name (the receiver is unchanged). The effective log
 // level is controlled by the handler passed to New, per slog conventions.

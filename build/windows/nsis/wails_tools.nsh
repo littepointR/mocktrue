@@ -5,19 +5,19 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "mocktrue"
+    !define INFO_PROJECTNAME "portweave"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "MockTrue"
+    !define INFO_COMPANYNAME "PortWeave"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "MockTrue"
+    !define INFO_PRODUCTNAME "PortWeave"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "0.1.0"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "© 2026, MockTrue"
+    !define INFO_COPYRIGHT "(c) 2026, PortWeave"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"

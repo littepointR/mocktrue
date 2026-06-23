@@ -130,7 +130,7 @@ export function graphTabSnapshotsFromUnknown(snapshot: GraphTabSnapshot | Worksp
     return [normalizeGraphTabSnapshot(snapshot as GraphTabSnapshot)]
   }
   if (kind !== workspaceKind && !(snapshot as WorkspaceSnapshot | undefined)?.serial?.graph) {
-    throw new Error('unsupported MockTrue config file')
+    throw new Error('unsupported PortWeave config file')
   }
   return graphTabSnapshotsFromWorkspace(snapshot as WorkspaceSnapshot)
 }

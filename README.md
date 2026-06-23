@@ -1,10 +1,10 @@
-# MockTrue
+# PortWeave
 
 [![CI](https://github.com/littepointR/mocktrue/actions/workflows/ci.yml/badge.svg)](https://github.com/littepointR/mocktrue/actions/workflows/ci.yml)
 
-MockTrue 是一个跨平台高性能嵌入式调试工具，面向串口、协议调试、虚拟设备模拟和自动化验证场景。
+PortWeave 是一个跨平台高性能嵌入式调试工具，面向串口、协议调试、虚拟设备模拟和自动化验证场景。
 
-MockTrue is a cross-platform embedded debugging toolkit for serial communication, protocol debugging, virtual device simulation, and automated validation workflows.
+PortWeave is a cross-platform embedded debugging toolkit for serial communication, protocol debugging, virtual device simulation, and automated validation workflows.
 
 ## 功能特性 / Features
 
@@ -13,7 +13,7 @@ MockTrue is a cross-platform embedded debugging toolkit for serial communication
 - 串口监控：自动创建虚拟监听端口，按实际时间记录收发帧。
 - Modbus 支持：支持 Modbus RTU/ASCII 主站、从站、多 Unit ID、寄存器表格和原始帧显示。
 - FECbus 支持：支持 FECbus 主从站、多从站、数据帧分段标注和自定义功能码。
-- 脚本节点：提供受限 MockTrue 脚本 API，用于生成、转换和分析串口数据。
+- 脚本节点：提供受限 PortWeave 脚本 API，用于生成、转换和分析串口数据。
 - MCP 服务：暴露串口和运行时能力，便于外部工具和自动化流程集成；串口拓扑 MCP 工具提供 provider catalog、校验/启动/缓冲区查询，以及只读 demo template（包含过滤器与日志示例）。
 - 配置工作区：每个标签页可独立保存、加载和恢复配置。
 
@@ -118,4 +118,4 @@ Windows 虚拟 COM 集成测试是可选流程，详见 [Windows Serial Testing]
 
 ## 许可证 / License
 
-MockTrue is licensed under the [MIT License](LICENSE).
+PortWeave is licensed under the [MIT License](LICENSE).

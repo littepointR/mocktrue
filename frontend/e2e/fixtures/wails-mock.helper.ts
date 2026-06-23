@@ -190,7 +190,7 @@ export async function injectWailsMock(page: Page) {
 
     const originalDispatch = window.dispatchEvent.bind(window);
     window.dispatchEvent = (event: Event): boolean => {
-      if (event instanceof CustomEvent && event.type === 'mocktrue:serial-data') {
+      if (event instanceof CustomEvent && event.type === 'portweave:serial-data') {
         const data = event.detail;
         const handle = mockState.handles.find(h => h.ID === data.PortID);
         if (handle) handle.RxBytes += data.Data.length;

@@ -10,25 +10,25 @@ import (
 type Code string
 
 const (
-	CodeInvalid      Code = "invalid"      // input validation failed
-	CodeNotFound     Code = "not_found"
-	CodeConflict     Code = "conflict"
-	CodeIO           Code = "io"
-	CodePlatform     Code = "platform"
-	CodeModuleInit   Code = "module_init"
-	CodeModuleStart  Code = "module_start"
-	CodeModuleStop   Code = "module_stop"
-	CodeInternal     Code = "internal"
+	CodeInvalid     Code = "invalid" // input validation failed
+	CodeNotFound    Code = "not_found"
+	CodeConflict    Code = "conflict"
+	CodeIO          Code = "io"
+	CodePlatform    Code = "platform"
+	CodeModuleInit  Code = "module_init"
+	CodeModuleStart Code = "module_start"
+	CodeModuleStop  Code = "module_stop"
+	CodeInternal    Code = "internal"
 )
 
-// Error is MockTrue's canonical error type. Instances are immutable after
+// Error is PortWeave's canonical error type. Instances are immutable after
 // construction: use WithField to derive a new Error carrying extra context
 // rather than mutating an existing one.
 type Error struct {
 	Code    Code
 	Message string
-	Cause   error           // may be nil
-	Fields  map[string]any  // may be nil; never mutate in place
+	Cause   error          // may be nil
+	Fields  map[string]any // may be nil; never mutate in place
 }
 
 // Error formats as "code: message" or "code: message: cause".

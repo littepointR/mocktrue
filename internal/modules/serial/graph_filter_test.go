@@ -156,6 +156,7 @@ func TestSerialGraphFilterExpressionInvalidErrors(t *testing.T) {
 		"text contains",
 		"(len > 1",
 		`unknown contains "x"`,
+		"len > 0 or",
 	}
 
 	for _, expression := range tests {
@@ -165,5 +166,91 @@ func TestSerialGraphFilterExpressionInvalidErrors(t *testing.T) {
 				t.Fatalf("matchSerialGraphFilter(%q) error = nil, want structured error", expression)
 			}
 		})
+	}
+}
+
+func TestSerialGraphFilterExpressionCoversFallbackFieldsComparisonsOrAndEscapes(t *testing.T) {
+	candidate := serialGraphFilterCandidate{
+		ByteLength:  4,
+		ByteCount:   9,
+		PayloadText: "Fallback Text",
+		PayloadHex:  "0D 0A",
+		Message:     "accepted",
+		Level:       "info",
+		Source:      "bus",
+		GraphID:     "g",
+		NodeID:      "n",
+		NodeType:    "serial.filter",
+		Direction:   "rx",
+		Details:     "line	value",
+		Action:      "forward",
+		Category:    "serial.graph",
+	}
+
+	tests := []struct {
+		name       string
+		expression string
+		want       bool
+	}{
+		{name: "byte length or comparison", expression: `byteLength <= 4 or nodeID == "missing"`, want: true},
+		{name: "byte count numeric operators", expression: `byteCount != 8 and byteCount > 3 and byteCount >= 4 and byteCount < 10`, want: true},
+		{name: "payload text fallback", expression: `text == "fallback text"`, want: true},
+		{name: "payload hex fallback normalizes", expression: `hex == "0d0a"`, want: true},
+		{name: "escaped tab string", expression: `details contains "line	value"`, want: true},
+		{name: "action and category", expression: `action == "forward" and category != "other"`, want: true},
+		{name: "metadata fields", expression: `source == "bus" and graphid == "g" and nodeid == "n" and nodetype == "serial.filter" and direction == "rx"`, want: true},
+		{name: "payload fields", expression: `payloadtext contains "text" and payloadhex contains "0d 0a"`, want: true},
+		{name: "case-sensitive fallback mismatch", expression: `text == "fallback text"`, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := matchSerialGraphFilter(candidate, serialGraphFilterOptions{
+				Mode:          "expression",
+				Expression:    tt.expression,
+				CaseSensitive: tt.name == "case-sensitive fallback mismatch",
+			})
+			if err != nil {
+				t.Fatalf("matchSerialGraphFilter returned error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("matchSerialGraphFilter = %v, want %v", got, tt.want)
+			}
+		})
+	}
+	if got := (serialGraphFilterCandidate{ByteCount: 9}).length(); got != 9 {
+		t.Fatalf("ByteCount-only length = %d, want 9", got)
+	}
+}
+
+func TestSerialGraphFilterStringScannerParserAndComparisonFallbacks(t *testing.T) {
+	input := `"quote: \" slash: \\ newline: \n carriage: \r tab: 	 other: \x"`
+	got, next, err := scanSerialGraphFilterString(input, 0)
+	if err != nil {
+		t.Fatalf("scanSerialGraphFilterString returned error: %v", err)
+	}
+	want := "quote: \" slash: \\ newline: \n carriage: \r tab: 	 other: x"
+	if got != want || next != len(input) {
+		t.Fatalf("scanSerialGraphFilterString = %q, %d; want %q, %d", got, next, want, len(input))
+	}
+	if _, _, err := scanSerialGraphFilterString(`"unterminated\`, 0); err == nil {
+		t.Fatalf("scanSerialGraphFilterString must reject unterminated escape")
+	}
+	if _, err := tokenizeSerialGraphFilterExpression(`text == "unterminated`); err == nil {
+		t.Fatalf("tokenizeSerialGraphFilterExpression must reject unterminated string")
+	}
+
+	parser := serialGraphFilterParser{position: 1}
+	if token := parser.peek(); token.kind != serialGraphFilterTokenEOF {
+		t.Fatalf("peek past end = %#v, want EOF", token)
+	}
+	if isSerialGraphNumericOperator("contains") {
+		t.Fatalf("contains must not be a numeric operator")
+	}
+	if compareSerialGraphFilterNumber(1, "contains", 1) {
+		t.Fatalf("unknown numeric comparison operator must not match")
+	}
+	if compareSerialGraphFilterString("text", "left", "matches", "left", serialGraphFilterOptions{}) {
+		t.Fatalf("unknown string comparison operator must not match")
 	}
 }

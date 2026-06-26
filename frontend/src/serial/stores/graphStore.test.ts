@@ -128,6 +128,81 @@ describe('serial graph store', () => {
     expect(store.nodeTabs).toEqual([])
   })
 
+  it('imports duplicate graph documents without activating them and recreates an empty workspace on demand', async () => {
+    const store = useSerialGraphStore()
+    const imported = store.importGraphDocument({
+      id: 'graph-1',
+      name: '',
+      nodes: [
+        { id: 'node-x', type: 'serial.sender', position: { x: 1, y: 2 }, config: {}, status: 'running', error: 'stale' },
+      ],
+      edges: [],
+      selectedNodeId: 'node-x',
+      selectedEdgeId: null,
+      nodeTabs: [{ nodeId: 'node-x', title: 'stale' }],
+      activeNodeTabId: 'node-x',
+    } as any, false)
+
+    expect(imported.id).toBe('graph-2')
+    expect(imported.name).toBe('拓扑图 2')
+    expect(imported.nodes[0].status).toBeUndefined()
+    expect(imported.nodes[0].error).toBeUndefined()
+    expect(store.activeGraphId).toBe('graph-1')
+
+    await store.removeGraph('graph-1')
+    await store.removeGraph('graph-2')
+    expect(store.graphList).toEqual([])
+
+    const recreated = store.addNode('serial.sender')
+    expect(recreated.id).toBe('node-1')
+    expect(store.graphList).toEqual([{ id: 'graph-1', name: '拓扑图 1' }])
+  })
+
+  it('reports validation and string backend errors while normalizing runtime statuses', async () => {
+    const store = useSerialGraphStore()
+    store.restoreState({
+      graphs: [{
+        id: 'graph-9',
+        name: '坏拓扑',
+        nodes: [{ id: 'missing-provider', type: 'serial.unknown', position: { x: 0, y: 0 }, config: {} }],
+        edges: [{ id: 'edge-bad', source: 'missing-provider', sourceHandle: 'out', target: 'missing-provider', targetHandle: 'in' }],
+        selectedNodeId: null,
+        selectedEdgeId: null,
+        nodeTabs: [],
+        activeNodeTabId: null,
+      }],
+      activeGraphId: 'graph-9',
+    } as any)
+
+    await expect(store.startRuntime()).rejects.toThrow('provider not found')
+    expect(bindings.StartSerialGraph).not.toHaveBeenCalled()
+    expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
+      action: 'start-error',
+      level: 'error',
+    }))
+
+    store.resetWorkspace()
+    const sender = store.addNode('serial.sender')
+    bindings.StartSerialGraph.mockResolvedValueOnce({
+      ID: 'graph-1',
+      Status: 'paused',
+      Error: 'runtime paused',
+      Nodes: [{ ID: sender.id, Type: 'serial.sender', Status: 'paused', RxBytes: 0, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' }],
+    })
+    await store.startRuntime()
+    expect(store.runtimeStatus).toBe('idle')
+    expect(store.runtimeError).toBe('runtime paused')
+    expect(store.nodes[0].status).toBe('idle')
+    expect(store.nodes[0].error).toBeUndefined()
+
+    bindings.StopSerialGraph.mockRejectedValueOnce('stop denied')
+    await expect(store.stopRuntime()).rejects.toBe('stop denied')
+    expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
+      action: 'stop-error',
+      details: 'stop denied',
+    }))
+  })
+
   it('adds filter nodes with matcher defaults and restores saved filter options', () => {
     const store = useSerialGraphStore()
     const filter = store.addNode('serial.filter')
@@ -709,5 +784,225 @@ describe('serial graph store', () => {
     store.setOperationLogFilterForGraph('graph-1', { mode: 'regex', expression: '[broken' })
     expect(store.filteredOperationLogsForGraph('graph-1')).toEqual([])
     expect(store.operationLogFilterErrorForGraph('graph-1')).toContain('invalid regex')
+  })
+
+  it('mutates explicit graph nodes, tabs, and edges without switching context', () => {
+    const store = useSerialGraphStore()
+    expect(store.duplicateGraph('missing')).toBeNull()
+    store.renameGraph('graph-1', '   ')
+    expect(store.graphList[0].name).toBe('拓扑图 1')
+
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    const edge = store.connect(sender.id, 'out', receiver.id, 'in')
+    const second = store.createGraph('备用拓扑', false)
+
+    store.moveNodeInGraph('graph-1', sender.id, { x: 99, y: 101 })
+    store.setActiveNodeTabInGraph('graph-1', sender.id)
+    store.selectEdgeInGraph('graph-1', edge!.id)
+
+    expect(store.graphById('graph-1')?.nodes.find(node => node.id === sender.id)?.position).toEqual({ x: 99, y: 101 })
+    expect(store.graphById('graph-1')?.activeNodeTabId).toBe(sender.id)
+    expect(store.graphById('graph-1')?.selectedEdgeId).toBe(edge!.id)
+    expect(store.activeGraphId).toBe('graph-1')
+    expect(second.id).toBe('graph-2')
+
+    store.removeEdgeFromGraph('graph-1', edge!.id)
+    expect(store.graphById('graph-1')?.edges).toEqual([])
+    expect(store.graphById('graph-1')?.selectedEdgeId).toBeNull()
+
+    store.setActiveGraph(null)
+    store.setActiveGraph('missing')
+    expect(store.activeGraphId).toBe('graph-1')
+    expect(() => store.addNode('serial.unknown')).toThrow('unknown graph provider')
+    expect(() => store.moveNodeInGraph('missing', sender.id, { x: 0, y: 0 })).toThrow('serial graph not found: missing')
+  })
+
+  it('guards stopped runtime commands and records backend failure logs', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+
+    await expect(store.sendNode(sender.id, 'hello')).rejects.toThrow('serial graph is not running')
+    await expect(store.queryNodeBuffer(sender.id)).rejects.toThrow('serial graph is not running')
+    await expect(store.queryNodeFrames(sender.id)).rejects.toThrow('serial graph is not running')
+    await expect(store.refreshRuntime()).resolves.toBeNull()
+    await store.clearNodeBuffer(sender.id)
+    await store.resetNodeCounters(sender.id)
+    expect(bindings.ClearSerialGraphNodeBuffer).not.toHaveBeenCalled()
+    expect(bindings.ResetSerialGraphNodeCounters).not.toHaveBeenCalled()
+
+    bindings.StartSerialGraph.mockResolvedValueOnce(null)
+    await expect(store.startRuntime()).rejects.toThrow('serial graph did not return runtime info')
+    expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
+      action: 'start-error',
+      details: 'serial graph did not return runtime info',
+    }))
+
+    await store.startRuntime()
+    bindings.StopSerialGraph.mockRejectedValueOnce(new Error('stop denied'))
+    await expect(store.stopRuntime()).rejects.toThrow('stop denied')
+    expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
+      action: 'stop-error',
+      details: 'stop denied',
+    }))
+
+    bindings.SendSerialGraphNode.mockRejectedValueOnce(new Error('send denied'))
+    await expect(store.sendNode(sender.id, 'hello')).rejects.toThrow('send denied')
+    expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
+      action: 'send-error',
+      details: 'send denied',
+      nodeId: sender.id,
+    }))
+  })
+
+  it('decodes runtime snapshots, clone exports, and null query responses', async () => {
+    const store = useSerialGraphStore()
+    const receiver = store.addNode('serial.receiver')
+    await store.startRuntime()
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValueOnce({
+      Offset: 10,
+      Data: 'not base64?',
+      Total: 21,
+      EOF: true,
+      Chunks: [
+        { Offset: 10, Timestamp: '2026-06-23T02:01:02.003Z', Data: btoa('ok') },
+        { Offset: 12, Timestamp: '2026-06-23T02:01:03.004Z', Data: '' },
+      ],
+    })
+
+    await store.queryNodeBuffer(receiver.id, 10, 11)
+
+    expect(store.nodeBufferText.get(receiver.id)).toBe('not base64?')
+    expect(store.nodeBufferChunks.get(receiver.id)).toEqual([
+      expect.objectContaining({ offset: 10, timestamp: '2026-06-23T02:01:02.003Z' }),
+    ])
+
+    const exported = store.exportRuntimeSnapshot('graph-1')
+    exported.nodeBuffers[receiver.id][0] = 88
+    expect(store.nodeBufferText.get(receiver.id)).toBe('not base64?')
+
+    store.restoreRuntimeSnapshot('graph-1', {
+      nodeBuffers: { legacy: [104, 105] as any },
+      nodeBufferChunks: { legacy: [{ offset: 0, timestamp: 't', data: [33] as any }] },
+      nodeFrames: { legacy: [{ Seq: 1, Direction: '接收', Length: 2, DisplayText: 'hi', DisplayHex: '68 69' } as any] },
+    })
+    expect(store.nodeBufferText.get('legacy')).toBe('hi')
+    expect(store.nodeBufferChunks.get('legacy')?.[0].data).toEqual(new Uint8Array([33]))
+    expect(store.nodeFrames.get('legacy')?.[0]).toEqual(expect.objectContaining({ DisplayText: 'hi' }))
+
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValueOnce(null)
+    await expect(store.queryNodeBuffer(receiver.id)).rejects.toThrow('serial graph did not return buffer page')
+    bindings.QuerySerialGraphNodeFrames.mockResolvedValueOnce(null)
+    await expect(store.queryNodeFrames(receiver.id)).rejects.toThrow('serial graph did not return frame page')
+  })
+
+  it('logs filter traversal through intermediate nodes and log template edge cases', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const tap = store.addNode('serial.tap')
+    const filter = store.addNode('serial.filter')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', tap.id, 'in')
+    store.connect(tap.id, 'out', filter.id, 'in')
+    store.connect(filter.id, 'out', receiver.id, 'in')
+    store.updateNodeConfig(sender.id, { enableLogging: true, logFormat: 'bad }' })
+    store.updateNodeConfig(filter.id, { mode: 'plain', expression: 'ok' })
+
+    await store.startRuntime()
+    await store.sendNode(sender.id, 'ok', 'ascii')
+    await store.sendNode(sender.id, 'drop', 'ascii')
+
+    const filterLogs = store.operationLogs.filter(entry => entry.source === 'serial.filter' && ['pass', 'drop'].includes(entry.action))
+    expect(filterLogs.map(entry => entry.action)).toEqual(['pass', 'drop'])
+    expect(store.operationLogs.find(entry => entry.action === 'send' && entry.details?.includes('unmatched }'))).toBeTruthy()
+
+    store.updateNodeConfig(sender.id, { logFormat: 'missing {text' })
+    await store.sendNode(sender.id, 'again', 'ascii')
+    expect(store.operationLogs.find(entry => entry.action === 'send' && entry.details?.includes('missing }'))).toBeTruthy()
+
+    store.updateNodeConfig(sender.id, { logFormat: '' })
+    await store.sendNode(sender.id, 'zz', 'hex')
+    expect(store.operationLogs.find(entry => entry.action === 'send' && entry.payloadText === '' && entry.payloadHex === '')).toBeTruthy()
+  })
+
+  it('keeps graph fallback views stable after no-op mutations and empty workspaces', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    const edge = store.connect(sender.id, 'out', receiver.id, 'in')!
+
+    store.selectNodeInGraph('graph-1', null)
+    store.removeEdgeFromGraph('graph-1', 'missing-edge')
+    store.removeNodeFromGraph('graph-1', 'missing-node')
+    store.closeNodeTabInGraph('graph-1', 'missing-tab')
+
+    expect(store.graphById(null)).toBeNull()
+    expect(store.validationForGraph(null)).toEqual({ valid: true, errors: [] })
+    expect(store.edges.map(item => item.id)).toEqual([edge.id])
+    expect(store.nodeTabs.map(item => item.nodeId)).toEqual([sender.id, receiver.id])
+
+    await store.removeGraph('graph-1')
+
+    expect(store.graphList).toEqual([])
+    expect(store.nodes).toEqual([])
+    expect(store.edges).toEqual([])
+    expect(store.selectedNodeId).toBeNull()
+    expect(store.selectedEdgeId).toBeNull()
+    expect(store.nodeTabs).toEqual([])
+    expect(store.activeNodeTabId).toBeNull()
+    expect(store.validation).toEqual({ valid: true, errors: [] })
+    expect(store.filteredOperationLogs).toEqual([])
+    expect(store.operationLogFilterError).toBeNull()
+
+    const inactive = store.createGraph(undefined, false)
+    expect(store.activeGraphId).toBeNull()
+    expect(store.activeGraph?.id).toBe(inactive.id)
+    expect(store.runtimeStateForGraph(null).runtimeStatus).toBe('idle')
+
+    store.restoreRuntimeSnapshot(inactive.id, null)
+    expect(store.runtimeStateForGraph(inactive.id).nodeBuffers).toEqual(new Map())
+  })
+
+  it('handles sparse runtime responses and commands for missing nodes', async () => {
+    const store = useSerialGraphStore()
+    const receiver = store.addNode('serial.receiver')
+    bindings.StartSerialGraph.mockResolvedValueOnce({
+      ID: 'graph-1-runtime',
+      Status: 'running',
+      Error: '',
+      Nodes: undefined,
+    })
+
+    await store.startRuntime('graph-1-runtime')
+
+    expect(store.nodeStatuses).toEqual(new Map())
+    expect(store.nodes.find(node => node.id === receiver.id)?.status).toBe('idle')
+
+    bindings.GetSerialGraphStatus.mockResolvedValueOnce(null)
+    await expect(store.refreshRuntimeForGraph('graph-1')).resolves.toBeNull()
+
+    bindings.SendSerialGraphNode.mockResolvedValueOnce(3)
+    await expect(store.sendNodeForGraph('graph-1', 'missing-node', 'abc')).resolves.toBe(3)
+    expect(store.operationLogs.some(entry => entry.action === 'send-error' || entry.action === 'send-command')).toBe(false)
+
+    bindings.SendSerialGraphNode.mockRejectedValueOnce(new Error('missing send denied'))
+    await expect(store.sendNodeForGraph('graph-1', 'missing-node', 'abc')).rejects.toThrow('missing send denied')
+    expect(store.operationLogs.some(entry => entry.details === 'missing send denied')).toBe(false)
+
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValueOnce({
+      Data: btoa('loose'),
+      EOF: true,
+    })
+    await store.queryNodeBufferForGraph('graph-1', 'missing-node')
+    expect(store.nodeBufferText.get('missing-node')).toBe('loose')
+    expect(store.operationLogs.some(entry => entry.action === 'receive')).toBe(false)
+
+    bindings.QuerySerialGraphNodeFrames.mockResolvedValueOnce({ Total: 0, NextOffset: 0 })
+    await store.queryNodeFramesForGraph('graph-1', receiver.id, 0, 5)
+    expect(store.nodeFrames.get(receiver.id)).toEqual([])
+
+    await store.clearNodeBufferForGraph('graph-1', 'missing-node')
+    await store.resetNodeCountersForGraph('graph-1', 'missing-node')
+    expect(store.operationLogs.some(entry => entry.action === 'clear-buffer' || entry.action === 'reset-counters')).toBe(false)
   })
 })

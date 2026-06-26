@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -146,5 +147,88 @@ func TestServiceRejectsEmptyWorkspacePath(t *testing.T) {
 	}
 	if err := svc.RememberLastWorkspace(context.Background(), ""); err == nil {
 		t.Fatalf("RememberLastWorkspace must reject empty path")
+	}
+}
+
+func TestServiceNameAndDefaultWorkspacePathUseConfigFallback(t *testing.T) {
+	t.Parallel()
+	svc := NewService(nil)
+	if got := svc.ServiceName(); got != "workspace" {
+		t.Fatalf("ServiceName = %q, want workspace", got)
+	}
+
+	path, err := svc.DefaultWorkspacePath(context.Background())
+	if err != nil {
+		t.Fatalf("DefaultWorkspacePath: %v", err)
+	}
+	if path != "workspace.portweave.json" {
+		t.Fatalf("DefaultWorkspacePath with nil paths = %q, want workspace.portweave.json", path)
+	}
+}
+
+func TestWorkspaceDialogDirectoryFallsBackWhenPathIsEmpty(t *testing.T) {
+	t.Parallel()
+	if got := workspaceDialogDirectory("", "/tmp/fallback"); got != "/tmp/fallback" {
+		t.Fatalf("workspaceDialogDirectory empty path = %q, want fallback", got)
+	}
+	if got := workspaceDialogDirectory("", ""); got != "." {
+		t.Fatalf("workspaceDialogDirectory empty path and fallback = %q, want .", got)
+	}
+}
+
+func TestSelectWorkspaceDialogHelpersRequireApplication(t *testing.T) {
+	t.Parallel()
+	if _, err := selectWorkspaceOpenPath(t.TempDir()); err == nil {
+		t.Fatalf("selectWorkspaceOpenPath without Wails app must error")
+	}
+	if _, err := selectWorkspaceSavePath(t.TempDir(), "workspace.portweave.json"); err == nil {
+		t.Fatalf("selectWorkspaceSavePath without Wails app must error")
+	}
+}
+
+func TestServiceLoadLastWorkspaceInvalidStateReturnsError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := NewService(&platform.Paths{ConfigDir: dir})
+	if err := os.WriteFile(filepath.Join(dir, stateFileName), []byte("{"), 0o600); err != nil {
+		t.Fatalf("write invalid state fixture: %v", err)
+	}
+
+	if _, err := svc.LoadLastWorkspace(context.Background()); err == nil {
+		t.Fatalf("LoadLastWorkspace with invalid state JSON must error")
+	}
+}
+
+func TestServiceMethodsReturnContextErrorBeforeIO(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := NewService(&platform.Paths{ConfigDir: dir})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	path := filepath.Join(dir, "workspace.portweave.json")
+
+	if err := svc.SaveWorkspace(ctx, path, "{}"); err == nil {
+		t.Fatalf("SaveWorkspace with canceled context must error")
+	}
+	if err := svc.ExportWorkspace(ctx, path, "{}"); err == nil {
+		t.Fatalf("ExportWorkspace with canceled context must error")
+	}
+	if _, err := svc.ReadWorkspace(ctx, path); err == nil {
+		t.Fatalf("ReadWorkspace with canceled context must error")
+	}
+	if err := svc.RememberLastWorkspace(ctx, path); err == nil {
+		t.Fatalf("RememberLastWorkspace with canceled context must error")
+	}
+	if _, err := svc.LoadLastWorkspace(ctx); err == nil {
+		t.Fatalf("LoadLastWorkspace with canceled context must error")
+	}
+	if _, err := svc.DefaultWorkspacePath(ctx); err == nil {
+		t.Fatalf("DefaultWorkspacePath with canceled context must error")
+	}
+	if _, err := svc.SelectWorkspaceOpenPath(ctx, path); err == nil {
+		t.Fatalf("SelectWorkspaceOpenPath with canceled context must error")
+	}
+	if _, err := svc.SelectWorkspaceSavePath(ctx, path); err == nil {
+		t.Fatalf("SelectWorkspaceSavePath with canceled context must error")
 	}
 }

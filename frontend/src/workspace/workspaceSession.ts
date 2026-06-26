@@ -7,7 +7,7 @@ import { useSerialWorkspaceStore } from '../serial/stores/workspaceStore'
 import { useMonitorStore } from '../serial/stores/monitorStore'
 import { useModbusStore } from '../serial/stores/modbusStore'
 import { useFecbusStore } from '../serial/stores/fecbusStore'
-import { useSerialGraphStore } from '../serial/stores/graphStore'
+import { useSerialGraphStore, type SerialGraphRuntimeSnapshot } from '../serial/stores/graphStore'
 import {
   base64ToBytes,
   bytesToBase64,
@@ -89,10 +89,7 @@ export function buildGraphTabSnapshot(
     },
     graph: exportGraphDocument(graph),
     runtime: {
-      nodeBuffers: Object.fromEntries(Object.entries(runtime.nodeBuffers).map(([nodeId, bytes]) => [
-        nodeId,
-        [{ timestamp: 0, data: bytesToBase64(bytes) }],
-      ])),
+      nodeBuffers: exportGraphRuntimeBuffers(runtime),
       nodeFrames: Object.fromEntries(Object.entries(runtime.nodeFrames).map(([nodeId, frames]) => [
         nodeId,
         frames.map(frame => ({ ...frame })),
@@ -234,6 +231,29 @@ function exportGraphDocument(graph: SerialGraphDocument): SerialGraphDocument {
       return rest
     }),
   })
+}
+
+function exportGraphRuntimeBuffers(runtime: SerialGraphRuntimeSnapshot): GraphTabSnapshot['runtime']['nodeBuffers'] {
+  const nodeIds = new Set([
+    ...Object.keys(runtime.nodeBuffers),
+    ...Object.keys(runtime.nodeBufferChunks ?? {}),
+  ])
+  return Object.fromEntries(Array.from(nodeIds).map(nodeId => {
+    const chunks = runtime.nodeBufferChunks?.[nodeId] ?? []
+    if (chunks.length > 0) {
+      return [nodeId, chunks.map(chunk => ({
+        timestamp: graphBufferChunkTimestamp(chunk.timestamp),
+        data: bytesToBase64(new Uint8Array(chunk.data)),
+      }))]
+    }
+    return [nodeId, [{ timestamp: 0, data: bytesToBase64(runtime.nodeBuffers[nodeId] ?? new Uint8Array()) }]]
+  }))
+}
+
+function graphBufferChunkTimestamp(value: string | number): number {
+  if (typeof value === 'number') return value
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : 0
 }
 
 function importGraphRuntime(snapshot: GraphTabSnapshot) {

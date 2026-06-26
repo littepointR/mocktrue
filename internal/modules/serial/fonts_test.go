@@ -33,3 +33,30 @@ func TestListFontFamiliesFromDirsReturnsSortedUniqueFontNames(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemFontDirsCompactAndListSystemFontsAreSafe(t *testing.T) {
+	t.Parallel()
+
+	dirs := systemFontDirs()
+	if len(dirs) == 0 {
+		t.Fatalf("systemFontDirs returned no candidate directories")
+	}
+	for _, dir := range dirs {
+		if dir == "" {
+			t.Fatalf("systemFontDirs returned an empty directory in %#v", dirs)
+		}
+	}
+
+	compacted := compactDirs([]string{"", "  ", "/fonts", "	", "/more-fonts"})
+	want := []string{"/fonts", "/more-fonts"}
+	if len(compacted) != len(want) {
+		t.Fatalf("compactDirs length = %d (%#v), want %d (%#v)", len(compacted), compacted, len(want), want)
+	}
+	for i := range want {
+		if compacted[i] != want[i] {
+			t.Fatalf("compactDirs[%d] = %q, want %q", i, compacted[i], want[i])
+		}
+	}
+
+	_ = NewService(nil).ListSystemFonts()
+}

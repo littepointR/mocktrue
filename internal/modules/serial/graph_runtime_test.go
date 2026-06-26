@@ -3,6 +3,7 @@ package serial
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -538,6 +539,557 @@ func TestSerialGraphModbusMasterFrameBuildsMultiWriteRequests(t *testing.T) {
 				t.Fatalf("pdu data = %s, want %s", got, formatGraphFrameBytes(tt.data, "%02x"))
 			}
 		})
+	}
+}
+
+func TestSerialGraphValueConfigParsesSupportedBoolShapes(t *testing.T) {
+	if got := graphBoolValuesConfig(nil, "values"); got != nil {
+		t.Fatalf("nil bool config = %#v, want nil", got)
+	}
+
+	bools := []bool{true, false}
+	got := graphBoolValuesConfig(map[string]any{"values": bools}, "values")
+	bools[0] = false
+	if !reflect.DeepEqual(got, []bool{true, false}) {
+		t.Fatalf("bool slice clone = %#v, want [true false]", got)
+	}
+
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   []bool
+	}{
+		{
+			name:   "mixed any values skip invalid entries",
+			config: map[string]any{"values": []any{true, 1, int64(0), float64(1), "off", "skip", 2}},
+			want:   []bool{true, true, false, true, false},
+		},
+		{
+			name:   "string slice tokens",
+			config: map[string]any{"values": []string{"yes", "n", "bad", "on"}},
+			want:   []bool{true, false, true},
+		},
+		{
+			name:   "delimited string tokens",
+			config: map[string]any{"values": "1; false on\nno"},
+			want:   []bool{true, false, true, false},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := graphBoolValuesConfig(tt.config, "values")
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("graphBoolValuesConfig = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+
+	for _, value := range []any{int(2), int64(2), float64(0.5), struct{}{}} {
+		if got, ok := graphBoolValue(value); ok || got {
+			t.Fatalf("graphBoolValue(%T(%v)) = %v, %v; want false, false", value, value, got, ok)
+		}
+	}
+}
+
+func TestSerialGraphValueConfigParsesSupportedUint16Shapes(t *testing.T) {
+	if got := graphUint16ValuesConfig(nil, "values"); got != nil {
+		t.Fatalf("nil uint16 config = %#v, want nil", got)
+	}
+
+	uints := []uint16{1, 2}
+	got := graphUint16ValuesConfig(map[string]any{"values": uints}, "values")
+	uints[0] = 9
+	if !reflect.DeepEqual(got, []uint16{1, 2}) {
+		t.Fatalf("uint16 slice clone = %#v, want [1 2]", got)
+	}
+
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   []uint16
+	}{
+		{
+			name:   "int slice skips out of range",
+			config: map[string]any{"values": []int{-1, 0, 65535, 65536}},
+			want:   []uint16{0, 65535},
+		},
+		{
+			name:   "mixed any values skip invalid entries",
+			config: map[string]any{"values": []any{uint16(1), uint(2), uint64(3), int(4), int64(5), float64(6), "0x7", float64(1.5), -1, "bad"}},
+			want:   []uint16{1, 2, 3, 4, 5, 6, 7},
+		},
+		{
+			name:   "string slice values",
+			config: map[string]any{"values": []string{"8", "0x9", "bad", "65536"}},
+			want:   []uint16{8, 9},
+		},
+		{
+			name:   "delimited string values",
+			config: map[string]any{"values": "10, 0x0b; bad\n12"},
+			want:   []uint16{10, 11, 12},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := graphUint16ValuesConfig(tt.config, "values")
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("graphUint16ValuesConfig = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+
+	for _, value := range []any{uint(1 << 16), uint64(1 << 16), int(-1), int64(-1), float64(1.5), struct{}{}} {
+		if got, ok := graphUint16Value(value); ok || got != 0 {
+			t.Fatalf("graphUint16Value(%T(%v)) = %d, %v; want 0, false", value, value, got, ok)
+		}
+	}
+}
+
+func TestGraphModbusDisplayHelpersCoverFunctionsAndExceptionDetails(t *testing.T) {
+	labels := map[mb.FunctionCode]string{
+		mb.FunctionReadCoils:              "Read Coils",
+		mb.FunctionReadDiscreteInputs:     "Read Discrete Inputs",
+		mb.FunctionReadHoldingRegisters:   "Read Holding Registers",
+		mb.FunctionReadInputRegisters:     "Read Input Registers",
+		mb.FunctionWriteSingleCoil:        "Write Single Coil",
+		mb.FunctionWriteSingleRegister:    "Write Single Register",
+		mb.FunctionWriteMultipleCoils:     "Write Multiple Coils",
+		mb.FunctionWriteMultipleRegisters: "Write Multiple Registers",
+		mb.FunctionCode(0x7f):             "Unknown",
+	}
+	for function, want := range labels {
+		if got := graphModbusFunctionLabel(function); got != want {
+			t.Fatalf("graphModbusFunctionLabel(%02x) = %q, want %q", byte(function), got, want)
+		}
+	}
+
+	exceptions := map[byte]string{
+		mb.ExceptionIllegalFunction:    "Illegal Function",
+		mb.ExceptionIllegalDataAddress: "Illegal Data Address",
+		mb.ExceptionIllegalDataValue:   "Illegal Data Value",
+		mb.ExceptionServerFailure:      "Server Failure",
+		0xff:                           "Unknown",
+	}
+	for code, want := range exceptions {
+		if got := graphModbusExceptionLabel(code); got != want {
+			t.Fatalf("graphModbusExceptionLabel(%02x) = %q, want %q", code, got, want)
+		}
+	}
+
+	tests := []struct {
+		name string
+		pdu  mb.PDU
+		want string
+	}{
+		{name: "exception without data", pdu: mb.PDU{Function: mb.FunctionReadCoils | 0x80}, want: "Exception"},
+		{name: "exception with data", pdu: mb.PDU{Function: mb.FunctionReadCoils | 0x80, Data: []byte{mb.ExceptionIllegalDataAddress}}, want: "Exception 02 Illegal Data Address"},
+		{name: "read coils request", pdu: mb.PDU{Function: mb.FunctionReadCoils, Data: []byte{0, 10, 0, 3}}, want: "Address 10 Quantity 3"},
+		{name: "read coils response", pdu: mb.PDU{Function: mb.FunctionReadDiscreteInputs, Data: []byte{1, 0xaa}}, want: "Byte Count 1 Data aa"},
+		{name: "read registers response values", pdu: mb.PDU{Function: mb.FunctionReadHoldingRegisters, Data: []byte{4, 0, 1, 0, 2}}, want: "Byte Count 4 Values 1, 2"},
+		{name: "read registers response odd data", pdu: mb.PDU{Function: mb.FunctionReadInputRegisters, Data: []byte{1, 0xff}}, want: "Byte Count 1 Data ff"},
+		{name: "write single", pdu: mb.PDU{Function: mb.FunctionWriteSingleRegister, Data: []byte{0, 11, 0, 12}}, want: "Address 11 Value 12"},
+		{name: "write multiple request", pdu: mb.PDU{Function: mb.FunctionWriteMultipleCoils, Data: []byte{0, 13, 0, 2}}, want: "Address 13 Quantity 2"},
+		{name: "write multiple payload", pdu: mb.PDU{Function: mb.FunctionWriteMultipleRegisters, Data: []byte{0, 14, 0, 2, 4, 0, 1, 0, 2}}, want: "Address 14 Quantity 2 Byte Count 4 Data 00 01 00 02"},
+		{name: "unknown with data", pdu: mb.PDU{Function: mb.FunctionCode(0x44), Data: []byte{0xaa}}, want: "Data aa"},
+		{name: "unknown empty", pdu: mb.PDU{Function: mb.FunctionCode(0x44)}, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := graphModbusPDUDisplay(tt.pdu); got != tt.want {
+				t.Fatalf("graphModbusPDUDisplay = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	if got := graphModbusChecksumDisplay(mb.FrameModeASCII, []byte(":01030000FC\r\n")); got != "LRC FC" {
+		t.Fatalf("ASCII checksum display = %q, want LRC FC", got)
+	}
+	if got := graphModbusChecksumDisplay(mb.FrameModeASCII, []byte(":")); got != "" {
+		t.Fatalf("short ASCII checksum display = %q, want empty", got)
+	}
+	if got := graphModbusChecksumDisplay(mb.FrameModeRTU, []byte{0x01}); got != "" {
+		t.Fatalf("short RTU checksum display = %q, want empty", got)
+	}
+	if got := graphModbusU16([]byte{0x01}); got != 0 {
+		t.Fatalf("short graphModbusU16 = %d, want 0", got)
+	}
+}
+
+func TestSerialGraphRuntimeNodeResourceAndNilBufferBranches(t *testing.T) {
+	node := &serialGraphRuntimeNode{}
+	node.setResourceID("resource-port")
+	if got := node.resource(); got != "resource-port" {
+		t.Fatalf("resource = %q, want resource-port", got)
+	}
+
+	node.appendBuffer([]byte("ignored"))
+	snapshot, err := node.queryBuffer(5, 10)
+	if err != nil {
+		t.Fatalf("queryBuffer returned error: %v", err)
+	}
+	if !snapshot.EOF || snapshot.Offset != 5 || len(snapshot.Data) != 0 {
+		t.Fatalf("nil buffer snapshot = %#v, want EOF at requested offset", snapshot)
+	}
+}
+
+func TestSerialGraphRuntimeFacadeValidationAndMissingResources(t *testing.T) {
+	svc := &Service{}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := svc.StartSerialGraph(canceled, SerialGraphStartRequest{}); err == nil {
+		t.Fatalf("StartSerialGraph must respect canceled contexts")
+	}
+
+	graph, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{})
+	if err != nil {
+		t.Fatalf("StartSerialGraph with generated ID returned error: %v", err)
+	}
+	if graph.ID == "" {
+		t.Fatalf("generated graph ID must not be empty")
+	}
+	if got := svc.ListSerialGraphs(); len(got) != 1 || got[0].ID != graph.ID {
+		t.Fatalf("ListSerialGraphs = %#v, want generated graph", got)
+	}
+	if _, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{ID: graph.ID}); err == nil {
+		t.Fatalf("StartSerialGraph must reject duplicate graph IDs")
+	}
+	if _, err := svc.GetSerialGraphStatus(""); err == nil {
+		t.Fatalf("GetSerialGraphStatus must reject empty graph IDs")
+	}
+	if _, err := svc.GetSerialGraphStatus("missing"); err == nil {
+		t.Fatalf("GetSerialGraphStatus must reject missing graphs")
+	}
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID}); err == nil {
+		t.Fatalf("SendSerialGraphNode must reject empty node IDs")
+	}
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: "missing", NodeID: "sender", Content: "x"}); err == nil {
+		t.Fatalf("SendSerialGraphNode must reject missing graphs")
+	}
+	if _, err := svc.QuerySerialGraphNodeBuffer(SerialGraphBufferQuery{GraphID: "missing", NodeID: "node"}); err == nil {
+		t.Fatalf("QuerySerialGraphNodeBuffer must reject missing graphs")
+	}
+	if err := svc.ClearSerialGraphNodeBuffer("missing", "node"); err == nil {
+		t.Fatalf("ClearSerialGraphNodeBuffer must reject missing graphs")
+	}
+	if err := svc.ResetSerialGraphNodeCounters("missing", "node"); err == nil {
+		t.Fatalf("ResetSerialGraphNodeCounters must reject missing graphs")
+	}
+	if _, err := svc.QuerySerialGraphNodeFrames(SerialGraphFrameQuery{GraphID: "missing", NodeID: "node"}); err == nil {
+		t.Fatalf("QuerySerialGraphNodeFrames must reject missing graphs")
+	}
+	if err := svc.StopSerialGraph(""); err == nil {
+		t.Fatalf("StopSerialGraph must reject empty graph IDs")
+	}
+	if err := svc.StopSerialGraph("missing"); err == nil {
+		t.Fatalf("StopSerialGraph must reject missing graphs")
+	}
+	if err := svc.StopSerialGraph(graph.ID); err != nil {
+		t.Fatalf("StopSerialGraph returned error: %v", err)
+	}
+	if got := svc.ListSerialGraphs(); len(got) != 0 {
+		t.Fatalf("ListSerialGraphs after stop = %#v, want empty", got)
+	}
+}
+
+func TestSerialGraphRuntimeDirectSendReceiveAndFrameBranches(t *testing.T) {
+	svc := NewService(nil)
+	runtime := newSerialGraphRuntime(svc, SerialGraphStartRequest{
+		ID: "graph-direct-branches",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender"},
+			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "left", Type: "serial.receiver"},
+			{ID: "bridge", Type: "serial.bridge"},
+			{ID: "physical", Type: "serial.physical"},
+			{ID: "modbus-slave", Type: "serial.modbus.slave", Config: map[string]any{"unitIds": "3"}},
+			{ID: "fecbus-mismatch", Type: "serial.fecbus.slave", Config: map[string]any{"address": 2}},
+			{ID: "fecbus-off", Type: "serial.fecbus.slave", Config: map[string]any{"address": 2, "autoStatusAnswer": false}},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-bridge-left", Source: "bridge", SourceHandle: "a-out", Target: "left", TargetHandle: "in"},
+		},
+	})
+
+	if _, err := runtime.sendRequest(SerialGraphSendRequest{NodeID: "missing", Content: "x"}); err == nil {
+		t.Fatalf("sendRequest must reject missing nodes")
+	}
+	if _, err := runtime.sendRequest(SerialGraphSendRequest{NodeID: "receiver"}); err == nil {
+		t.Fatalf("sendRequest must reject empty content for non-protocol nodes")
+	}
+	if err := runtime.send("missing", []byte("x")); err == nil {
+		t.Fatalf("send must reject missing nodes")
+	}
+	if err := runtime.send("receiver", []byte("x")); err == nil {
+		t.Fatalf("send must reject nodes that do not support direct send")
+	}
+	if err := runtime.send("physical", []byte("x")); err == nil {
+		t.Fatalf("send must reject unbound physical nodes")
+	}
+
+	runtime.receive(serialGraphPortRef{nodeID: "missing", handle: "in"}, []byte("ignored"))
+	runtime.receive(serialGraphPortRef{nodeID: "receiver", handle: "in"}, nil)
+	runtime.receive(serialGraphPortRef{nodeID: "bridge", handle: "b-in"}, []byte("left"))
+	leftPage, err := runtime.queryBuffer("left", 0, 16)
+	if err != nil {
+		t.Fatalf("query left buffer returned error: %v", err)
+	}
+	if string(leftPage.Data) != "left" {
+		t.Fatalf("bridge b-in routed %q, want left", string(leftPage.Data))
+	}
+	runtime.receive(serialGraphPortRef{nodeID: "physical", handle: "tx"}, []byte("no-handle"))
+
+	modbusFrame, err := mb.EncodeFrame(mb.FrameModeRTU, 9, mb.PDU{Function: mb.FunctionReadHoldingRegisters, Data: []byte{0, 0, 0, 1}})
+	if err != nil {
+		t.Fatalf("EncodeFrame(modbus): %v", err)
+	}
+	runtime.receive(serialGraphPortRef{nodeID: "modbus-slave", handle: "rx"}, modbusFrame)
+	info := runtime.info()
+	if got := graphNodeStatus(&info, "modbus-slave").TxBytes; got != 0 {
+		t.Fatalf("modbus slave tx for disallowed unit = %d, want 0", got)
+	}
+
+	fecMismatch, err := graphFecbusFrame(map[string]any{"targetAddress": 9})
+	if err != nil {
+		t.Fatalf("graphFecbusFrame mismatch: %v", err)
+	}
+	runtime.receive(serialGraphPortRef{nodeID: "fecbus-mismatch", handle: "rx"}, fecMismatch)
+	info = runtime.info()
+	if got := graphNodeStatus(&info, "fecbus-mismatch").TxBytes; got != 0 {
+		t.Fatalf("fecbus mismatched address tx = %d, want 0", got)
+	}
+	fecNoAuto, err := graphFecbusFrame(map[string]any{"targetAddress": 2})
+	if err != nil {
+		t.Fatalf("graphFecbusFrame no-auto: %v", err)
+	}
+	runtime.receive(serialGraphPortRef{nodeID: "fecbus-off", handle: "rx"}, fecNoAuto)
+	info = runtime.info()
+	if got := graphNodeStatus(&info, "fecbus-off").TxBytes; got != 0 {
+		t.Fatalf("fecbus autoStatusAnswer=false tx = %d, want 0", got)
+	}
+
+	if _, err := runtime.queryBuffer("missing", 0, 1); err == nil {
+		t.Fatalf("queryBuffer must reject missing nodes")
+	}
+	if err := runtime.clearBuffer("missing"); err == nil {
+		t.Fatalf("clearBuffer must reject missing nodes")
+	}
+	if err := runtime.resetCounters("missing"); err == nil {
+		t.Fatalf("resetCounters must reject missing nodes")
+	}
+	if _, err := runtime.queryFrames(SerialGraphFrameQuery{NodeID: "missing"}); err == nil {
+		t.Fatalf("queryFrames must reject missing nodes")
+	}
+	if runtime.nodeByHandle("missing") != nil {
+		t.Fatalf("nodeByHandle missing = non-nil")
+	}
+	runtime.addOwnedPort("")
+	runtime.addOwnedVirtualPort("")
+}
+
+func TestSerialGraphRuntimeFrameFilteringAndHelperBranches(t *testing.T) {
+	node := &serialGraphRuntimeNode{spec: SerialGraphNodeSpec{ID: "frames", Type: "serial.monitor"}}
+	node.appendFrame([]byte("alpha"))
+	node.appendFrame([]byte("beta"))
+	page := node.queryFrames(SerialGraphFrameQuery{Direction: "missing", Search: "alpha", Offset: -10, Limit: 0})
+	if page.Total != 0 || len(page.Frames) != 0 || page.NextOffset != 0 {
+		t.Fatalf("filtered empty page = %#v, want no frames", page)
+	}
+	page = node.queryFrames(SerialGraphFrameQuery{Search: "beta", Offset: 99, Limit: 5})
+	if page.Total != 1 || len(page.Frames) != 0 || page.NextOffset != 1 {
+		t.Fatalf("offset past filtered frames = %#v, want empty page at end", page)
+	}
+
+	if got := graphScriptFrameText([]byte{0xff}, serialScriptRunResult{}, "unsupported"); got != string([]byte{0xff}) {
+		t.Fatalf("graphScriptFrameText unsupported encoding = %q, want raw bytes", got)
+	}
+	for _, alias := range []string{"pass", "passthrough", "pass-through", "emit-input"} {
+		if !graphScriptOnErrorPassesInput(map[string]any{"onError": alias}) {
+			t.Fatalf("graphScriptOnErrorPassesInput(%q) = false, want true", alias)
+		}
+	}
+	if got := graphNormalizeModbusFrameMode(mb.FrameModeASCII); got != mb.FrameModeASCII {
+		t.Fatalf("graphNormalizeModbusFrameMode ASCII = %q", got)
+	}
+	if got := graphFirstUnitID(map[string]any{"unitID": 8, "unitIds": "3"}); got != 8 {
+		t.Fatalf("graphFirstUnitID unitID = %d, want 8", got)
+	}
+	if got := graphFirstUnitID(map[string]any{"unitIds": "bad 0 248"}); got != 1 {
+		t.Fatalf("graphFirstUnitID invalid list = %d, want fallback 1", got)
+	}
+	if graphUnitIDAllowed(map[string]any{"unitIds": "bad 4"}, 3) {
+		t.Fatalf("graphUnitIDAllowed must reject units not present in config")
+	}
+	if got := graphStringConfigRaw(nil, "missing"); got != "" {
+		t.Fatalf("graphStringConfigRaw(nil) = %q, want empty", got)
+	}
+	if got := graphStringConfigRaw(map[string]any{}, "missing"); got != "" {
+		t.Fatalf("graphStringConfigRaw missing = %q, want empty", got)
+	}
+}
+
+func TestGraphModbusSlaveResponseCoversReadWriteAndExceptionBranches(t *testing.T) {
+	tests := []struct {
+		name         string
+		pdu          mb.PDU
+		wantFunction mb.FunctionCode
+		wantData     []byte
+	}{
+		{name: "read coils rejects short request", pdu: mb.PDU{Function: mb.FunctionReadCoils, Data: []byte{0, 1}}, wantFunction: mb.FunctionReadCoils | 0x80, wantData: []byte{mb.ExceptionIllegalDataValue}},
+		{name: "read coils rejects zero quantity", pdu: mb.PDU{Function: mb.FunctionReadCoils, Data: []byte{0, 0, 0, 0}}, wantFunction: mb.FunctionReadCoils | 0x80, wantData: []byte{mb.ExceptionIllegalDataValue}},
+		{name: "read discrete inputs returns zero-filled byte count", pdu: mb.PDU{Function: mb.FunctionReadDiscreteInputs, Data: []byte{0, 0, 0, 9}}, wantFunction: mb.FunctionReadDiscreteInputs, wantData: []byte{2, 0, 0}},
+		{name: "read registers rejects short request", pdu: mb.PDU{Function: mb.FunctionReadHoldingRegisters, Data: []byte{0, 1}}, wantFunction: mb.FunctionReadHoldingRegisters | 0x80, wantData: []byte{mb.ExceptionIllegalDataValue}},
+		{name: "read registers rejects too many values", pdu: mb.PDU{Function: mb.FunctionReadInputRegisters, Data: []byte{0, 0, 0, 126}}, wantFunction: mb.FunctionReadInputRegisters | 0x80, wantData: []byte{mb.ExceptionIllegalDataValue}},
+		{name: "read registers returns zero-filled register bytes", pdu: mb.PDU{Function: mb.FunctionReadHoldingRegisters, Data: []byte{0, 0, 0, 2}}, wantFunction: mb.FunctionReadHoldingRegisters, wantData: []byte{4, 0, 0, 0, 0}},
+		{name: "write single rejects short request", pdu: mb.PDU{Function: mb.FunctionWriteSingleCoil, Data: []byte{0, 1}}, wantFunction: mb.FunctionWriteSingleCoil | 0x80, wantData: []byte{mb.ExceptionIllegalDataValue}},
+		{name: "write single echoes address and value", pdu: mb.PDU{Function: mb.FunctionWriteSingleRegister, Data: []byte{0, 3, 0, 4, 0xff}}, wantFunction: mb.FunctionWriteSingleRegister, wantData: []byte{0, 3, 0, 4}},
+		{name: "write multiple rejects short request", pdu: mb.PDU{Function: mb.FunctionWriteMultipleCoils, Data: []byte{0, 1}}, wantFunction: mb.FunctionWriteMultipleCoils | 0x80, wantData: []byte{mb.ExceptionIllegalDataValue}},
+		{name: "write multiple echoes address and quantity", pdu: mb.PDU{Function: mb.FunctionWriteMultipleRegisters, Data: []byte{0, 5, 0, 6, 2, 0, 1}}, wantFunction: mb.FunctionWriteMultipleRegisters, wantData: []byte{0, 5, 0, 6}},
+		{name: "unsupported function returns illegal function exception", pdu: mb.PDU{Function: mb.FunctionCode(0x7f)}, wantFunction: mb.FunctionCode(0xff), wantData: []byte{mb.ExceptionIllegalFunction}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := graphModbusSlaveResponse(mb.DecodedFrame{PDU: tt.pdu})
+			if err != nil {
+				t.Fatalf("graphModbusSlaveResponse returned error: %v", err)
+			}
+			if got.Function != tt.wantFunction || !reflect.DeepEqual(got.Data, tt.wantData) {
+				t.Fatalf("graphModbusSlaveResponse = function %02x data % x, want function %02x data % x", byte(got.Function), got.Data, byte(tt.wantFunction), tt.wantData)
+			}
+		})
+	}
+}
+
+func TestGraphConfigPayloadAndValidationHelpersCoverBranches(t *testing.T) {
+	intConfig := map[string]any{"int": 1, "int64": int64(2), "float64": float64(3.8), "float32": float32(4.2), "string": "5", "bad": "five"}
+	for _, tt := range []struct {
+		key  string
+		want int
+	}{
+		{key: "int", want: 1},
+		{key: "int64", want: 2},
+		{key: "float64", want: 3},
+		{key: "float32", want: 4},
+		{key: "string", want: 5},
+		{key: "bad", want: 99},
+		{key: "missing", want: 99},
+	} {
+		if got := graphIntConfig(intConfig, tt.key, 99); got != tt.want {
+			t.Fatalf("graphIntConfig(%q) = %d, want %d", tt.key, got, tt.want)
+		}
+	}
+	if got := graphIntConfig(nil, "missing", 42); got != 42 {
+		t.Fatalf("nil graphIntConfig = %d, want fallback", got)
+	}
+
+	boolConfig := map[string]any{"bool": true, "true": "true", "false": "false", "bad": "maybe"}
+	for _, tt := range []struct {
+		key      string
+		fallback bool
+		want     bool
+	}{
+		{key: "bool", want: true},
+		{key: "true", want: true},
+		{key: "false", fallback: true, want: false},
+		{key: "bad", fallback: true, want: true},
+		{key: "missing", fallback: true, want: true},
+	} {
+		if got := graphBoolConfig(boolConfig, tt.key, tt.fallback); got != tt.want {
+			t.Fatalf("graphBoolConfig(%q) = %v, want %v", tt.key, got, tt.want)
+		}
+	}
+	if got := graphBoolConfig(nil, "missing", true); !got {
+		t.Fatalf("nil graphBoolConfig = false, want fallback true")
+	}
+
+	stringConfig := map[string]any{"trim": "  value  ", "raw": "  raw  ", "nil": nil, "nilString": "<nil>"}
+	if got := graphStringConfig(stringConfig, "trim"); got != "value" {
+		t.Fatalf("graphStringConfig trim = %q", got)
+	}
+	if got := graphStringConfigRaw(stringConfig, "raw"); got != "  raw  " {
+		t.Fatalf("graphStringConfigRaw = %q", got)
+	}
+	if got := graphStringConfigWithDefault(stringConfig, "nilString", "fallback"); got != "fallback" {
+		t.Fatalf("graphStringConfigWithDefault = %q, want fallback", got)
+	}
+	serialConfig := graphSerialConfig(map[string]any{"portName": " p ", "baudRate": "9600", "dataBits": float64(7), "stopBits": "2", "parity": "even", "flowMode": "xon", "readBufKB": int64(64)})
+	if serialConfig.PortName != "p" || serialConfig.BaudRate != 9600 || serialConfig.DataBits != 7 || serialConfig.StopBits != "2" || serialConfig.Parity != "even" || serialConfig.FlowMode != "xon" || serialConfig.ReadBufKB != 64 {
+		t.Fatalf("graphSerialConfig = %#v", serialConfig)
+	}
+
+	if data, err := encodeGraphPayload("41 42", "hex", "utf-8"); err != nil || string(data) != "AB" {
+		t.Fatalf("encodeGraphPayload hex = %q, %v; want AB", data, err)
+	}
+	if _, err := encodeGraphPayload("zz", "hex", "utf-8"); err == nil {
+		t.Fatalf("encodeGraphPayload must reject invalid hex")
+	}
+	if _, err := encodeGraphPayload("é", "ascii", "ascii"); err == nil {
+		t.Fatalf("encodeGraphPayload must reject invalid ascii content")
+	}
+	if _, err := graphAutoSenderData(map[string]any{"payload": ""}); err == nil {
+		t.Fatalf("graphAutoSenderData must reject empty payload")
+	}
+	if data, err := graphAutoSenderData(map[string]any{"payload": "41", "mode": "hex"}); err != nil || string(data) != "A" {
+		t.Fatalf("graphAutoSenderData hex = %q, %v; want A", data, err)
+	}
+	if data, err := graphAutoNodeData(&serialGraphRuntimeNode{spec: SerialGraphNodeSpec{Type: "serial.sender", Config: map[string]any{"payload": "ok"}}}); err != nil || string(data) != "ok" {
+		t.Fatalf("graphAutoNodeData sender = %q, %v; want ok", data, err)
+	}
+	if _, err := graphAutoNodeData(&serialGraphRuntimeNode{spec: SerialGraphNodeSpec{Type: "serial.receiver"}}); err == nil {
+		t.Fatalf("graphAutoNodeData must reject unsupported node type")
+	}
+	if _, err := graphNodeSendData(&serialGraphRuntimeNode{spec: SerialGraphNodeSpec{Type: "serial.receiver"}}, SerialGraphSendRequest{}); err == nil {
+		t.Fatalf("graphNodeSendData must reject empty content for receiver")
+	}
+	if _, err := graphNodeSendData(&serialGraphRuntimeNode{spec: SerialGraphNodeSpec{Type: "serial.fecbus.master", Config: map[string]any{"dataHex": "zz"}}}, SerialGraphSendRequest{}); err == nil {
+		t.Fatalf("graphNodeSendData must surface fecbus payload errors")
+	}
+
+	errs := validateSerialGraphRuntimeRequest(SerialGraphStartRequest{
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "", Type: "serial.sender"},
+			{ID: "dup", Type: "serial.sender"},
+			{ID: "dup", Type: "serial.receiver"},
+			{ID: "unknown", Type: "serial.unknown"},
+			{ID: "phys-a", Type: "serial.physical", Config: map[string]any{"portName": "COM1"}},
+			{ID: "phys-b", Type: "serial.physical", Config: map[string]any{"portName": "COM1"}},
+			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender2", Type: "serial.sender"},
+			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "master", Type: "serial.modbus.master"},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "", Source: "sender", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge", Source: "sender", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge", Source: "sender", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
+			{ID: "missing-source", Source: "ghost", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "missing-target", Source: "sender", SourceHandle: "out", Target: "ghost", TargetHandle: "in"},
+			{ID: "self", Source: "sender", SourceHandle: "out", Target: "sender", TargetHandle: "in"},
+			{ID: "bad-out", Source: "sender", SourceHandle: "missing", Target: "receiver", TargetHandle: "in"},
+			{ID: "bad-in", Source: "sender", SourceHandle: "out", Target: "receiver", TargetHandle: "missing"},
+			{ID: "input-dup", Source: "sender2", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "fanout", Source: "sender", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
+		},
+	})
+	joined := strings.Join(errs, "\n")
+	for _, want := range []string{
+		"node id must not be empty",
+		"duplicate node id: dup",
+		"provider not found: serial.unknown",
+		"resource port duplicated: COM1",
+		"edge id must not be empty",
+		"duplicate edge id: edge",
+		"source node not found: ghost",
+		"target node not found: ghost",
+		"node cannot connect to itself",
+		"output port not found: serial.sender.missing",
+		"input port not found: serial.receiver.missing",
+		"input already connected: receiver.in",
+		"fan-out requires a tap node: sender.out",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("validateSerialGraphRuntimeRequest errors %q missing %q", joined, want)
+		}
 	}
 }
 

@@ -167,6 +167,113 @@ func TestBuildDataFromFieldsUsesAppendixCAndCustomDefinitions(t *testing.T) {
 	assertHex(t, data, "0834127f")
 }
 
+func TestAnnotateFrameWarningsContinuationAndAnswerSpecificFields(t *testing.T) {
+	missingRaw := AnnotateFrame(FrameRecord{Frame: Frame{Data: []byte{byte(FunctionSyncHeartbeat)}}}, nil, nil)
+	if len(missingRaw.Warnings) != 1 || !strings.Contains(missingRaw.Warnings[0], "缺少原始帧字节") {
+		t.Fatalf("missing raw warnings = %#v, want missing raw byte warning", missingRaw.Warnings)
+	}
+
+	_, continuation := mustEncodedFrame(t, Frame{
+		Type:          FrameTypeAnswer,
+		TargetAddress: 1,
+		Priority:      3,
+		SourceAddress: 2,
+		MessageNumber: 8,
+		GroupNumber:   2,
+		Data:          []byte{0x80, 0x81},
+	})
+	annotatedContinuation := AnnotateFrame(
+		FrameRecord{SessionID: "s1", Direction: "rx", Frame: continuation},
+		nil,
+		&AnnotationContext{Function: FunctionQueryCurrentEvent},
+	)
+	if annotatedContinuation.Function.Code != FunctionQueryCurrentEvent {
+		t.Fatalf("continuation function = %d, want context query current event", annotatedContinuation.Function.Code)
+	}
+	assertField(t, annotatedContinuation.DataFields, "continuation", 8, 10, "多帧报文后续数据")
+
+	textRaw, textFrame := mustEncodedFrame(t, Frame{
+		Type:          FrameTypeAnswer,
+		TargetAddress: 1,
+		Priority:      3,
+		SourceAddress: 2,
+		MessageNumber: 9,
+		Data:          []byte{byte(FunctionQueryComment), 1, 2, 3, 3, 'a', 'b', 'c'},
+	})
+	annotatedText := AnnotateFrame(FrameRecord{SessionID: "s1", Direction: "rx", Frame: textFrame, Hex: FormatHex(textRaw)}, nil, nil)
+	assertField(t, annotatedText.DataFields, "comment_text", 13, 16, "abc")
+
+	statusRaw, statusFrame := mustEncodedFrame(t, Frame{
+		Type:          FrameTypeAnswer,
+		TargetAddress: 1,
+		Priority:      3,
+		SourceAddress: 2,
+		MessageNumber: 10,
+		Data:          []byte{byte(FunctionQueryDeviceStatus), 1, 0},
+	})
+	annotatedStatus := AnnotateFrame(FrameRecord{SessionID: "s1", Direction: "rx", Frame: statusFrame, Hex: FormatHex(statusRaw)}, nil, nil)
+	assertField(t, annotatedStatus.DataFields, "status_code", 9, 11, "自动状态")
+
+	listRaw, listFrame := mustEncodedFrame(t, Frame{
+		Type:          FrameTypeAnswer,
+		TargetAddress: 1,
+		Priority:      3,
+		SourceAddress: 2,
+		MessageNumber: 11,
+		Data:          []byte{byte(FunctionQueryDeviceList), 2, 1, 20, 0, 2, 0xff, 0xff},
+	})
+	annotatedList := AnnotateFrame(FrameRecord{SessionID: "s1", Direction: "rx", Frame: listFrame, Hex: FormatHex(listRaw)}, nil, nil)
+	assertField(t, annotatedList.DataFields, "controller_1_device_type", 11, 13, "火灾探测器")
+	assertField(t, annotatedList.DataFields, "controller_2_device_type", 14, 16, "连接了多种设备")
+}
+
+func TestBuildDataFromFieldsCoversEncodingVariantsAndErrors(t *testing.T) {
+	custom := []CustomFunctionDefinition{{
+		Code: 0x08,
+		Name: "厂商测试",
+		Fields: []CustomDataFieldDefinition{
+			{Key: "label", Label: "标签", Offset: 1, Length: 1, Type: "utf8"},
+			{Key: "blob", Label: "十六进制", Offset: 2, Length: 2, Type: "hex"},
+			{Key: "wide", Label: "三字节值", Offset: 4, Length: 3, Type: "uint24"},
+		},
+	}}
+	data, err := BuildDataFromFields(0x08, map[string]any{
+		"label": "XY",
+		"blob":  "aa bb",
+		"wide":  int64(0x010203),
+	}, custom)
+	if err != nil {
+		t.Fatalf("BuildDataFromFields(variants) error = %v", err)
+	}
+	assertHex(t, data, "0858aabb030201")
+
+	bigEndian := []CustomFunctionDefinition{{
+		Code:   0x09,
+		Name:   "大端测试",
+		Fields: []CustomDataFieldDefinition{{Key: "value", Label: "值", Offset: 1, Length: 2, Type: "uint16be"}},
+	}}
+	data, err = BuildDataFromFields(0x09, map[string]any{"value": "0x1234"}, bigEndian)
+	if err != nil {
+		t.Fatalf("BuildDataFromFields(big endian) error = %v", err)
+	}
+	assertHex(t, data, "091234")
+
+	if _, err := BuildDataFromFields(0x08, map[string]any{"blob": "not hex"}, custom); err == nil {
+		t.Fatalf("BuildDataFromFields(invalid hex) error = nil, want error")
+	}
+	if _, err := BuildDataFromFields(0x08, map[string]any{"wide": struct{}{}}, custom); err == nil {
+		t.Fatalf("BuildDataFromFields(unsupported numeric) error = nil, want error")
+	}
+	tooLong := []CustomFunctionDefinition{{
+		Code:   0x0a,
+		Name:   "过长测试",
+		Fields: []CustomDataFieldDefinition{{Key: "overflow", Label: "过长", Offset: 8, Length: 1, Type: "uint8"}},
+	}}
+	if _, err := BuildDataFromFields(0x0a, map[string]any{"overflow": 1}, tooLong); err == nil || !strings.Contains(err.Error(), "too long") {
+		t.Fatalf("BuildDataFromFields(too long) error = %v, want too long", err)
+	}
+}
+
 func assertSegment(t *testing.T, segments []FrameSegment, key string, start int, end int, labelPart string) {
 	t.Helper()
 	for _, segment := range segments {

@@ -298,6 +298,37 @@ describe('SerialGraphPanel', () => {
     wrapper.unmount()
   })
 
+  it('keeps graphless toolbar palette and log actions as no-ops', async () => {
+    const store = useSerialGraphStore()
+    await store.removeGraph('graph-1')
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(store.graphList).toEqual([])
+    expect((wrapper.find('[data-testid="serial-graph-name"]').element as HTMLInputElement).value).toBe('')
+
+    await wrapper.find('[data-testid="serial-graph-provider-serial.sender"]').trigger('click')
+
+    expect(store.graphList).toEqual([])
+
+    const nameInput = wrapper.find('[data-testid="serial-graph-name"]')
+    ;(nameInput.element as HTMLInputElement).value = '无图拓扑'
+    await nameInput.trigger('change')
+    await wrapper.find('[data-testid="serial-graph-duplicate"]').trigger('click')
+
+    expect(store.graphList).toEqual([])
+
+    await wrapper.find('[data-testid="serial-graph-open-operation-log"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="serial-operation-log-empty"]').text()).toContain('没有匹配的操作日志')
+
+    await wrapper.find('[data-testid="serial-operation-log-expression"]').setValue('payload')
+    await wrapper.find('[data-testid="serial-operation-log-clear"]').trigger('click')
+
+    expect(store.operationLogs).toEqual([])
+
+    wrapper.unmount()
+  })
+
   it('resizes the split view with pointer and keyboard controls', async () => {
     const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
 
@@ -322,6 +353,9 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('348px')
 
     await handle.trigger('keydown', { key: 'ArrowUp', shiftKey: true })
+    expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('388px')
+
+    await handle.trigger('keydown', { key: 'Escape' })
     expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('388px')
 
     handle.element.dispatchEvent(pointerTestEvent('pointerdown', { pointerId: 1, clientY: 400 }))
@@ -364,6 +398,28 @@ describe('SerialGraphPanel', () => {
 
     expect(store.edges).toHaveLength(1)
     expect(wrapper.find('[data-testid="serial-graph-edge-edge-1"]').exists()).toBe(true)
+  })
+
+  it('ignores input clicks without a pending output and duplicate connection attempts', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find(`[data-testid="serial-graph-input-${receiver.id}-in"]`).trigger('click')
+
+    expect(store.edges).toHaveLength(0)
+
+    await wrapper.find(`[data-testid="serial-graph-output-${sender.id}-out"]`).trigger('click')
+    await wrapper.find(`[data-testid="serial-graph-input-${receiver.id}-in"]`).trigger('click')
+
+    expect(store.edges).toHaveLength(1)
+
+    await wrapper.find(`[data-testid="serial-graph-output-${sender.id}-out"]`).trigger('click')
+    await wrapper.find(`[data-testid="serial-graph-input-${receiver.id}-in"]`).trigger('click')
+
+    expect(store.edges).toHaveLength(1)
+    wrapper.unmount()
   })
 
   it('uses matching colors for connected edges and their port buttons', async () => {
@@ -484,6 +540,39 @@ describe('SerialGraphPanel', () => {
 
     expect(store.edges).toHaveLength(0)
     expect(store.selectedEdgeId).toBeNull()
+  })
+
+  it('renders validation errors for selected edges and graph-level validation panes', async () => {
+    const store = useSerialGraphStore()
+    store.restoreState({
+      graphs: [{
+        id: 'graph-1',
+        name: '坏拓扑',
+        nodes: [{
+          id: 'sender',
+          type: 'serial.sender',
+          position: { x: 24, y: 32 },
+          config: { mode: 'ascii', encoding: 'utf-8', payload: '' },
+        }],
+        edges: [{ id: 'edge-bad', source: 'sender', sourceHandle: 'out', target: 'missing', targetHandle: 'in' }],
+        selectedNodeId: null,
+        selectedEdgeId: 'edge-bad',
+        nodeTabs: [],
+        activeNodeTabId: null,
+      }],
+      activeGraphId: 'graph-1',
+    } as any)
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find('[data-testid="serial-graph-edge-content"]').text()).toContain('sender.out -> missing.in')
+    expect(wrapper.find('[data-testid="serial-graph-edge-content"] .serial-graph__errors').text()).toContain('target node not found')
+
+    store.selectEdgeInGraph('graph-1', null)
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-graph-validation-content"]').text()).toContain('target node not found')
+
+    wrapper.unmount()
   })
 
   it('preserves number and boolean config types when editing', async () => {
@@ -1056,6 +1145,29 @@ describe('SerialGraphPanel', () => {
     expect(bufferText()).toContain('[2026-06-23 02:01:02.003] hi')
     expect(bufferText()).toContain('[2026-06-23 02:01:03.004] !')
 
+    await wrapper.find('[data-testid="serial-graph-config-viewMode"]').setValue('hexClassic')
+    await nextTick()
+
+    expect(bufferText()).toContain('[2026-06-23 02:01:02.003]')
+    expect(bufferText()).toContain('00000000')
+    expect(bufferText()).toContain('68 69')
+
+    bindings.QuerySerialGraphNodeBuffer.mockResolvedValue({
+      Offset: 0,
+      Data: btoa('xy'),
+      Total: 2,
+      EOF: true,
+      Chunks: [
+        { Offset: 0, Timestamp: '', Data: btoa('x') },
+        { Offset: 1, Timestamp: 'not-a-date', Data: btoa('y') },
+      ],
+    })
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+
+    expect(bufferText()).toContain('[未知时间]')
+    expect(bufferText()).toContain('[not-a-date]')
+
     wrapper.unmount()
   })
 
@@ -1075,6 +1187,36 @@ describe('SerialGraphPanel', () => {
     expect(canvas.element.scrollLeft).toBe(150)
     expect(canvas.element.scrollTop).toBe(120)
 
+    wrapper.unmount()
+  })
+
+  it('ignores secondary canvas pans and tiny pans do not suppress selection clearing', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
+    const canvas = wrapper.find<HTMLElement>('[data-testid="serial-graph-canvas"]')
+    Object.defineProperty(canvas.element, 'scrollLeft', { value: 40, writable: true, configurable: true })
+    Object.defineProperty(canvas.element, 'scrollTop', { value: 50, writable: true, configurable: true })
+
+    const rightDown = pointerTestEvent('pointerdown', { button: 2, pointerId: 9, clientX: 100, clientY: 100 })
+    const preventDefault = vi.spyOn(rightDown, 'preventDefault')
+    canvas.element.dispatchEvent(rightDown)
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(canvas.element.scrollLeft).toBe(40)
+    expect(canvas.element.scrollTop).toBe(50)
+
+    canvas.element.dispatchEvent(pointerTestEvent('pointerdown', { pointerId: 10, clientX: 100, clientY: 100 }))
+    window.dispatchEvent(pointerTestEvent('pointermove', { pointerId: 10, clientX: 101, clientY: 101 }))
+    window.dispatchEvent(pointerTestEvent('pointerup', { pointerId: 11 }))
+    window.dispatchEvent(pointerTestEvent('pointerup', { pointerId: 10 }))
+    await nextTick()
+
+    expect(store.selectedNodeId).toBe(sender.id)
+
+    await canvas.trigger('click')
+
+    expect(store.selectedNodeId).toBeNull()
     wrapper.unmount()
   })
 
@@ -1209,6 +1351,12 @@ describe('SerialGraphPanel', () => {
     const tableText = () => wrapper.find('[data-testid="serial-graph-content-node-frames"]').text()
     expect(tableText()).toContain('41')
     expect(tableText()).not.toContain('65')
+
+    await displayMode.setValue('text')
+    await nextTick()
+
+    expect(tableText()).toContain('A')
+    expect(tableText()).not.toContain('41')
 
     await displayMode.setValue('dec')
     await nextTick()
@@ -1398,6 +1546,263 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find(`[data-testid="serial-graph-output-${generator.id}-out"]`).exists()).toBe(true)
     expect(wrapper.find(`[data-testid="serial-graph-input-${analyzer.id}-in"]`).exists()).toBe(true)
     expect(wrapper.find(`[data-testid="serial-graph-output-${analyzer.id}-out"]`).exists()).toBe(false)
+  })
+
+  it('reactivates clears and closes the operation log tab without losing node tabs', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    store.appendOperationLogForGraph('graph-1', {
+      level: 'info',
+      source: 'serial.sender',
+      action: 'send',
+      message: 'manual send',
+      nodeId: sender.id,
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-open-operation-log"]').trigger('click')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').text()).toContain('manual send')
+
+    await wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"]`).trigger('click')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('payload')
+
+    await wrapper.find('[data-testid="serial-graph-operation-log-tab"]').trigger('click')
+    expect(wrapper.find('[data-testid="serial-operation-log-panel"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="serial-operation-log-clear"]').trigger('click')
+    expect(store.operationLogs).toEqual([])
+    expect(wrapper.find('[data-testid="serial-operation-log-empty"]').text()).toContain('操作日志')
+
+    await wrapper.find('[data-testid="serial-graph-operation-log-tab"] .serial-graph__node-tab-close').trigger('click')
+    expect(wrapper.find('[data-testid="serial-graph-operation-log-tab"]').exists()).toBe(false)
+    expect(wrapper.find(`[data-testid="serial-graph-node-tab-${sender.id}"]`).exists()).toBe(true)
+  })
+
+  it('stops runtime and clears selected receiver buffer controls from the panel', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    const receiver = store.addNode('serial.receiver')
+    store.connect(sender.id, 'out', receiver.id, 'in')
+    store.selectNode(receiver.id)
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()).toContain('hello')
+
+    await wrapper.find('[data-testid="serial-graph-content-clear-buffer"]').trigger('click')
+    await wrapper.find('[data-testid="serial-graph-content-reset-counters"]').trigger('click')
+    await wrapper.find('[data-testid="serial-graph-stop"]').trigger('click')
+    await flushPromises()
+
+    expect(bindings.ClearSerialGraphNodeBuffer).toHaveBeenCalledWith('graph-1', receiver.id)
+    expect(bindings.ResetSerialGraphNodeCounters).toHaveBeenCalledWith('graph-1', receiver.id)
+    expect(bindings.StopSerialGraph).toHaveBeenCalledWith('graph-1')
+    expect(wrapper.find('[data-testid="serial-graph-runtime-status"]').text()).toBe('stopped')
+  })
+
+  it('drags node cards, clears canvas selection, and deletes nodes from card controls', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender', { x: 24, y: 32 })
+    const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
+    const canvas = wrapper.find<HTMLElement>('[data-testid="serial-graph-canvas"]')
+    Object.defineProperty(canvas.element, 'scrollLeft', { value: 10, writable: true, configurable: true })
+    Object.defineProperty(canvas.element, 'scrollTop', { value: 5, writable: true, configurable: true })
+    vi.spyOn(canvas.element, 'getBoundingClientRect').mockReturnValue({
+      left: 4,
+      top: 6,
+      right: 804,
+      bottom: 606,
+      width: 800,
+      height: 600,
+      x: 4,
+      y: 6,
+      toJSON: () => ({}),
+    } as DOMRect)
+    const node = wrapper.find<HTMLElement>(`[data-testid="serial-graph-node-${sender.id}"]`)
+
+    node.element.dispatchEvent(pointerTestEvent('pointerdown', { pointerId: 1, clientX: 40, clientY: 50 }))
+    window.dispatchEvent(pointerTestEvent('pointermove', { pointerId: 1, clientX: 90, clientY: 120 }))
+    window.dispatchEvent(pointerTestEvent('pointerup', { pointerId: 1 }))
+    await nextTick()
+
+    expect(store.nodes.find(item => item.id === sender.id)?.position).toEqual({ x: 74, y: 102 })
+    expect(store.selectedNodeId).toBe(sender.id)
+
+    await canvas.trigger('click')
+    expect(store.selectedNodeId).toBeNull()
+
+    await node.find('header button').trigger('click')
+    expect(store.nodes).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('pans the canvas without clearing selection on the suppressed click', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender', { x: 24, y: 32 })
+    const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
+    const canvas = wrapper.find<HTMLElement>('[data-testid="serial-graph-canvas"]')
+    Object.defineProperty(canvas.element, 'scrollLeft', { value: 40, writable: true, configurable: true })
+    Object.defineProperty(canvas.element, 'scrollTop', { value: 50, writable: true, configurable: true })
+
+    canvas.element.dispatchEvent(pointerTestEvent('pointerdown', { pointerId: 7, clientX: 100, clientY: 100 }))
+    window.dispatchEvent(pointerTestEvent('pointermove', { pointerId: 7, clientX: 130, clientY: 140 }))
+    window.dispatchEvent(pointerTestEvent('pointerup', { pointerId: 7 }))
+    await nextTick()
+
+    expect(canvas.element.scrollLeft).toBe(10)
+    expect(canvas.element.scrollTop).toBe(10)
+
+    await canvas.trigger('click')
+    expect(store.selectedNodeId).toBe(sender.id)
+    wrapper.unmount()
+  })
+
+  it('renders unknown node fallbacks validation errors and sparse operation log fields', async () => {
+    const store = useSerialGraphStore()
+    store.restoreState({
+      graphs: [{
+        id: 'graph-1',
+        name: '坏拓扑',
+        nodes: [{ id: 'mystery', type: 'serial.unknown', position: { x: 12, y: 18 }, config: {} }],
+        edges: [{ id: 'edge-bad', source: 'mystery', sourceHandle: 'out', target: 'missing', targetHandle: 'in' }],
+        selectedNodeId: 'mystery',
+        selectedEdgeId: null,
+        nodeTabs: [{ nodeId: 'mystery', title: 'Mystery' }],
+        activeNodeTabId: 'mystery',
+      }],
+      activeGraphId: 'graph-1',
+    } as any)
+    store.appendOperationLogForGraph('graph-1', {
+      timestamp: 'not-a-date',
+      level: 'warn',
+      message: 'sparse log',
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('serial.unknown')
+    expect(wrapper.find('[data-testid="serial-graph-node-content"]').text()).toContain('RX')
+    expect(wrapper.find('.serial-graph__errors').text()).toContain('provider not found: serial.unknown')
+    expect(wrapper.find('.serial-graph__errors').text()).toContain('edge-bad: target node not found: missing')
+
+    await wrapper.find('[data-testid="serial-graph-open-operation-log"]').trigger('click')
+    const rowText = wrapper.find('[data-testid="serial-operation-log-entry"]').text()
+    expect(rowText).toContain('not-a-date')
+    expect(rowText).toContain('unknown/event')
+    expect(rowText).toContain('sparse log')
+  })
+
+  it('renders octal monitor frames and raw fallback text for modbus slave packets', async () => {
+    const store = useSerialGraphStore()
+    const monitor = store.addNode('serial.monitor')
+    store.selectNode(monitor.id)
+    bindings.QuerySerialGraphNodeFrames.mockResolvedValue({
+      Frames: [{
+        Seq: 1,
+        Direction: '接收',
+        Length: 1,
+        DisplayText: 'A',
+        DisplayHex: '41',
+        DisplayDec: '65',
+        DisplayOct: '101',
+        DisplayBin: '01000001',
+      }],
+      Total: 1,
+      NextOffset: 1,
+    })
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').trigger('click')
+    await flushPromises()
+    const displayMode = wrapper.find('[data-testid="serial-graph-config-displayMode"]')
+    await displayMode.setValue('oct')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-graph-content-node-frames"]').text()).toContain('101')
+
+    const slave = store.addNode('serial.modbus.slave')
+    store.selectNode(slave.id)
+    bindings.QuerySerialGraphNodeFrames.mockResolvedValue({
+      Frames: [
+        { Seq: 1, Direction: '发送', Length: 3, DisplayText: 'Response | Raw aa bb cc', DisplayHex: '' },
+        { Seq: 2, Direction: '接收', Length: 4, DisplayText: 'Request | Raw 01 03 00 00', DisplayHex: '' },
+      ],
+      Total: 2,
+      NextOffset: 2,
+    })
+    await nextTick()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-frames"]').trigger('click')
+    await flushPromises()
+
+    const rows = wrapper.findAll('[data-testid="serial-graph-content-node-frame-row"]')
+    expect(rows[0].findAll('td').at(-1)?.text()).toBe('aa bb cc')
+    expect(rows[1].findAll('td').at(-1)?.text()).toBe('01 03 00 00')
+    expect(rows[0].classes().find(item => item.startsWith('serial-graph__frame-row--packet-')))
+      .not.toBe(rows[1].classes().find(item => item.startsWith('serial-graph__frame-row--packet-')))
+    wrapper.unmount()
+  })
+
+  it('clamps compact split layouts through ResizeObserver and disconnects on unmount', async () => {
+    const resizeObservers: Array<{
+      callback: ResizeObserverCallback
+      observe: ReturnType<typeof vi.fn>
+      disconnect: ReturnType<typeof vi.fn>
+    }> = []
+    class ResizeObserverMock {
+      callback: ResizeObserverCallback
+      observe = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        resizeObservers.push(this)
+      }
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock)
+    try {
+      const wrapper = mount(SerialGraphPanel, { attachTo: document.body })
+      await wrapper.find('[data-testid="serial-graph-provider-serial.sender"]').trigger('click')
+      const workspace = wrapper.find<HTMLElement>('.serial-graph__workspace')
+      Object.defineProperty(workspace.element, 'clientHeight', { value: 150, configurable: true })
+
+      await nextTick()
+      resizeObservers[0].callback([], resizeObservers[0] as unknown as ResizeObserver)
+      await nextTick()
+
+      expect(resizeObservers[0].observe).toHaveBeenCalledWith(workspace.element)
+      expect(wrapper.find('[data-testid="serial-graph-node-workbench"]').attributes('style')).toContain('64px')
+
+      wrapper.unmount()
+      expect(resizeObservers[0].disconnect).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('sends manual node payload defaults when legacy node config values are absent', async () => {
+    const store = useSerialGraphStore()
+    const sender = store.addNode('serial.sender')
+    store.updateNodeConfig(sender.id, { payload: undefined, mode: undefined, encoding: undefined })
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-send"]').trigger('click')
+    await flushPromises()
+
+    expect(bindings.SendSerialGraphNode).toHaveBeenCalledWith(expect.objectContaining({
+      GraphID: 'graph-1',
+      NodeID: sender.id,
+      Content: '',
+      Mode: 'ascii',
+      Encoding: 'utf-8',
+    }))
+    wrapper.unmount()
   })
 })
 

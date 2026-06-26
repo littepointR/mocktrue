@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildWorkspaceSnapshot, restoreGraphTabSnapshot, restoreWorkspaceSnapshot } from './workspaceSession'
+import { buildGraphTabSnapshot, buildWorkspaceSnapshot, graphTabSnapshotsFromUnknown, restoreGraphTabSnapshot, restoreWorkspaceSnapshot } from './workspaceSession'
 import { base64ToBytes } from './workspaceSnapshot'
 import { useSettingsStore } from '../settings/stores/settingsStore'
 import { useSerialStore } from '../serial/stores/serialStore'
@@ -107,6 +107,29 @@ describe('workspace session snapshot', () => {
     expect(graph.nodes.map(node => node.type)).toEqual(['serial.sender', 'serial.receiver'])
     expect(graph.edges).toHaveLength(1)
     expect(snapshot.serial.workspace.tabStates['port-1'].sendHeight).toBe(240)
+  })
+
+  it('builds graph tab snapshots from the fallback active graph and raw runtime buffers', () => {
+    const graphStore = useSerialGraphStore()
+    const sender = graphStore.addNode('serial.sender')
+    graphStore.restoreRuntimeSnapshot('graph-1', {
+      nodeBuffers: { [sender.id]: new Uint8Array([90]) },
+      nodeFrames: {},
+    } as any)
+    ;(graphStore as any).activeGraphId = null
+
+    const snapshot = buildGraphTabSnapshot(null)
+
+    expect(snapshot.graph.id).toBe('graph-1')
+    expect(Array.from(base64ToBytes(snapshot.runtime.nodeBuffers[sender.id][0].data))).toEqual([90])
+  })
+
+  it('throws when building graph tab snapshots without any graph', () => {
+    const graphStore = useSerialGraphStore() as any
+    graphStore.graphs = []
+    graphStore.activeGraphId = null
+
+    expect(() => buildGraphTabSnapshot()).toThrow('serial graph not found')
   })
 
   it('restores a snapshot with a legacy single graph and remaps old handle ids to newly opened handles', async () => {
@@ -287,6 +310,196 @@ describe('workspace session snapshot', () => {
       expect(workspace.editorLayout.tabs).toEqual([`graph:${bridgeGraph?.id}`])
       expect(workspace.activeByGroup[workspace.editorLayout.id]).toBe(`graph:${bridgeGraph?.id}`)
     }
+  })
+
+  it('exports and restores graph tab runtime buffers, frames, and fallback workspace graph snapshots', async () => {
+    const graphStore = useSerialGraphStore()
+    const sender = graphStore.addNode('serial.sender')
+    graphStore.restoreRuntimeSnapshot('graph-1', {
+      nodeBuffers: { [sender.id]: new Uint8Array([65]) },
+      nodeBufferChunks: {
+        [sender.id]: [
+          { offset: 0, timestamp: 123 as any, data: new Uint8Array([65]) },
+          { offset: 1, timestamp: '2026-06-23T02:01:02.003', data: new Uint8Array([66, 67]) },
+          { offset: 3, timestamp: 'invalid-date', data: new Uint8Array([68]) },
+        ],
+        'empty-node': [],
+      },
+      nodeFrames: { [sender.id]: [{ Seq: 1, Direction: 'tx', Length: 1, DisplayHex: '41' } as any] },
+    })
+
+    const snapshot = buildGraphTabSnapshot('graph-1')
+
+    expect(snapshot.kind).toBe('mocktrue.graph.v1')
+    expect(snapshot.runtime.nodeBuffers[sender.id].map(chunk => Array.from(base64ToBytes(chunk.data)))).toEqual([[65], [66, 67], [68]])
+    expect(snapshot.runtime.nodeBuffers[sender.id][2].timestamp).toBe(0)
+    expect(Array.from(base64ToBytes(snapshot.runtime.nodeBuffers['empty-node'][0].data))).toEqual([])
+    expect(snapshot.runtime.nodeFrames[sender.id]).toEqual([expect.objectContaining({ Seq: 1, DisplayHex: '41' })])
+
+    const restored = await restoreGraphTabSnapshot(snapshot, { activate: false })
+
+    expect(restored.graphIds).toEqual(['graph-2'])
+    expect(restored.activeGraphId).toBe('graph-2')
+    expect(graphStore.activeGraphId).toBe('graph-1')
+    const runtime = graphStore.exportRuntimeSnapshot('graph-2')
+    expect(Array.from(runtime.nodeBuffers[sender.id])).toEqual([65, 66, 67, 68])
+    expect(runtime.nodeFrames[sender.id]).toEqual([expect.objectContaining({ Seq: 1, DisplayHex: '41' })])
+
+    const fallback = await restoreGraphTabSnapshot({
+      kind: 'mocktrue.workspace.v1',
+      settings: { serial: useSettingsStore().snapshot().serial },
+      serial: {
+        activePortId: null,
+        handles: [],
+        virtualPorts: [],
+        bridges: [],
+        buffers: {},
+        monitors: { activeMonitorId: null, filters: {}, sessions: [], frames: {} },
+        modbus: defaultModbusWorkspaceState(),
+        fecbus: defaultFecbusWorkspaceState(),
+        graph: graphStore.exportState(),
+        workspace: useSerialWorkspaceStore().exportState(),
+      },
+    })
+
+    expect(fallback.graphIds.length).toBeGreaterThan(0)
+    expect(fallback.activeGraphId).toBe(fallback.graphIds[fallback.graphIds.length - 1])
+  })
+
+  it('normalizes sparse graph tab snapshots and workspace graph state fallbacks', async () => {
+    const graphStore = useSerialGraphStore()
+    const sparse = await restoreGraphTabSnapshot({
+      kind: 'mocktrue.graph.v1',
+      graph: {
+        id: 'sparse-graph',
+        name: '',
+        nodes: [],
+        edges: [],
+        selectedNodeId: null,
+        selectedEdgeId: null,
+        nodeTabs: [],
+        activeNodeTabId: null,
+      },
+    } as any)
+    expect(sparse.graphIds).toEqual(['sparse-graph'])
+    expect(graphStore.activeGraphId).toBe('sparse-graph')
+    expect(graphStore.exportRuntimeSnapshot('sparse-graph').nodeBuffers).toEqual({})
+
+    const graphA = defaultSerialGraphState().graphs[0]
+    const graphB = {
+      ...graphA,
+      id: 'graph-b',
+      name: 'Graph B',
+    }
+    const graphTabs = graphTabSnapshotsFromUnknown({
+      serial: {
+        graph: {
+          graphs: [graphA, graphB],
+          activeGraphId: null,
+        },
+      },
+    } as any)
+
+    expect(graphTabs.map(tab => tab.graph.id)).toEqual([graphA.id, 'graph-b'])
+    expect(graphTabs.every(tab => tab.settings.serial.TerminalFontSize)).toBe(true)
+  })
+
+  it('rejects unsupported graph tab snapshots and preserves partial restore errors', async () => {
+    await expect(restoreGraphTabSnapshot({ kind: 'unknown' } as any)).rejects.toThrow('unsupported PortWeave config file')
+
+    serialBindingsMock.CreateVirtualPort.mockRejectedValueOnce(new Error('virtual denied'))
+    serialServiceMock.openPort.mockRejectedValueOnce(new Error('port denied'))
+
+    const result = await restoreWorkspaceSnapshot({
+      kind: 'mocktrue.workspace.v1',
+      settings: { serial: useSettingsStore().snapshot().serial },
+      serial: {
+        activePortId: 'bad-port',
+        handles: [{ id: 'bad-port', config: serialConfig('/tmp/bad'), isOpen: true, rxBytes: 0, txBytes: 0 }],
+        virtualPorts: [{ ID: 'bad-vp', Port: 'ttyBad' }],
+        bridges: [],
+        buffers: {},
+        monitors: { activeMonitorId: null, filters: {}, sessions: [], frames: {} },
+        modbus: defaultModbusWorkspaceState(),
+        fecbus: defaultFecbusWorkspaceState(),
+        graph: defaultSerialGraphState(),
+        workspace: useSerialWorkspaceStore().exportState(),
+      },
+    })
+
+    expect(result.errors).toEqual(expect.arrayContaining([
+      { target: 'virtual:bad-vp', message: 'virtual denied' },
+      { target: 'port:bad-port', message: 'port denied' },
+    ]))
+    expect(result.handleMap).toEqual({})
+  })
+
+  it('captures non-Error restore failures as readable messages', async () => {
+    serialBindingsMock.CreateVirtualPort.mockRejectedValueOnce('virtual string denied')
+
+    const result = await restoreWorkspaceSnapshot({
+      kind: 'mocktrue.workspace.v1',
+      settings: { serial: useSettingsStore().snapshot().serial },
+      serial: {
+        activePortId: null,
+        handles: [],
+        virtualPorts: [{ ID: 'bad-vp', Port: 'ttyBad' }],
+        bridges: [],
+        buffers: {},
+        monitors: { activeMonitorId: null, filters: {}, sessions: [], frames: {} },
+        modbus: defaultModbusWorkspaceState(),
+        fecbus: defaultFecbusWorkspaceState(),
+        graph: defaultSerialGraphState(),
+        workspace: useSerialWorkspaceStore().exportState(),
+      },
+    })
+
+    expect(result.errors).toContainEqual({ target: 'virtual:bad-vp', message: 'virtual string denied' })
+  })
+
+  it('handles empty graph-tab workspaces and closed workspace handles without reopening ports', async () => {
+    const restoredGraphs = await restoreGraphTabSnapshot({
+      kind: 'mocktrue.workspace.v1',
+      settings: { serial: useSettingsStore().snapshot().serial },
+      serial: {
+        activePortId: null,
+        handles: [],
+        virtualPorts: [],
+        bridges: [],
+        buffers: {},
+        monitors: { activeMonitorId: null, filters: {}, sessions: [], frames: {} },
+        modbus: defaultModbusWorkspaceState(),
+        fecbus: defaultFecbusWorkspaceState(),
+        graph: { graphs: [], activeGraphId: null },
+        workspace: useSerialWorkspaceStore().exportState(),
+      },
+    } as any)
+
+    expect(restoredGraphs.graphIds).toEqual(['graph-2'])
+    expect(restoredGraphs.activeGraphId).toBe(restoredGraphs.graphIds[0])
+
+    const restoredWorkspace = await restoreWorkspaceSnapshot({
+      kind: 'mocktrue.workspace.v1',
+      settings: { serial: useSettingsStore().snapshot().serial },
+      serial: {
+        activePortId: 'closed-port',
+        handles: [{ id: 'closed-port', config: serialConfig('/tmp/closed'), isOpen: false, rxBytes: 7, txBytes: 9 }],
+        virtualPorts: [],
+        bridges: [],
+        buffers: { 'closed-port': [{ timestamp: 123, data: 'AQID' }] },
+        monitors: { activeMonitorId: null, filters: {}, sessions: [], frames: {} },
+        modbus: defaultModbusWorkspaceState(),
+        fecbus: defaultFecbusWorkspaceState(),
+        graph: defaultSerialGraphState(),
+        workspace: useSerialWorkspaceStore().exportState(),
+      },
+    })
+
+    expect(restoredWorkspace.handleMap).toEqual({})
+    expect(serialServiceMock.openPort).not.toHaveBeenCalled()
+    expect(serialServiceMock.restoreCounters).not.toHaveBeenCalled()
+    expect(useSerialStore().activePortId).toBe('closed-port')
+    expect(Array.from(useBufferStore().getBuffer('closed-port'))).toEqual([1, 2, 3])
   })
 })
 

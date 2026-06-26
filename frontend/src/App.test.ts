@@ -81,6 +81,45 @@ describe('App settings effects', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('.app-shell').classes()).toContain('app-shell--dark')
+    media.setMatches(true)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.app-shell').classes()).toContain('app-shell--light')
+    wrapper.unmount()
+    expect(media.removeEventListener).toHaveBeenCalledWith('change', expect.any(Function))
+  })
+
+  it('supports legacy system color scheme listeners and removes them on unmount', async () => {
+    const media = installLegacySystemThemeMedia(true)
+    const settings = useSettingsStore()
+    settings.updateGlobal({ Theme: 'system' })
+
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+
+    expect(media.addListener).toHaveBeenCalledWith(expect.any(Function))
+    expect(wrapper.find('.app-shell').classes()).toContain('app-shell--light')
+
+    media.setMatches(false)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.app-shell').classes()).toContain('app-shell--dark')
+
+    wrapper.unmount()
+    expect(media.removeListener).toHaveBeenCalledWith(expect.any(Function))
+  })
+
+  it('falls back to graph snapshot sync when loading the last workspace fails', async () => {
+    workspaceBindings.LoadLastWorkspace.mockRejectedValueOnce(new Error('load failed'))
+    const files = useWorkspaceFileStore()
+    const syncSpy = vi.spyOn(files, 'syncAllGraphSnapshots')
+
+    mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+
+    expect(syncSpy).toHaveBeenCalled()
   })
 
   it('defines shared content theme variables used by Modbus panels', () => {
@@ -159,6 +198,13 @@ describe('App settings effects', () => {
     expect(useRegistry().active.value).toBe('serial')
     expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true)
 
+    const viewVersion = useRegistry().activeViewVersion.value
+    await wrapper.find('[data-testid="sidebar-select-view"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(useRegistry().activeView.value).toBe('serial.graph')
+    expect(useRegistry().activeViewVersion.value).toBe(viewVersion + 1)
+
     await wrapper.find('[data-testid="activity-serial"]').trigger('click')
     await wrapper.vm.$nextTick()
 
@@ -224,6 +270,46 @@ describe('App settings effects', () => {
       expect.stringContaining('保存拓扑')
     )
   })
+
+  it('skips canceled open and save actions when no graph is available', async () => {
+    workspaceBindings.SelectWorkspaceOpenPath.mockResolvedValueOnce('')
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+    const graph = useSerialGraphStore() as any
+    graph.graphs = []
+    graph.activeGraphId = null
+
+    await wrapper.find('[data-testid="app-titlebar-open-graph"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="app-titlebar-save-graph"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="app-titlebar-save-as-graph"]').trigger('click')
+    await flushPromises()
+
+    expect(workspaceBindings.ReadWorkspace).not.toHaveBeenCalled()
+    expect(workspaceBindings.SaveWorkspace).not.toHaveBeenCalled()
+    expect(workspaceBindings.SelectWorkspaceSavePath).not.toHaveBeenCalled()
+  })
+
+  it('saves the first graph when no active graph id is set', async () => {
+    const wrapper = mount(App, {
+      global: { stubs },
+    })
+    await flushPromises()
+    const graph = useSerialGraphStore() as any
+    graph.activeGraphId = null
+
+    await wrapper.find('[data-testid="app-titlebar-save-as-graph"]').trigger('click')
+    await flushPromises()
+
+    expect(workspaceBindings.SelectWorkspaceSavePath).toHaveBeenCalledWith('')
+    expect(workspaceBindings.SaveWorkspace).toHaveBeenCalledWith(
+      '/tmp/save-as.portweave.json',
+      expect.stringContaining('graph-1')
+    )
+  })
 })
 
 const stubs = {
@@ -280,7 +366,14 @@ const interactiveShellStubs = {
   Sidebar: {
     props: ['contributions', 'activeId', 'activeViewId'],
     emits: ['selectView'],
-    template: '<aside data-testid="sidebar">{{ activeId }}</aside>',
+    template: `
+      <aside data-testid="sidebar">
+        {{ activeId }}
+        <button type="button" data-testid="sidebar-select-view" @click="$emit('selectView', 'serial.graph')">
+          select view
+        </button>
+      </aside>
+    `,
   },
 }
 
@@ -300,6 +393,29 @@ function installSystemThemeMedia(initialMatches: boolean) {
     removeEventListener: vi.fn((event: string, listener: (event: MediaQueryListEvent) => void) => {
       if (event === 'change') listeners.delete(listener)
     }),
+    addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => listeners.add(listener)),
+    removeListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener)),
+    dispatchEvent: vi.fn(),
+    setMatches(next: boolean) {
+      matches = next
+      const event = { matches, media: query } as MediaQueryListEvent
+      for (const listener of listeners) listener(event)
+    },
+  }
+  vi.stubGlobal('matchMedia', vi.fn(() => media))
+  return media
+}
+
+function installLegacySystemThemeMedia(initialMatches: boolean) {
+  let matches = initialMatches
+  const listeners = new Set<(event: MediaQueryListEvent) => void>()
+  const query = '(prefers-color-scheme: light)'
+  const media = {
+    get matches() {
+      return matches
+    },
+    media: query,
+    onchange: null,
     addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => listeners.add(listener)),
     removeListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener)),
     dispatchEvent: vi.fn(),

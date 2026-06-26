@@ -13,8 +13,10 @@ import (
 // fakeModule is a controllable Module for registry tests. It records the
 // order of lifecycle calls and can be configured to fail at any stage.
 type fakeModule struct {
-	id    string
-	deps  []string
+	id       string
+	deps     []string
+	frontend FrontendContribution
+	services []application.Service
 
 	mu        sync.Mutex
 	calls     []string
@@ -26,14 +28,16 @@ type fakeModule struct {
 
 func (m *fakeModule) ID() string         { return m.id }
 func (m *fakeModule) Manifest() Manifest {
-	return Manifest{ID: m.id, Dependencies: m.deps}
+	return Manifest{ID: m.id, Dependencies: m.deps, Frontend: m.frontend}
 }
 func (m *fakeModule) Init(ctx context.Context, d Deps) error {
 	m.record("init:" + m.id)
 	return m.initErr
 }
-func (m *fakeModule) Services() []any         { return nil }
-func (m *fakeModule) ServicesWrapped() []application.Service { return nil }
+func (m *fakeModule) Services() []any { return nil }
+func (m *fakeModule) ServicesWrapped() []application.Service {
+	return m.services
+}
 func (m *fakeModule) Start(ctx context.Context) error {
 	m.record("start:" + m.id)
 	return m.startErr
@@ -64,6 +68,10 @@ func (m *fakeModule) snapshot() []string {
 
 func newFake(id string, deps ...string) *fakeModule {
 	return &fakeModule{id: id, deps: deps}
+}
+
+type registryWrappedService struct {
+	name string
 }
 
 func TestRegisterRejectsDuplicateID(t *testing.T) {
@@ -202,6 +210,55 @@ func TestStopAllContinuesOnPartialFailure(t *testing.T) {
 		if !found {
 			t.Fatalf("module %s was not stopped, calls=%v", m.id, m.snapshot())
 		}
+	}
+}
+
+func TestAllServicesWrappedAggregatesServicesInDependencyOrder(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry()
+	baseInstance := &registryWrappedService{name: "base"}
+	dependentInstance := &registryWrappedService{name: "dependent"}
+	dependent := newFake("dependent", "base")
+	dependent.services = []application.Service{application.NewService(dependentInstance)}
+	base := newFake("base")
+	base.services = []application.Service{application.NewService(baseInstance)}
+	_ = r.Register(dependent)
+	_ = r.Register(base)
+
+	services := r.AllServicesWrapped()
+	if len(services) != 2 {
+		t.Fatalf("services length = %d, want 2", len(services))
+	}
+	if services[0].Instance() != baseInstance || services[1].Instance() != dependentInstance {
+		t.Fatalf("services aggregated in wrong order: %#v then %#v", services[0].Instance(), services[1].Instance())
+	}
+}
+
+func TestFrontendContributionsIncludeModuleIDAndManifestInDependencyOrder(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry()
+	dependent := newFake("dependent", "base")
+	dependent.frontend = FrontendContribution{
+		ActivityTitle: "Dependent",
+		Views:         []FrontendView{{ID: "dependent.view", Title: "Dependent View", Component: "DependentView"}},
+	}
+	base := newFake("base")
+	base.frontend = FrontendContribution{
+		ActivityTitle: "Base",
+		Views:         []FrontendView{{ID: "base.view", Title: "Base View", Component: "BaseView"}},
+	}
+	_ = r.Register(dependent)
+	_ = r.Register(base)
+
+	contributions := r.FrontendContributions()
+	if len(contributions) != 2 {
+		t.Fatalf("contributions length = %d, want 2", len(contributions))
+	}
+	if contributions[0].ModuleID != "base" || contributions[0].Manifest.Frontend.Views[0].ID != "base.view" {
+		t.Fatalf("first contribution = %+v, want base manifest", contributions[0])
+	}
+	if contributions[1].ModuleID != "dependent" || contributions[1].Manifest.Frontend.Views[0].ID != "dependent.view" {
+		t.Fatalf("second contribution = %+v, want dependent manifest", contributions[1])
 	}
 }
 

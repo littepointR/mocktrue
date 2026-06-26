@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildScriptDiagnostics,
   completionLabelsForScriptNode,
+  completionItemsForNode,
   completionItemsForModel,
   registerScriptModel,
   registerScriptLanguage,
   resetScriptLanguageState,
   scriptHoverForWord,
   scriptHoverForModel,
+  unregisterScriptModel,
 } from './scriptLanguage'
 
 describe('scriptLanguage', () => {
@@ -229,5 +231,149 @@ describe('scriptLanguage', () => {
         ]),
       })
     )
+  })
+
+  it('falls back from dotted tokens to Monaco words and expanded identifiers', () => {
+    const monaco = {
+      languages: {
+        CompletionItemKind: {
+          Function: 1,
+          Variable: 2,
+          Field: 3,
+        },
+        CompletionItemInsertTextRule: { InsertAsSnippet: 99 },
+      },
+    }
+    const untypedModel = {
+      uri: { toString: () => 'inmemory://unknown-script' },
+      getLineContent: () => 'state.',
+      getWordAtPosition: () => null,
+    }
+
+    expect(completionItemsForModel(monaco as any, untypedModel as any, { lineNumber: 1, column: 7 })
+      .map(item => [item.label, item.insertTextRules])).toEqual([
+      ['get(key)', 99],
+      ['set(key, value)', 99],
+      ['delete(key)', 99],
+    ])
+
+    const wordModel = {
+      getLineContent: () => 'const value = crc16(bytes)',
+      getWordAtPosition: () => ({ word: 'crc16', startColumn: 15, endColumn: 20 }),
+    }
+    expect(scriptHoverForModel(wordModel as any, { lineNumber: 1, column: 15 })?.contents[0].value).toContain('CRC16')
+
+    const expandedModel = {
+      getLineContent: () => '  output.text',
+      getWordAtPosition: () => null,
+    }
+    expect(scriptHoverForModel(expandedModel as any, { lineNumber: 1, column: 12 })?.contents[0].value).toContain('output.text')
+
+    const emptyModel = {
+      getLineContent: () => '',
+      getWordAtPosition: () => null,
+    }
+    expect(scriptHoverForModel(emptyModel as any, { lineNumber: 1, column: 1 })).toBeNull()
+  })
+
+  it('unregisters model bindings and reports legacy input call diagnostics', () => {
+    const model = {
+      uri: { toString: () => 'inmemory://script-generator' },
+      getLineContent: () => 'input.',
+      getWordAtPosition: () => null,
+    }
+    registerScriptModel(model.uri.toString(), 'serial.script.generator')
+    expect(completionItemsForModel({ languages: {} } as any, model as any, { lineNumber: 1, column: 7 })).toEqual([])
+
+    unregisterScriptModel(model.uri.toString())
+
+    expect(completionItemsForModel({ languages: {} } as any, model as any, { lineNumber: 1, column: 7 })
+      .map(item => item.label)).toEqual(['bytes()', 'hex()', 'text(encoding)'])
+    expect(buildScriptDiagnostics('input()', 'serial.script.transform').map(item => item.message)).toContain(
+      '请使用 input.bytes()/input.hex()/input.text(encoding)'
+    )
+  })
+
+  it('ignores blank or unsupported model registrations and falls back to transform completions', () => {
+    const model = {
+      uri: { toString: () => 'inmemory://unsupported-script' },
+      getLineContent: () => 'output.',
+      getWordAtPosition: () => null,
+    }
+
+    registerScriptModel('', 'serial.script.generator')
+    registerScriptModel(model.uri.toString(), 'serial.script.generator')
+    expect(completionItemsForModel({ languages: {} } as any, model as any, { lineNumber: 1, column: 8 })).toEqual([
+      expect.objectContaining({ label: 'bytes(bytes)' }),
+      expect.objectContaining({ label: 'hex(hex)' }),
+      expect.objectContaining({ label: 'text(text, encoding)' }),
+    ])
+
+    registerScriptModel(model.uri.toString(), 'serial.script.unknown')
+    unregisterScriptModel('')
+
+    expect(completionItemsForModel({ languages: {} } as any, model as any, { lineNumber: 1, column: 8 })
+      .map(item => item.label)).toEqual(['bytes(bytes)', 'hex(hex)', 'text(text, encoding)'])
+  })
+
+  it('uses fallback symbol kinds and precise diagnostic ranges for multiline scripts', () => {
+    const items = completionItemsForModel({ languages: {} } as any, {
+      getLineContent: () => '',
+    } as any)
+
+    expect(items.find(item => item.label === 'input.bytes()')).toEqual(expect.objectContaining({ kind: 1, insertTextRules: 4 }))
+
+    const diagnostics = buildScriptDiagnostics('const x = 1\n  serial.write()\noutput(input)', 'serial.script.transform', {
+      MarkerSeverity: { Error: 99 },
+      languages: {},
+    } as any)
+
+    expect(diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ message: '第一阶段不提供 serial API', severity: 99, startLineNumber: 2, startColumn: 3 }),
+      expect.objectContaining({ message: '请使用 output.bytes()/output.hex()/output.text(text, encoding)', severity: 99, startLineNumber: 3 }),
+    ]))
+  })
+
+  it('returns null hover when cursor expansion finds no token', () => {
+    const punctuationModel = {
+      getLineContent: () => '  () ',
+      getWordAtPosition: () => null,
+    }
+
+    expect(scriptHoverForWord('serial.script.transform', 'missing')).toBeNull()
+    expect(scriptHoverForModel(punctuationModel as any, { lineNumber: 1, column: 3 })).toBeNull()
+  })
+
+  it('uses fallback completion contexts for unknown node types and missing model lines', () => {
+    const monaco = {
+      languages: {
+        CompletionItemKind: {
+          Function: 11,
+          Variable: 22,
+          Field: 33,
+        },
+      },
+    }
+
+    const unknownNodeItems = completionItemsForNode(monaco as any, 'serial.script.unknown')
+    expect(unknownNodeItems.map(item => item.label)).toEqual(expect.arrayContaining([
+      'input.bytes()',
+      'output.bytes(bytes)',
+    ]))
+    expect(unknownNodeItems.find(item => item.label === 'field(name, value)')?.kind).toBe(11)
+
+    const missingLineModel = {
+      getLineContent: () => undefined,
+      getWordAtPosition: () => null,
+    }
+    expect(completionItemsForModel(monaco as any, missingLineModel as any, { lineNumber: 1, column: 1 })
+      .map(item => item.label)).toContain('input.bytes()')
+    expect(scriptHoverForModel(missingLineModel as any, { lineNumber: 1, column: 1 })).toBeNull()
+
+    const laterWordModel = {
+      getLineContent: () => 'output.text crc16',
+      getWordAtPosition: () => ({ word: 'crc16', startColumn: 13, endColumn: 18 }),
+    }
+    expect(scriptHoverForModel(laterWordModel as any, { lineNumber: 1, column: 14 })?.contents[0].value).toContain('CRC16')
   })
 })

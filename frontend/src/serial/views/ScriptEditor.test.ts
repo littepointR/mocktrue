@@ -7,7 +7,7 @@ const monacoApi = vi.hoisted(() => {
   const editor = {
     dispose: vi.fn(),
     getValue: vi.fn(() => 'output.bytes(input.bytes())'),
-    getModel: vi.fn(() => ({ uri: { toString: () => 'model-uri' } })),
+    getModel: vi.fn((): any => ({ uri: { toString: () => 'model-uri' } })),
     layout: vi.fn(),
     onDidChangeModelContent: vi.fn((callback: () => void) => {
       editor.changeCallback = callback
@@ -43,6 +43,7 @@ describe('ScriptEditor', () => {
     vi.clearAllMocks()
     resetScriptLanguageState()
     monacoApi.editor.changeCallback = null
+    monacoApi.editor.getModel.mockReturnValue({ uri: { toString: () => 'model-uri' } } as any)
     monacoApi.editor.getValue.mockReturnValue('output.bytes(input.bytes())')
   })
 
@@ -72,6 +73,10 @@ describe('ScriptEditor', () => {
     await wrapper.setProps({ modelValue: 'output.hex("01 02")' })
 
     expect(monacoApi.editor.setValue).toHaveBeenCalledWith('output.hex("01 02")')
+    monacoApi.editor.setValue.mockClear()
+    monacoApi.editor.getValue.mockReturnValue('output.hex("03")')
+    await wrapper.setProps({ modelValue: 'output.hex("03")' })
+    expect(monacoApi.editor.setValue).not.toHaveBeenCalled()
     wrapper.unmount()
     expect(monacoApi.editor.dispose).toHaveBeenCalled()
   })
@@ -105,6 +110,51 @@ describe('ScriptEditor', () => {
 
     expect(labels).not.toContain('input.bytes()')
     expect(labels).toContain('output.bytes(bytes)')
+  })
+
+  it('rebinds changed Monaco model URIs when the script node type changes', async () => {
+    const generatorModel = {
+      uri: { toString: () => 'model-generator' },
+      getLineContent: () => 'input.',
+      getWordAtPosition: () => null,
+    }
+    const analyzerModel = {
+      uri: { toString: () => 'model-analyzer' },
+      getLineContent: () => 'output.',
+      getWordAtPosition: () => null,
+    }
+    monacoApi.editor.getModel.mockReturnValue(generatorModel as any)
+    const wrapper = mount(ScriptEditor, {
+      props: {
+        nodeType: 'serial.script.generator',
+        modelValue: 'output.bytes([1])',
+      },
+    })
+
+    expect(completionItemsForModel(monacoApi.api as any, generatorModel as any, { lineNumber: 1, column: 7 })).toEqual([])
+
+    monacoApi.editor.getModel.mockReturnValue(analyzerModel as any)
+    await wrapper.setProps({ nodeType: 'serial.script.analyzer' })
+
+    expect(completionItemsForModel(monacoApi.api as any, generatorModel as any, { lineNumber: 1, column: 7 })
+      .map(item => item.label)).toEqual(['bytes()', 'hex()', 'text(encoding)'])
+    expect(completionItemsForModel(monacoApi.api as any, analyzerModel as any, { lineNumber: 1, column: 8 })).toEqual([])
+  })
+
+  it('skips marker updates when Monaco has no model and ignores stale change callbacks after unmount', () => {
+    monacoApi.editor.getModel.mockReturnValue(null as any)
+    const wrapper = mount(ScriptEditor, {
+      props: {
+        nodeType: 'serial.script.transform',
+        modelValue: 'output.bytes(input.bytes())',
+      },
+    })
+
+    expect(monacoApi.api.editor.setModelMarkers).not.toHaveBeenCalled()
+    wrapper.unmount()
+
+    expect(() => monacoApi.editor.changeCallback?.()).not.toThrow()
+    expect(monacoApi.api.editor.setModelMarkers).not.toHaveBeenCalled()
   })
 
   it('refreshes diagnostics immediately when the user edits', () => {

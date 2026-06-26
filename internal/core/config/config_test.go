@@ -87,6 +87,13 @@ func TestLoadInvalidTOMLReturnsError(t *testing.T) {
 	}
 }
 
+func TestLoadReadErrorReturnsError(t *testing.T) {
+	t.Parallel()
+	if _, err := Load(t.TempDir()); err == nil {
+		t.Fatalf("Load of a directory path must return a read error")
+	}
+}
+
 func TestSaveThenLoadRoundtrip(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -112,6 +119,18 @@ func TestSaveEmptyPathRejected(t *testing.T) {
 	t.Parallel()
 	if err := Default().Save(""); err == nil {
 		t.Fatalf("Save(\"\") must error")
+	}
+}
+
+func TestSaveCreateDirectoryErrorReturnsError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write blocker file: %v", err)
+	}
+	if err := Default().Save(filepath.Join(blocker, "config.toml")); err == nil {
+		t.Fatalf("Save under a file path must return a directory creation error")
 	}
 }
 

@@ -27,4 +27,6 @@ Thumbs.db
 
 # Coverage
 coverage/
+frontend/coverage/
+coverage.html
 *.out

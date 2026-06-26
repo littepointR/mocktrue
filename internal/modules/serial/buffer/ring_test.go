@@ -121,6 +121,22 @@ func TestRingBufferReset(t *testing.T) {
 	if r.Total() != 0 {
 		t.Fatalf("Total after Reset = %d, want 0", r.Total())
 	}
+	snap, err := r.Query(0, 10)
+	if err != nil {
+		t.Fatalf("Query after Reset failed: %v", err)
+	}
+	if !snap.EOF || snap.Total != 0 || len(snap.Data) != 0 {
+		t.Fatalf("Query after Reset = %+v, want empty EOF snapshot", snap)
+	}
+
+	r.Append(Chunk{Seq: 1, BaseOffset: 0, Data: []byte("fresh")})
+	snap, err = r.Query(0, 10)
+	if err != nil {
+		t.Fatalf("Query after reuse failed: %v", err)
+	}
+	if string(snap.Data) != "fresh" || snap.Total != 5 || snap.EOF {
+		t.Fatalf("Query after reuse = %+v, want fresh data with total 5", snap)
+	}
 }
 
 func TestRingBufferQueryBeforeRetainedWindow(t *testing.T) {

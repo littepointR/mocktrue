@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	coreerrors "github.com/littepointR/mocktrue/internal/core/errors"
 	"github.com/littepointR/mocktrue/internal/modules/serial/port"
 	"github.com/littepointR/mocktrue/internal/modules/serial/virtualserial"
 )
@@ -24,6 +25,26 @@ func TestManagerRejectsInvalidStartRequests(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Start must reject unavailable provider")
 	}
+}
+
+func TestManagerStartRejectsDuplicateMonitorID(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+	mgr.sessions["m1"] = newSession(StartRequest{ID: "m1", PortA: "a", PortB: "b", Provider: ProviderBridge})
+
+	_, err := mgr.Start(context.Background(), StartRequest{ID: "m1", PortA: "c", PortB: "d"})
+	requireErrorCode(t, err, coreerrors.CodeConflict)
+}
+
+func TestManagerStartRejectsRunningPortReuse(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+	session := newSession(StartRequest{ID: "m1", PortA: "occupied", PortB: "peer", Provider: ProviderBridge})
+	session.status = StatusRunning
+	mgr.sessions["m1"] = session
+
+	_, err := mgr.Start(context.Background(), StartRequest{ID: "m2", PortA: "occupied", PortB: "other"})
+	requireErrorCode(t, err, coreerrors.CodeConflict)
 }
 
 func TestManagerQueriesSeededFrames(t *testing.T) {
@@ -46,6 +67,153 @@ func TestManagerQueriesSeededFrames(t *testing.T) {
 	}
 	if !page.Frames[0].Timestamp.Equal(secondAt) {
 		t.Fatalf("timestamp = %s, want captured read time %s", page.Frames[0].Timestamp, secondAt)
+	}
+}
+
+func TestManagerQueryReportsLookupErrors(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+
+	_, err := mgr.Query(QueryRequest{})
+	requireErrorCode(t, err, coreerrors.CodeInvalid)
+
+	_, err = mgr.Query(QueryRequest{MonitorID: "missing"})
+	requireErrorCode(t, err, coreerrors.CodeNotFound)
+}
+
+func TestManagerDeleteRemovesSession(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+	session := newSession(StartRequest{ID: "m1", PortA: "a", PortB: "b", Provider: ProviderBridge})
+	session.status = StatusRunning
+	mgr.sessions["m1"] = session
+
+	if err := mgr.Delete("m1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if got := len(mgr.List()); got != 0 {
+		t.Fatalf("len(List()) after Delete = %d, want 0", got)
+	}
+	_, err := mgr.Query(QueryRequest{MonitorID: "m1"})
+	requireErrorCode(t, err, coreerrors.CodeNotFound)
+}
+
+func TestManagerDeleteReportsMissingSession(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+
+	err := mgr.Delete("missing")
+	requireErrorCode(t, err, coreerrors.CodeNotFound)
+}
+
+func TestManagerStopAllLeavesFrameHistory(t *testing.T) {
+	t.Parallel()
+	capturedAt := time.Date(2026, 6, 22, 8, 0, 0, 0, time.UTC)
+	mgr := NewManager()
+	for _, id := range []string{"m1", "m2"} {
+		session := newSession(StartRequest{ID: id, PortA: id + "a", PortB: id + "b", Provider: ProviderBridge})
+		session.status = StatusRunning
+		session.appendFrame(DirectionAToB, id+"a", []byte(id), capturedAt)
+		mgr.sessions[id] = session
+	}
+
+	mgr.StopAll()
+
+	statuses := map[string]string{}
+	for _, info := range mgr.List() {
+		statuses[info.ID] = info.Status
+	}
+	for _, id := range []string{"m1", "m2"} {
+		if statuses[id] != StatusStopped {
+			t.Fatalf("status[%s] = %q, want %q", id, statuses[id], StatusStopped)
+		}
+		page, err := mgr.Query(QueryRequest{MonitorID: id, Limit: 10})
+		if err != nil {
+			t.Fatalf("Query(%s): %v", id, err)
+		}
+		if page.Total != 1 || string(page.Frames[0].Data) != id {
+			t.Fatalf("Query(%s) = %+v, want retained frame", id, page)
+		}
+	}
+}
+
+func TestManagerClearFramesResetsCapturedState(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+	session := newSession(StartRequest{ID: "m1", PortA: "a", PortB: "b", Provider: ProviderBridge})
+	session.appendFrame(DirectionAToB, "a", []byte("tx"), time.Date(2026, 6, 22, 8, 1, 0, 0, time.UTC))
+	session.appendFrame(DirectionBToA, "b", []byte("rx"), time.Date(2026, 6, 22, 8, 2, 0, 0, time.UTC))
+	mgr.sessions["m1"] = session
+
+	if err := mgr.ClearFrames("m1"); err != nil {
+		t.Fatalf("ClearFrames: %v", err)
+	}
+	infos := mgr.List()
+	if got := infos[0].FrameCount; got != 0 {
+		t.Fatalf("FrameCount after ClearFrames = %d, want 0", got)
+	}
+	if infos[0].RxBytes != 0 || infos[0].TxBytes != 0 {
+		t.Fatalf("byte counters after ClearFrames = rx %d tx %d, want zeros", infos[0].RxBytes, infos[0].TxBytes)
+	}
+	page, err := mgr.Query(QueryRequest{MonitorID: "m1", Limit: 10})
+	if err != nil {
+		t.Fatalf("Query after ClearFrames: %v", err)
+	}
+	if page.Total != 0 || len(page.Frames) != 0 {
+		t.Fatalf("page after ClearFrames = %+v, want empty page", page)
+	}
+
+	session.appendFrame(DirectionAToB, "a", []byte("again"), time.Date(2026, 6, 22, 8, 3, 0, 0, time.UTC))
+	page, err = mgr.Query(QueryRequest{MonitorID: "m1", Limit: 10})
+	if err != nil {
+		t.Fatalf("Query after reappend: %v", err)
+	}
+	if page.Total != 1 || page.Frames[0].Seq != 1 {
+		t.Fatalf("page after reappend = %+v, want sequence reset to 1", page)
+	}
+}
+
+func TestManagerClearFramesReportsLookupErrors(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager()
+
+	err := mgr.ClearFrames("")
+	requireErrorCode(t, err, coreerrors.CodeInvalid)
+
+	err = mgr.ClearFrames("missing")
+	requireErrorCode(t, err, coreerrors.CodeNotFound)
+}
+
+func TestSessionSetErrorUpdatesInfo(t *testing.T) {
+	t.Parallel()
+	session := newSession(StartRequest{ID: "m1", PortA: "a", PortB: "b", Provider: ProviderBridge})
+
+	session.setError("open failed")
+
+	info := session.info()
+	if info.Status != StatusError || info.Error != "open failed" {
+		t.Fatalf("info after setError = %+v, want error status with message", info)
+	}
+}
+
+func TestSessionFailRecordsError(t *testing.T) {
+	t.Parallel()
+	session := newSession(StartRequest{ID: "m1", PortA: "a", PortB: "b", Provider: ProviderBridge})
+	session.status = StatusRunning
+
+	session.fail("read failed")
+
+	info := session.info()
+	if info.Status != StatusError || info.Error != "read failed" {
+		t.Fatalf("info after fail = %+v, want error status with message", info)
+	}
+	if info.StoppedAt.IsZero() {
+		t.Fatalf("StoppedAt after fail is zero")
+	}
+	select {
+	case <-session.stopCh:
+	default:
+		t.Fatalf("stopCh was not closed by fail")
 	}
 }
 
@@ -135,4 +303,14 @@ func TestManagerBridgeMonitorCapturesBothDirections(t *testing.T) {
 
 func uniquePortName(prefix string) string {
 	return prefix + time.Now().Format("150405000000")
+}
+
+func requireErrorCode(t *testing.T, err error, want coreerrors.Code) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("error = nil, want code %q", want)
+	}
+	if got := coreerrors.AsCode(err); got != want {
+		t.Fatalf("error code = %q, want %q (err: %v)", got, want, err)
+	}
 }

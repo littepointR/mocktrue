@@ -35,3 +35,23 @@ func TestPortInfoFieldsPopulated(t *testing.T) {
 		}
 	}
 }
+
+func TestListPortsReturnsEnumeratedNames(t *testing.T) {
+	t.Parallel()
+	ports, err := Enumerate(context.Background())
+	if err != nil {
+		t.Fatalf("Enumerate failed: %v", err)
+	}
+	names, err := ListPorts(context.Background())
+	if err != nil {
+		t.Fatalf("ListPorts failed: %v", err)
+	}
+	if len(names) != len(ports) {
+		t.Fatalf("ListPorts len = %d, want %d", len(names), len(ports))
+	}
+	for i := range ports {
+		if names[i] != ports[i].Name {
+			t.Fatalf("ListPorts[%d] = %q, want %q", i, names[i], ports[i].Name)
+		}
+	}
+}

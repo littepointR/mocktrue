@@ -38,9 +38,9 @@ vet:
 lint:
 	golangci-lint run ./...
 
-# Run tests with coverage
+# Run backend/internal tests with coverage and enforce the current ratchet threshold.
 coverage:
-	go test -coverprofile=coverage.out ./...
+	./scripts/check-go-coverage.sh
 	go tool cover -html=coverage.out -o coverage.html
 
 # Clean build artifacts

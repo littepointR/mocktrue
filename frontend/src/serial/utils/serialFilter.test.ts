@@ -71,6 +71,117 @@ describe('serial filter matcher', () => {
     }
   })
 
+  it('matches alternate candidate fields, aliases, and comparison branches', () => {
+    const candidate: SerialFilterCandidate = {
+      byteLength: 4,
+      message: 'carriage\rreturn',
+      source: 'runtime',
+      graphId: 'graph-a',
+      nodeId: 'node-a',
+      nodeType: 'serial.filter',
+      direction: 'rx',
+      payloadText: 'Payload OK',
+      payloadHex: '0D 0A FF',
+      details: 'tab\tvalue',
+      action: 'drop',
+      category: 'serial.graph',
+    }
+
+    const cases: Array<{ candidate?: SerialFilterCandidate; expression: string; matched: boolean }> = [
+      { expression: 'source == "runtime"', matched: true },
+      { expression: 'graphId == "graph-a" and nodeId == "node-a"', matched: true },
+      { expression: 'nodeType == "serial.filter" and direction == "rx"', matched: true },
+      { expression: 'payloadText contains "payload"', matched: true },
+      { expression: 'payloadHex contains "0d0aff"', matched: true },
+      { expression: 'details == "tab\\tvalue"', matched: true },
+      { expression: 'action != "pass" and category == "serial.graph"', matched: true },
+      { expression: 'byteLength == 4 and len < 5 and len <= 4 and len != 3', matched: true },
+      { candidate: { byteCount: 2 }, expression: 'byteCount <= 2 and byteCount > 1', matched: true },
+      { expression: 'payloadHex == "0d 0a ff"', matched: true },
+    ]
+
+    for (const item of cases) {
+      expect(matchSerialFilter(item.candidate ?? candidate, {
+        mode: 'expression',
+        expression: item.expression,
+      }), item.expression).toEqual({ matched: item.matched })
+    }
+  })
+
+  it('parses escaped string literals and reports parser failures', () => {
+    expect(matchSerialFilter({
+      text: 'line\nnext',
+      message: 'carriage\rreturn',
+      details: 'tab\tvalue',
+      action: 'quote"value',
+    }, {
+      mode: 'expression',
+      expression: 'text == "line\\nnext" and message == "carriage\\rreturn" and details == "tab\\tvalue" and action == "quote\\"value"',
+    })).toEqual({ matched: true })
+
+    const invalidExpressions = [
+      'text == "unterminated\\',
+      'text == "unterminated',
+      'text == "a" "b"',
+      '"text"',
+      'len contains "x"',
+      'text > "x"',
+    ]
+
+    for (const expression of invalidExpressions) {
+      const result = matchSerialFilter({ len: 3, text: 'abc' }, { mode: 'expression', expression })
+      expect(result.matched, expression).toBe(false)
+      expect(result.error, expression).toEqual(expect.any(String))
+    }
+  })
+
+  it('returns structured errors for unknown filter modes', () => {
+    const result = matchSerialFilter({ text: 'abc' }, { mode: 'glob', expression: 'abc' })
+
+    expect(result.matched).toBe(false)
+    expect(result.error).toBe('unknown filter mode: glob')
+  })
+
+  it('covers default mode matching empty fields and grouped boolean branches', () => {
+    expect(matchSerialFilter({}, {})).toEqual({ matched: true })
+    expect(matchSerialFilter({ text: 'Alpha' }, { mode: ' ', expression: 'alpha' })).toEqual({ matched: true })
+    expect(matchSerialFilter({ text: 'Alpha beta' }, {
+      mode: 'plain',
+      expression: 'Alpha',
+      caseSensitive: true,
+      wholeWord: true,
+    })).toEqual({ matched: true })
+
+    const emptyFieldExpressions = [
+      'hex == ""',
+      'message == ""',
+      'level == ""',
+      'source == ""',
+      'graphId == ""',
+      'nodeId == ""',
+      'nodeType == ""',
+      'direction == ""',
+      'payloadText == ""',
+      'payloadHex == ""',
+      'details == ""',
+      'action == ""',
+      'category == ""',
+    ]
+
+    for (const expression of emptyFieldExpressions) {
+      expect(matchSerialFilter({}, { mode: 'expression', expression }), expression).toEqual({ matched: true })
+    }
+
+    expect(matchSerialFilter({ text: 'ok', len: 3 }, {
+      mode: 'expression',
+      expression: '(text == "missing" or text == "ok") and not (len < 1)',
+    })).toEqual({ matched: true })
+    expect(matchSerialFilter({ text: 'ok', len: 3 }, {
+      mode: 'expression',
+      expression: 'text == "ok" or text == "nope"',
+    })).toEqual({ matched: true })
+  })
+
   it('returns structured errors for invalid Wireshark-like expressions', () => {
     const candidate: SerialFilterCandidate = { len: 3, text: 'abc' }
 

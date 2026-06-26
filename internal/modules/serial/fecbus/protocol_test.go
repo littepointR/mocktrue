@@ -127,6 +127,48 @@ func TestBuildStatusAnswer(t *testing.T) {
 	assertHex(t, answer.Data, "0f0a")
 }
 
+func TestProtocolHelpersCoverErrorAndExtractionEdges(t *testing.T) {
+	if _, err := EncodeFrame(Frame{Type: FrameTypeRequest, TargetAddress: 64, Priority: 0, SourceAddress: 1, MessageNumber: 1, Data: []byte{byte(FunctionSyncHeartbeat)}}); err == nil {
+		t.Fatalf("EncodeFrame(invalid target) error = nil, want error")
+	}
+	if _, err := BuildData(FunctionCode(0x10), nil); err == nil {
+		t.Fatalf("BuildData(reserved) error = nil, want error")
+	}
+	if _, err := BuildData(FunctionSyncHeartbeat, []byte{1, 2, 3, 4, 5, 6, 7, 8}); err == nil {
+		t.Fatalf("BuildData(oversized payload) error = nil, want error")
+	}
+	if data, err := ParseHex(" \n	\r "); err != nil || data != nil {
+		t.Fatalf("ParseHex(whitespace) = %x/%v, want nil/nil", data, err)
+	}
+
+	valid := mustHex(t, "7e00020001010001003d3e7e")
+	frame, rest, ok, err := ExtractFrame(append([]byte{0x00, 0x01}, valid...))
+	if err != nil || !ok || string(frame) != string(valid) || len(rest) != 0 {
+		t.Fatalf("ExtractFrame(with prefix) = frame %x rest %x ok %v err %v, want valid/no rest", frame, rest, ok, err)
+	}
+	frame, rest, ok, err = ExtractFrame([]byte{0x00, 0x7e, 0x7e, 0x01, 0x02})
+	if err == nil || ok || frame != nil || string(rest) != string([]byte{0x01, 0x02}) {
+		t.Fatalf("ExtractFrame(too short candidate) = frame %x rest %x ok %v err %v, want short error and remaining bytes", frame, rest, ok, err)
+	}
+	frame, rest, ok, err = ExtractFrame([]byte{0x00, 0x7e, 0x00})
+	if err != nil || ok || frame != nil || string(rest) != string([]byte{0x7e, 0x00}) {
+		t.Fatalf("ExtractFrame(partial) = frame %x rest %x ok %v err %v, want buffered partial", frame, rest, ok, err)
+	}
+
+	answer, err := BuildStatusAnswer(Frame{
+		Type:          FrameTypeRequest,
+		TargetAddress: 0,
+		SourceAddress: 4,
+		MessageNumber: 2,
+	}, StatusBusy)
+	if err != nil {
+		t.Fatalf("BuildStatusAnswer(default source) error = %v", err)
+	}
+	if answer.TargetAddress != 4 || answer.SourceAddress != 1 || StatusCode(answer.Data[1]) != StatusBusy {
+		t.Fatalf("BuildStatusAnswer(default source) = target %d source %d data %x, want 4/1 busy", answer.TargetAddress, answer.SourceAddress, answer.Data)
+	}
+}
+
 func mustFrameWithFields(t *testing.T, ft byte, da byte, pa byte, sa byte, mn byte, tn byte, data []byte) []byte {
 	t.Helper()
 	body := []byte{FrameBoundary, ft, da, pa, sa, mn, tn, byte(len(data))}

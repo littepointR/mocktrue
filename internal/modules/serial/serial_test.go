@@ -47,6 +47,22 @@ func TestServicesWrappedReturnsOneService(t *testing.T) {
 	}
 }
 
+func TestModuleServicesReturnSharedService(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	if got := m.Service(); got == nil || got != m.svc {
+		t.Fatalf("Service() = %p, want module service %p", got, m.svc)
+	}
+	services := m.Services()
+	if len(services) != 1 {
+		t.Fatalf("Services length = %d, want 1", len(services))
+	}
+	if services[0] != m.svc {
+		t.Fatalf("Services()[0] = %T %[1]v, want shared *Service", services[0])
+	}
+}
+
 func TestModuleInitWiresEmptyService(t *testing.T) {
 	t.Parallel()
 	m := New()

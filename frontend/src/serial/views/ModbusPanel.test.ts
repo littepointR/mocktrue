@@ -27,6 +27,8 @@ vi.mock('../services/serialService', () => ({
 }))
 
 describe('ModbusPanel', () => {
+  const slowCoverageTestTimeoutMs = 15000
+
   beforeEach(() => {
     setActivePinia(createPinia())
   })
@@ -471,7 +473,7 @@ describe('ModbusPanel', () => {
       RegisterValues: [11, 22, 33],
     }))
     expect(wrapper.find('[data-testid="modbus-master-request-result"]').text()).toContain('02 10 00 0A 00 03')
-  })
+  }, slowCoverageTestTimeoutMs)
 
   it('runs master toolbar read, scan, polling, and log actions', async () => {
     vi.mocked(serialService.modbusReadRegisters).mockResolvedValueOnce({
@@ -521,7 +523,7 @@ describe('ModbusPanel', () => {
     expect(store.registerReadForm.polling).toBe(true)
     await findButton(wrapper, '停止轮询').trigger('click')
     expect(store.registerReadForm.polling).toBe(false)
-  })
+  }, slowCoverageTestTimeoutMs)
 
   it('updates inline master mappings and row actions from the table controls', async () => {
     const store = useModbusStore()

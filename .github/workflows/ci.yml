@@ -41,14 +41,51 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run frontend tests
-        run: pnpm test -- --run
+      - name: Run frontend tests with coverage
+        run: pnpm run test:coverage
 
       - name: Type-check frontend
         run: pnpm exec vue-tsc --noEmit
 
       - name: Build frontend
         run: pnpm run build:dev
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run GUI smoke tests
+        run: pnpm run e2e:smoke
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Linux backend dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config \
+            socat
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Test backend coverage gate
+        run: ./scripts/test-check-go-coverage.sh
+
+      - name: Run backend coverage floor
+        run: ./scripts/check-go-coverage.sh
 
   backend-matrix:
     name: backend (${{ matrix.os }})

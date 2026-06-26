@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+func TestServiceName(t *testing.T) {
+	svc := NewService()
+	if got := svc.ServiceName(); got != "runtime" {
+		t.Fatalf("ServiceName() = %q, want runtime", got)
+	}
+}
+
 func TestServiceSnapshotReturnsProcessMetrics(t *testing.T) {
 	svc := NewService()
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -27,65 +28,80 @@ import (
 )
 
 type fakeSerialService struct {
-	ports           []port.PortInfo
-	handles         []manager.HandleStatus
-	lastSend        serial.SendRequest
-	resetPortID     string
-	queryPortID     string
-	queryOffset     int64
-	queryLength     int
-	virtualPorts    []serial.VirtualPortInfo
-	bridges         []serial.BridgeInfo
-	monitors        []monitor.SessionInfo
-	startMonitor    serial.AutoVirtualMonitorRequest
-	stopMonitor     string
-	deleteMonitor   string
-	clearMonitor    string
-	queryMonitor    monitor.QueryRequest
-	modbusSessions  []mb.SessionInfo
-	openModbus      mb.OpenSessionRequest
-	closeModbus     string
-	masterRequest   mb.MasterRequest
-	startSlave      mb.StartSlaveRequest
-	stopSlave       string
-	updateSlaveID   string
-	updateSlaveData mb.DataModelSnapshot
-	addSlaveUnit    mb.SlaveUnitSnapshot
-	addSlaveID      string
-	removeSlaveID   string
-	removeUnitID    byte
-	listSlaveID     string
-	updateUnitID    byte
-	updateUnitData  mb.DataModelSnapshot
-	unitScan        mb.UnitScanRequest
-	registerRead    mb.RegisterReadRequest
-	registerScan    mb.RegisterScanRequest
-	fecbusSessions  []fb.SessionInfo
-	openFecbus      fb.OpenSessionRequest
-	closeFecbus     string
-	fecbusRequest   fb.SendRequest
-	startFecbus     fb.StartSlaveRequest
-	stopFecbus      string
-	updateFecbusID  string
-	updateFecbus    fb.SlaveState
-	addFecbusID     string
-	addFecbusUnit   fb.SlaveUnitState
-	removeFecbusID  string
-	removeFecbusAdr byte
-	listFecbusID    string
-	queryFecbus     fb.QueryRequest
-	clearFecbus     string
-	graphs          []serial.SerialGraphRuntimeInfo
-	startGraph      serial.SerialGraphStartRequest
-	stopGraph       string
-	statusGraph     string
-	graphSend       serial.SerialGraphSendRequest
-	graphBuffer     serial.SerialGraphBufferQuery
-	graphFrames     serial.SerialGraphFrameQuery
-	clearGraphID    string
-	clearGraphNode  string
-	resetGraphID    string
-	resetGraphNode  string
+	ports                 []port.PortInfo
+	handles               []manager.HandleStatus
+	closePortID           string
+	lastSend              serial.SendRequest
+	resetPortID           string
+	queryPortID           string
+	queryOffset           int64
+	queryLength           int
+	createVirtualID       string
+	createVirtualPortName string
+	deleteVirtualPortID   string
+	virtualPorts          []serial.VirtualPortInfo
+	createPairID          string
+	createPairPort1       string
+	createPairPort2       string
+	deleteVirtualPairID   string
+	virtualPairs          []serial.VirtualPairInfo
+	createBridgeID        string
+	createBridgePort1     string
+	createBridgePort2     string
+	createBridgeBaud      int
+	deleteBridgeID        string
+	bridges               []serial.BridgeInfo
+	cleanupVirtualCalled  bool
+	monitors              []monitor.SessionInfo
+	startMonitor          serial.AutoVirtualMonitorRequest
+	stopMonitor           string
+	deleteMonitor         string
+	clearMonitor          string
+	queryMonitor          monitor.QueryRequest
+	modbusSessions        []mb.SessionInfo
+	openModbus            mb.OpenSessionRequest
+	closeModbus           string
+	masterRequest         mb.MasterRequest
+	startSlave            mb.StartSlaveRequest
+	stopSlave             string
+	updateSlaveID         string
+	updateSlaveData       mb.DataModelSnapshot
+	addSlaveUnit          mb.SlaveUnitSnapshot
+	addSlaveID            string
+	removeSlaveID         string
+	removeUnitID          byte
+	listSlaveID           string
+	updateUnitID          byte
+	updateUnitData        mb.DataModelSnapshot
+	unitScan              mb.UnitScanRequest
+	registerRead          mb.RegisterReadRequest
+	registerScan          mb.RegisterScanRequest
+	fecbusSessions        []fb.SessionInfo
+	openFecbus            fb.OpenSessionRequest
+	closeFecbus           string
+	fecbusRequest         fb.SendRequest
+	startFecbus           fb.StartSlaveRequest
+	stopFecbus            string
+	updateFecbusID        string
+	updateFecbus          fb.SlaveState
+	addFecbusID           string
+	addFecbusUnit         fb.SlaveUnitState
+	removeFecbusID        string
+	removeFecbusAdr       byte
+	listFecbusID          string
+	queryFecbus           fb.QueryRequest
+	clearFecbus           string
+	graphs                []serial.SerialGraphRuntimeInfo
+	startGraph            serial.SerialGraphStartRequest
+	stopGraph             string
+	statusGraph           string
+	graphSend             serial.SerialGraphSendRequest
+	graphBuffer           serial.SerialGraphBufferQuery
+	graphFrames           serial.SerialGraphFrameQuery
+	clearGraphID          string
+	clearGraphNode        string
+	resetGraphID          string
+	resetGraphNode        string
 }
 
 func (f *fakeSerialService) EnumeratePorts(context.Context) ([]port.PortInfo, error) {
@@ -98,7 +114,10 @@ func (f *fakeSerialService) OpenPort(_ context.Context, req manager.OpenRequest)
 	return status, nil
 }
 
-func (f *fakeSerialService) ClosePort(string) error { return nil }
+func (f *fakeSerialService) ClosePort(id string) error {
+	f.closePortID = id
+	return nil
+}
 func (f *fakeSerialService) ListPorts() []manager.HandleStatus {
 	return f.handles
 }
@@ -120,34 +139,52 @@ func (f *fakeSerialService) ResetCounters(portID string) error {
 	return nil
 }
 
-func (f *fakeSerialService) CreateVirtualPort(context.Context, string, string) (*serial.VirtualPortInfo, error) {
+func (f *fakeSerialService) CreateVirtualPort(_ context.Context, id string, portName string) (*serial.VirtualPortInfo, error) {
+	f.createVirtualID = id
+	f.createVirtualPortName = portName
 	return &serial.VirtualPortInfo{ID: "v1", Port: "/tmp/ttyV1"}, nil
 }
 
-func (f *fakeSerialService) DeleteVirtualPort(string) error { return nil }
+func (f *fakeSerialService) DeleteVirtualPort(id string) error {
+	f.deleteVirtualPortID = id
+	return nil
+}
 func (f *fakeSerialService) ListVirtualPorts() []serial.VirtualPortInfo {
 	return f.virtualPorts
 }
 
-func (f *fakeSerialService) CreateVirtualPair(context.Context, string, string, string) (*serial.VirtualPairInfo, error) {
+func (f *fakeSerialService) CreateVirtualPair(_ context.Context, id string, port1Name string, port2Name string) (*serial.VirtualPairInfo, error) {
+	f.createPairID = id
+	f.createPairPort1 = port1Name
+	f.createPairPort2 = port2Name
 	return &serial.VirtualPairInfo{ID: "pair1", Port1: "/tmp/a", Port2: "/tmp/b"}, nil
 }
 
-func (f *fakeSerialService) DeleteVirtualPair(string) error { return nil }
-func (f *fakeSerialService) ListVirtualPairs() []serial.VirtualPairInfo {
+func (f *fakeSerialService) DeleteVirtualPair(id string) error {
+	f.deleteVirtualPairID = id
 	return nil
 }
+func (f *fakeSerialService) ListVirtualPairs() []serial.VirtualPairInfo {
+	return f.virtualPairs
+}
 
-func (f *fakeSerialService) CreateBridge(string, string, string, int) (*serial.BridgeInfo, error) {
+func (f *fakeSerialService) CreateBridge(id string, port1 string, port2 string, baudRate int) (*serial.BridgeInfo, error) {
+	f.createBridgeID = id
+	f.createBridgePort1 = port1
+	f.createBridgePort2 = port2
+	f.createBridgeBaud = baudRate
 	return &serial.BridgeInfo{ID: "bridge1", Port1: "/tmp/a", Port2: "/tmp/b", BaudRate: 115200}, nil
 }
 
-func (f *fakeSerialService) DeleteBridge(string) error { return nil }
+func (f *fakeSerialService) DeleteBridge(id string) error {
+	f.deleteBridgeID = id
+	return nil
+}
 func (f *fakeSerialService) ListBridges() []serial.BridgeInfo {
 	return f.bridges
 }
 
-func (f *fakeSerialService) CleanupVirtual() {}
+func (f *fakeSerialService) CleanupVirtual() { f.cleanupVirtualCalled = true }
 
 func (f *fakeSerialService) StartAutoVirtualMonitor(_ context.Context, req serial.AutoVirtualMonitorRequest) (*monitor.SessionInfo, error) {
 	f.startMonitor = req
@@ -420,6 +457,169 @@ func (f *fakeSerialService) ResetSerialGraphNodeCounters(graphID string, nodeID 
 	return nil
 }
 
+type failingSerialService struct {
+	fakeSerialService
+	err error
+}
+
+func (f *failingSerialService) EnumeratePorts(context.Context) ([]port.PortInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) OpenPort(context.Context, manager.OpenRequest) (*manager.HandleStatus, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) ClosePort(string) error { return f.err }
+
+func (f *failingSerialService) QueryPage(string, int64, int) (*buffer.Snapshot, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) Send(serial.SendRequest) (int, error) { return 0, f.err }
+
+func (f *failingSerialService) ResetCounters(string) error { return f.err }
+
+func (f *failingSerialService) CreateVirtualPort(context.Context, string, string) (*serial.VirtualPortInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) DeleteVirtualPort(string) error { return f.err }
+
+func (f *failingSerialService) CreateVirtualPair(context.Context, string, string, string) (*serial.VirtualPairInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) DeleteVirtualPair(string) error { return f.err }
+
+func (f *failingSerialService) CreateBridge(string, string, string, int) (*serial.BridgeInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) DeleteBridge(string) error { return f.err }
+
+func (f *failingSerialService) StartAutoVirtualMonitor(context.Context, serial.AutoVirtualMonitorRequest) (*monitor.SessionInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) StopMonitor(string) error { return f.err }
+
+func (f *failingSerialService) DeleteMonitor(string) error { return f.err }
+
+func (f *failingSerialService) QueryMonitorFrames(monitor.QueryRequest) (*monitor.FramePage, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) ClearMonitorFrames(string) error { return f.err }
+
+func (f *failingSerialService) OpenModbusSession(context.Context, mb.OpenSessionRequest) (*mb.SessionInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) CloseModbusSession(string) error { return f.err }
+
+func (f *failingSerialService) ModbusMasterRequest(mb.MasterRequest) (*mb.Transaction, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) StartModbusSlave(mb.StartSlaveRequest) (*mb.SessionInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) StopModbusSlave(string) error { return f.err }
+
+func (f *failingSerialService) UpdateModbusSlaveData(string, mb.DataModelSnapshot) error {
+	return f.err
+}
+
+func (f *failingSerialService) AddModbusSlaveUnit(string, mb.SlaveUnitSnapshot) error {
+	return f.err
+}
+
+func (f *failingSerialService) RemoveModbusSlaveUnit(string, byte) error { return f.err }
+
+func (f *failingSerialService) ListModbusSlaveUnits(string) ([]mb.SlaveUnitInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) UpdateModbusSlaveUnitData(string, byte, mb.DataModelSnapshot) error {
+	return f.err
+}
+
+func (f *failingSerialService) ModbusScanUnitIDs(mb.UnitScanRequest) (*mb.UnitScanResult, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) ModbusReadRegisters(mb.RegisterReadRequest) (*mb.RegisterReadResult, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) ModbusScanRegisters(mb.RegisterScanRequest) (*mb.RegisterScanResult, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) OpenFecbusSession(context.Context, fb.OpenSessionRequest) (*fb.SessionInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) CloseFecbusSession(string) error { return f.err }
+
+func (f *failingSerialService) FecbusSendRequest(fb.SendRequest) (*fb.Transaction, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) StartFecbusSlave(fb.StartSlaveRequest) (*fb.SessionInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) StopFecbusSlave(string) error { return f.err }
+
+func (f *failingSerialService) UpdateFecbusSlaveState(string, fb.SlaveState) error {
+	return f.err
+}
+
+func (f *failingSerialService) AddFecbusSlaveUnit(string, fb.SlaveUnitState) error {
+	return f.err
+}
+
+func (f *failingSerialService) RemoveFecbusSlaveUnit(string, byte) error { return f.err }
+
+func (f *failingSerialService) ListFecbusSlaveUnits(string) ([]fb.SlaveUnitInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) QueryFecbusFrames(fb.QueryRequest) (*fb.FramePage, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) ClearFecbusFrames(string) error { return f.err }
+
+func (f *failingSerialService) StartSerialGraph(context.Context, serial.SerialGraphStartRequest) (*serial.SerialGraphRuntimeInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) StopSerialGraph(string) error { return f.err }
+
+func (f *failingSerialService) GetSerialGraphStatus(string) (*serial.SerialGraphRuntimeInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) SendSerialGraphNode(serial.SerialGraphSendRequest) (int, error) {
+	return 0, f.err
+}
+
+func (f *failingSerialService) QuerySerialGraphNodeBuffer(serial.SerialGraphBufferQuery) (*buffer.Snapshot, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) QuerySerialGraphNodeFrames(serial.SerialGraphFrameQuery) (*serial.SerialGraphFramePage, error) {
+	return nil, f.err
+}
+
+func (f *failingSerialService) ClearSerialGraphNodeBuffer(string, string) error { return f.err }
+
+func (f *failingSerialService) ResetSerialGraphNodeCounters(string, string) error { return f.err }
+
 func TestOriginGuardAllowsMissingAndLocalOrigins(t *testing.T) {
 	t.Parallel()
 	handler := originGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -461,11 +661,84 @@ func TestOriginGuardRejectsRemoteOrigins(t *testing.T) {
 	}
 }
 
+func TestOriginGuardHonorsLocalOriginAllowance(t *testing.T) {
+	t.Parallel()
+	handler := originGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), config.MCPConfig{Host: "127.0.0.1", Port: 39391, AllowLocalOrigins: false})
+
+	allowed := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:39391/mcp", nil)
+	allowed.Header.Set("Origin", "http://127.0.0.1:39391")
+	allowedResp := httptest.NewRecorder()
+	handler.ServeHTTP(allowedResp, allowed)
+	if allowedResp.Code != http.StatusNoContent {
+		t.Fatalf("configured host origin status = %d, want %d", allowedResp.Code, http.StatusNoContent)
+	}
+
+	rejected := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:39391/mcp", nil)
+	rejected.Header.Set("Origin", "http://localhost:39391")
+	rejectedResp := httptest.NewRecorder()
+	handler.ServeHTTP(rejectedResp, rejected)
+	if rejectedResp.Code != http.StatusForbidden {
+		t.Fatalf("localhost origin with AllowLocalOrigins=false status = %d, want %d", rejectedResp.Code, http.StatusForbidden)
+	}
+}
+
 func TestListenAddressRejectsNonLocalHosts(t *testing.T) {
 	t.Parallel()
 	for _, host := range []string{"0.0.0.0", "::", "192.168.1.10", "example.com"} {
 		if _, err := listenAddress(config.MCPConfig{Host: host, Port: 39391}); err == nil {
 			t.Fatalf("listenAddress(%q) error = nil, want non-local host rejected", host)
+		}
+	}
+}
+
+func TestListenAddressAcceptsLoopbackAndRejectsInvalidPorts(t *testing.T) {
+	t.Parallel()
+	address, err := listenAddress(config.MCPConfig{Host: "localhost", Port: 39391})
+	if err != nil {
+		t.Fatalf("listenAddress localhost: %v", err)
+	}
+	if address != "localhost:39391" {
+		t.Fatalf("listenAddress localhost = %q, want localhost:39391", address)
+	}
+	for _, port := range []int{0, -1, 65536} {
+		if _, err := listenAddress(config.MCPConfig{Host: "127.0.0.1", Port: port}); err == nil {
+			t.Fatalf("listenAddress port %d error = nil, want invalid port", port)
+		}
+	}
+}
+
+func TestNormalizedPathAddsDefaultAndLeadingSlash(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{path: "", want: "/mcp"},
+		{path: "mcp", want: "/mcp"},
+		{path: "/custom", want: "/custom"},
+	} {
+		if got := normalizedPath(tc.path); got != tc.want {
+			t.Fatalf("normalizedPath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestParseFlexibleIntAcceptsDecimalHexAndInvalidValues(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		value string
+		want  int
+	}{
+		{value: "42", want: 42},
+		{value: " 0x2a ", want: 42},
+		{value: "0X10", want: 16},
+		{value: "not-a-number", want: 0},
+		{value: "0xnothex", want: 0},
+	} {
+		if got := parseFlexibleInt(tc.value); got != tc.want {
+			t.Fatalf("parseFlexibleInt(%q) = %d, want %d", tc.value, got, tc.want)
 		}
 	}
 }
@@ -539,6 +812,67 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 		if !names[want] {
 			t.Fatalf("tools/list missing %s in %#v", want, names)
 		}
+	}
+}
+
+func TestSerialVirtualLifecycleToolsCallSerialService(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSerialService{
+		handles:      []manager.HandleStatus{{ID: "port-1", Config: port.SerialConfig{PortName: "/tmp/ttyV0"}, IsOpen: true}},
+		virtualPorts: []serial.VirtualPortInfo{{ID: "v-listed", Port: "/tmp/listed"}},
+		virtualPairs: []serial.VirtualPairInfo{{ID: "pair-listed", Port1: "/tmp/a", Port2: "/tmp/b"}},
+		bridges:      []serial.BridgeInfo{{ID: "bridge-listed", Port1: "/tmp/a", Port2: "/tmp/b", BaudRate: 57600}},
+	}
+	handler := mcpHTTPHandler(newMCPServer(svc), true)
+
+	openPorts := callMCPTool(t, handler, 101, "serial_list_open_ports", map[string]any{})
+	if handles := openPorts["structuredContent"].(map[string]any)["handles"].([]any); len(handles) != 1 {
+		t.Fatalf("serial_list_open_ports handles = %#v, want one handle", handles)
+	}
+	callMCPTool(t, handler, 102, "serial_close_port", map[string]any{"port_id": "port-1"})
+	callMCPTool(t, handler, 103, "serial_reset_counters", map[string]any{"port_id": "port-1"})
+	if svc.closePortID != "port-1" || svc.resetPortID != "port-1" {
+		t.Fatalf("serial close/reset ids = %q/%q, want port-1", svc.closePortID, svc.resetPortID)
+	}
+
+	createdPort := callMCPTool(t, handler, 104, "serial_create_virtual_port", map[string]any{"id": "v-new", "port_name": "tty-v-new"})
+	if createdPort["structuredContent"].(map[string]any)["virtual_port"].(map[string]any)["ID"] != "v1" {
+		t.Fatalf("serial_create_virtual_port result = %#v", createdPort["structuredContent"])
+	}
+	callMCPTool(t, handler, 105, "serial_delete_virtual_port", map[string]any{"id": "v-new"})
+	listedPorts := callMCPTool(t, handler, 106, "serial_list_virtual_ports", map[string]any{})
+	if ports := listedPorts["structuredContent"].(map[string]any)["virtual_ports"].([]any); len(ports) != 1 {
+		t.Fatalf("serial_list_virtual_ports = %#v, want one port", ports)
+	}
+	if svc.createVirtualID != "v-new" || svc.createVirtualPortName != "tty-v-new" || svc.deleteVirtualPortID != "v-new" {
+		t.Fatalf("virtual port args = create:%q/%q delete:%q", svc.createVirtualID, svc.createVirtualPortName, svc.deleteVirtualPortID)
+	}
+
+	createdPair := callMCPTool(t, handler, 107, "serial_create_virtual_pair", map[string]any{"id": "pair-new", "port1_name": "tty-a", "port2_name": "tty-b"})
+	if createdPair["structuredContent"].(map[string]any)["virtual_pair"].(map[string]any)["ID"] != "pair1" {
+		t.Fatalf("serial_create_virtual_pair result = %#v", createdPair["structuredContent"])
+	}
+	callMCPTool(t, handler, 108, "serial_delete_virtual_pair", map[string]any{"id": "pair-new"})
+	listedPairs := callMCPTool(t, handler, 109, "serial_list_virtual_pairs", map[string]any{})
+	if pairs := listedPairs["structuredContent"].(map[string]any)["virtual_pairs"].([]any); len(pairs) != 1 {
+		t.Fatalf("serial_list_virtual_pairs = %#v, want one pair", pairs)
+	}
+	if svc.createPairID != "pair-new" || svc.createPairPort1 != "tty-a" || svc.createPairPort2 != "tty-b" || svc.deleteVirtualPairID != "pair-new" {
+		t.Fatalf("virtual pair args = create:%q/%q/%q delete:%q", svc.createPairID, svc.createPairPort1, svc.createPairPort2, svc.deleteVirtualPairID)
+	}
+
+	createdBridge := callMCPTool(t, handler, 110, "serial_create_bridge", map[string]any{"id": "bridge-new", "port1": "tty-a", "port2": "tty-b", "baud_rate": 57600})
+	if createdBridge["structuredContent"].(map[string]any)["bridge"].(map[string]any)["ID"] != "bridge1" {
+		t.Fatalf("serial_create_bridge result = %#v", createdBridge["structuredContent"])
+	}
+	callMCPTool(t, handler, 111, "serial_delete_bridge", map[string]any{"id": "bridge-new"})
+	listedBridges := callMCPTool(t, handler, 112, "serial_list_bridges", map[string]any{})
+	if bridges := listedBridges["structuredContent"].(map[string]any)["bridges"].([]any); len(bridges) != 1 {
+		t.Fatalf("serial_list_bridges = %#v, want one bridge", bridges)
+	}
+	callMCPTool(t, handler, 113, "serial_cleanup_virtual", map[string]any{})
+	if svc.createBridgeID != "bridge-new" || svc.createBridgePort1 != "tty-a" || svc.createBridgePort2 != "tty-b" || svc.createBridgeBaud != 57600 || svc.deleteBridgeID != "bridge-new" || !svc.cleanupVirtualCalled {
+		t.Fatalf("bridge/cleanup args = create:%q/%q/%q/%d delete:%q cleanup:%v", svc.createBridgeID, svc.createBridgePort1, svc.createBridgePort2, svc.createBridgeBaud, svc.deleteBridgeID, svc.cleanupVirtualCalled)
 	}
 }
 
@@ -864,6 +1198,75 @@ func TestSerialGraphRuntimeToolsCallSerialService(t *testing.T) {
 	}`)
 	if svc.stopGraph != "graph-mcp" {
 		t.Fatalf("stop graph = %q", svc.stopGraph)
+	}
+}
+
+func TestSerialRuntimeToolHandlersSurfaceServiceErrors(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&failingSerialService{err: errors.New("service boom")}), true)
+	cases := []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "serial_enumerate_ports", args: map[string]any{}},
+		{name: "serial_open_port", args: map[string]any{"port_name": "/tmp/ttyA", "baud_rate": 9600}},
+		{name: "serial_close_port", args: map[string]any{"port_id": "port-1"}},
+		{name: "serial_send", args: map[string]any{"port_id": "port-1", "content": "hello"}},
+		{name: "serial_query_buffer", args: map[string]any{"port_id": "port-1", "offset": 0}},
+		{name: "serial_reset_counters", args: map[string]any{"port_id": "port-1"}},
+		{name: "serial_create_virtual_port", args: map[string]any{"id": "v1", "port_name": "tty-v1"}},
+		{name: "serial_delete_virtual_port", args: map[string]any{"id": "v1"}},
+		{name: "serial_create_virtual_pair", args: map[string]any{"id": "pair1", "port1_name": "tty-a", "port2_name": "tty-b"}},
+		{name: "serial_delete_virtual_pair", args: map[string]any{"id": "pair1"}},
+		{name: "serial_create_bridge", args: map[string]any{"id": "bridge1", "port1": "tty-a", "port2": "tty-b"}},
+		{name: "serial_delete_bridge", args: map[string]any{"id": "bridge1"}},
+		{name: "serial_start_monitor", args: map[string]any{"id": "mon-1", "port": "/tmp/ttyM"}},
+		{name: "serial_stop_monitor", args: map[string]any{"monitor_id": "mon-1"}},
+		{name: "serial_delete_monitor", args: map[string]any{"monitor_id": "mon-1"}},
+		{name: "serial_query_monitor_frames", args: map[string]any{"monitor_id": "mon-1"}},
+		{name: "serial_clear_monitor_frames", args: map[string]any{"monitor_id": "mon-1"}},
+		{name: "modbus_open_session", args: map[string]any{"id": "mb-1", "port": "/tmp/ttyM"}},
+		{name: "modbus_close_session", args: map[string]any{"session_id": "mb-1"}},
+		{name: "modbus_master_request", args: map[string]any{"session_id": "mb-1", "unit_id": 1, "function": 3, "address": 0}},
+		{name: "modbus_start_slave", args: map[string]any{"session_id": "mb-1", "unit_id": 1}},
+		{name: "modbus_stop_slave", args: map[string]any{"session_id": "mb-1"}},
+		{name: "modbus_update_slave_data", args: map[string]any{"session_id": "mb-1", "data_model": map[string]any{"coils": []map[string]any{{"address": 1, "value": true}}}}},
+		{name: "modbus_add_slave_unit", args: map[string]any{"session_id": "mb-1", "unit_id": 2, "data_model": map[string]any{}}},
+		{name: "modbus_remove_slave_unit", args: map[string]any{"session_id": "mb-1", "unit_id": 2}},
+		{name: "modbus_list_slave_units", args: map[string]any{"session_id": "mb-1"}},
+		{name: "modbus_update_slave_unit_data", args: map[string]any{"session_id": "mb-1", "unit_id": 2, "data_model": map[string]any{}}},
+		{name: "modbus_scan_unit_ids", args: map[string]any{"session_id": "mb-1", "unit_ids": []int{1}, "function": 3, "address": 0, "quantity": 1}},
+		{name: "modbus_read_registers", args: map[string]any{"session_id": "mb-1", "unit_id": 1, "function": 3, "address": 0, "quantity": 1}},
+		{name: "modbus_scan_registers", args: map[string]any{"session_id": "mb-1", "unit_id": 1, "function": 3, "start_address": 0, "end_address": 2}},
+		{name: "fecbus_open_session", args: map[string]any{"id": "fec-1", "port": "/tmp/ttyF"}},
+		{name: "fecbus_close_session", args: map[string]any{"session_id": "fec-1"}},
+		{name: "fecbus_send_request", args: map[string]any{"session_id": "fec-1", "target_address": 2, "function": 44}},
+		{name: "fecbus_start_slave", args: map[string]any{"session_id": "fec-1", "address": 2}},
+		{name: "fecbus_stop_slave", args: map[string]any{"session_id": "fec-1"}},
+		{name: "fecbus_update_slave_state", args: map[string]any{"session_id": "fec-1", "address": 2}},
+		{name: "fecbus_add_slave_unit", args: map[string]any{"session_id": "fec-1", "address": 2}},
+		{name: "fecbus_remove_slave_unit", args: map[string]any{"session_id": "fec-1", "address": 2}},
+		{name: "fecbus_list_slave_units", args: map[string]any{"session_id": "fec-1"}},
+		{name: "fecbus_query_frames", args: map[string]any{"session_id": "fec-1"}},
+		{name: "fecbus_clear_frames", args: map[string]any{"session_id": "fec-1"}},
+		{name: "serial_graph_demo_template", args: map[string]any{"id": "missing"}},
+		{name: "serial_graph_start", args: map[string]any{"id": "graph-1", "nodes": []map[string]any{}, "edges": []map[string]any{}}},
+		{name: "serial_graph_stop", args: map[string]any{"graph_id": "graph-1"}},
+		{name: "serial_graph_status", args: map[string]any{"graph_id": "graph-1"}},
+		{name: "serial_graph_send", args: map[string]any{"graph_id": "graph-1", "node_id": "sender", "content": "hello"}},
+		{name: "serial_graph_query_node_buffer", args: map[string]any{"graph_id": "graph-1", "node_id": "receiver"}},
+		{name: "serial_graph_query_node_frames", args: map[string]any{"graph_id": "graph-1", "node_id": "monitor"}},
+		{name: "serial_graph_clear_node_buffer", args: map[string]any{"graph_id": "graph-1", "node_id": "receiver"}},
+		{name: "serial_graph_reset_node_counters", args: map[string]any{"graph_id": "graph-1", "node_id": "receiver"}},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := callMCPToolAllowError(t, handler, 600+i, tc.name, tc.args)
+			if result["isError"] != true {
+				t.Fatalf("%s result = %#v, want tool error", tc.name, result)
+			}
+		})
 	}
 }
 
@@ -1442,6 +1845,42 @@ func callMCPTool(t *testing.T, handler http.Handler, id int, name string, argume
 		t.Fatalf("marshal MCP tool call: %v", err)
 	}
 	return callMCP(t, handler, string(payload))
+}
+
+func callMCPToolAllowError(t *testing.T, handler http.Handler, id int, name string, arguments map[string]any) map[string]any {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      name,
+			"arguments": arguments,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal MCP tool call: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:39391/mcp", bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("MCP status = %d body = %s", resp.Code, resp.Body.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode MCP response: %v body=%s", err, resp.Body.String())
+	}
+	if rawErr := envelope["error"]; rawErr != nil {
+		return map[string]any{"isError": true, "error": rawErr}
+	}
+	result, ok := envelope["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP result = %#v, want object", envelope["result"])
+	}
+	return result
 }
 
 func extractToolNames(t *testing.T, result map[string]any) map[string]bool {

@@ -79,6 +79,23 @@ describe('SendPanel', () => {
     })
   })
 
+  it('ignores non-enter editor shortcuts and falls back for non-error conversion failures', async () => {
+    vi.mocked(EncodeTextToHex).mockRejectedValueOnce('encoding worker crashed')
+    const wrapper = mount(SendPanel, {
+      props: { handleId: 'port-1' },
+    })
+    const textarea = wrapper.find('textarea')
+
+    await textarea.setValue('abc')
+    await textarea.trigger('keydown', { key: 'Escape' })
+    await wrapper.find('select').setValue('hex')
+    await flushPromises()
+
+    expect(Send).not.toHaveBeenCalled()
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('abc')
+    expect(wrapper.find('.send-panel__error').text()).toContain('Convert send content failed')
+  })
+
   it('converts editor content with the selected encoding when switching modes', async () => {
     const settings = useSettingsStore()
     settings.updateSerial({ TextEncoding: 'gbk' })
@@ -105,6 +122,163 @@ describe('SendPanel', () => {
       Encoding: 'gbk',
     })
     expect((textarea.element as HTMLTextAreaElement).value).toBe('串口')
+  })
+
+  it('formats hex editor input and sends it without text encoding', async () => {
+    vi.mocked(EncodeTextToHex).mockResolvedValueOnce('')
+    const wrapper = mount(SendPanel, {
+      props: { handleId: 'port-1' },
+    })
+    const textarea = wrapper.find('textarea')
+
+    await wrapper.find('select').setValue('hex')
+    await flushPromises()
+    await textarea.setValue('0a0b0c')
+    await flushPromises()
+
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('0a 0b 0c')
+
+    await wrapper.find('button').trigger('click')
+
+    expect(Send).toHaveBeenCalledWith({
+      PortID: 'port-1',
+      Content: '0a 0b 0c',
+      Mode: 'hex',
+      Encoding: '',
+    })
+  })
+
+  it('starts restarts and stops auto sending as content and interval change', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(SendPanel, {
+        props: { handleId: 'port-1' },
+      })
+      const textarea = wrapper.find('textarea')
+      const interval = wrapper.find('input[type="number"]')
+      const autoSend = wrapper.find<HTMLInputElement>('input[type="checkbox"]')
+
+      await textarea.setValue('ping')
+      await interval.setValue('20')
+      await autoSend.setValue(true)
+
+      await vi.advanceTimersByTimeAsync(20)
+      expect(Send).toHaveBeenCalledTimes(1)
+      expect(Send).toHaveBeenLastCalledWith({
+        PortID: 'port-1',
+        Content: 'ping',
+        Mode: 'ascii',
+        Encoding: 'utf-8',
+      })
+
+      await interval.setValue('15')
+      await vi.advanceTimersByTimeAsync(15)
+      expect(Send).toHaveBeenCalledTimes(2)
+
+      await textarea.setValue('')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(30)
+
+      expect(Send).toHaveBeenCalledTimes(2)
+      expect(autoSend.element.checked).toBe(false)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clamps zero auto-send intervals to the minimum timer delay', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(SendPanel, {
+        props: { handleId: 'port-1' },
+      })
+
+      await wrapper.find('textarea').setValue('ping')
+      await wrapper.find('input[type="number"]').setValue('0')
+      await wrapper.find<HTMLInputElement>('input[type="checkbox"]').setValue(true)
+
+      await vi.advanceTimersByTimeAsync(9)
+      expect(Send).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(Send).toHaveBeenCalledWith(expect.objectContaining({ Content: 'ping' }))
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resends history entries and surfaces send and conversion errors', async () => {
+    const wrapper = mount(SendPanel, {
+      props: { handleId: 'port-1' },
+    })
+    const textarea = wrapper.find('textarea')
+
+    await textarea.setValue('first')
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.send-panel__history-item').text()).toContain('first')
+
+    vi.mocked(Send).mockRejectedValueOnce(new Error('permission denied'))
+    await wrapper.find('.send-panel__history-item').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.send-panel__error').text()).toContain('permission denied')
+
+    vi.mocked(EncodeTextToHex).mockRejectedValueOnce(new Error('encode unavailable'))
+    await wrapper.find('select').setValue('hex')
+    await flushPromises()
+
+    expect(wrapper.find('.send-panel__error').text()).toContain('encode unavailable')
+  })
+
+  it('ignores empty sends restarts auto send on edits and discards stale conversions', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveHex!: (value: string) => void
+      const pendingHex = new Promise<string>(resolve => {
+        resolveHex = resolve
+      }) as ReturnType<typeof EncodeTextToHex>
+      vi.mocked(EncodeTextToHex).mockReturnValueOnce(pendingHex)
+      const wrapper = mount(SendPanel, {
+        props: { handleId: '' },
+      })
+      const textarea = wrapper.find('textarea')
+
+      await textarea.setValue('ignored')
+      await wrapper.find('button').trigger('click')
+      expect(Send).not.toHaveBeenCalled()
+
+      await wrapper.setProps({ handleId: 'port-1' })
+      await textarea.setValue('')
+      await wrapper.find('button').trigger('click')
+      expect(Send).not.toHaveBeenCalled()
+
+      await textarea.setValue('slow')
+      await wrapper.find('select').setValue('hex')
+      await textarea.setValue('00')
+      resolveHex('73 6c 6f 77')
+      await flushPromises()
+      expect((textarea.element as HTMLTextAreaElement).value).toBe('00')
+
+      await wrapper.find('select').setValue('ascii')
+      await flushPromises()
+      await textarea.setValue('alpha')
+      await wrapper.find('input[type="number"]').setValue('10')
+      await wrapper.find<HTMLInputElement>('input[type="checkbox"]').setValue(true)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(Send).toHaveBeenCalledTimes(1)
+      expect(Send).toHaveBeenLastCalledWith(expect.objectContaining({ Content: 'alpha' }))
+
+      await textarea.setValue('beta')
+      await vi.advanceTimersByTimeAsync(10)
+      expect(Send).toHaveBeenCalledTimes(2)
+      expect(Send).toHaveBeenLastCalledWith(expect.objectContaining({ Content: 'beta' }))
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps editor content and send history across remounts', async () => {

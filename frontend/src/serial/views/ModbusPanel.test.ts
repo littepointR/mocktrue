@@ -1,6 +1,7 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ComponentPublicInstance } from 'vue'
 import ModbusPanel from './ModbusPanel.vue'
 import { useModbusStore } from '../stores/modbusStore'
 import { serialService } from '../services/serialService'
@@ -13,14 +14,48 @@ vi.mock('../services/serialService', () => ({
     listModbusSessions: vi.fn(async () => []),
     openModbusSession: vi.fn(async () => null),
     modbusMasterRequest: vi.fn(async () => null),
+    modbusReadRegisters: vi.fn(async () => ({ Transaction: null, RawRegisters: [], Bits: [], Values: [] })),
+    modbusScanUnitIDs: vi.fn(async () => ({ SessionID: 'modbus-master', ActiveUnitIDs: [], Results: [] })),
+    modbusScanRegisters: vi.fn(async () => ({ SessionID: 'modbus-master', UnitID: 1, Values: [], Ranges: [] })),
+    startModbusSlave: vi.fn(async () => sampleSession('modbus-slave', SessionRole.SessionRoleSlave)),
+    stopModbusSlave: vi.fn(async () => undefined),
+    updateModbusSlaveUnitData: vi.fn(async () => undefined),
     addModbusSlaveUnit: vi.fn(async () => undefined),
     removeModbusSlaveUnit: vi.fn(async () => undefined),
+    listModbusSlaveUnits: vi.fn(async () => []),
   },
 }))
 
 describe('ModbusPanel', () => {
+  const slowCoverageTestTimeoutMs = 15000
+
   beforeEach(() => {
     setActivePinia(createPinia())
+  })
+
+  it('opens and refreshes creation sessions through the toolbar', async () => {
+    const store = useModbusStore()
+    store.portForm.port = '/tmp/ttyM0'
+    vi.mocked(serialService.openModbusSession).mockResolvedValueOnce(sampleSession('modbus-open', SessionRole.SessionRoleMaster) as any)
+
+    const wrapper = mount(ModbusPanel, {
+      global: { stubs },
+    })
+
+    await findButton(wrapper, '刷新').trigger('click')
+    await flushPromises()
+    expect(serialService.listModbusSessions).toHaveBeenCalled()
+
+    await findButton(wrapper, '打开').trigger('click')
+    await flushPromises()
+
+    expect(serialService.openModbusSession).toHaveBeenCalledWith(expect.objectContaining({
+      Config: expect.objectContaining({ PortName: '/tmp/ttyM0' }),
+      Role: SessionRole.SessionRoleMaster,
+    }))
+    expect(wrapper.emitted('opened')?.[0]).toEqual(['modbus-open'])
+    expect(store.activeSessionId).toBe('modbus-open')
+    expect(wrapper.text()).toContain('RX 0 / TX 0')
   })
 
   it('only renders session creation controls in the operation panel', () => {
@@ -438,6 +473,135 @@ describe('ModbusPanel', () => {
       RegisterValues: [11, 22, 33],
     }))
     expect(wrapper.find('[data-testid="modbus-master-request-result"]').text()).toContain('02 10 00 0A 00 03')
+  }, slowCoverageTestTimeoutMs)
+
+  it('runs master toolbar read, scan, polling, and log actions', async () => {
+    vi.mocked(serialService.modbusReadRegisters).mockResolvedValueOnce({
+      Transaction: sampleTransaction('read-1'),
+      RawRegisters: [5, 6],
+      Bits: [],
+      Values: [],
+    } as any)
+    vi.mocked(serialService.modbusScanUnitIDs).mockResolvedValueOnce({
+      SessionID: 'modbus-master',
+      ActiveUnitIDs: [1, 2],
+      Results: [{ UnitID: 2, Active: true, Error: '' }],
+    } as any)
+    vi.mocked(serialService.modbusScanRegisters).mockResolvedValueOnce({
+      SessionID: 'modbus-master',
+      UnitID: 1,
+      Values: [{ Address: 0, Value: 5 }],
+      Ranges: [],
+    } as any)
+    const store = useModbusStore()
+    store.sessions.set('modbus-master', sampleSession('modbus-master', SessionRole.SessionRoleMaster))
+    store.setActiveSession('modbus-master')
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+
+    await findButton(wrapper, '读').trigger('click')
+    await flushPromises()
+    expect(serialService.modbusReadRegisters).toHaveBeenCalledWith(expect.objectContaining({
+      SessionID: 'modbus-master',
+      Function: 3,
+    }))
+    expect(wrapper.text()).toContain('5, 6')
+
+    await findButton(wrapper, '扫描 Unit').trigger('click')
+    await findButton(wrapper, '扫描寄存器').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1, 2')
+    expect(wrapper.text()).toContain('0=5')
+
+    await findButton(wrapper, '日志').trigger('click')
+    expect(store.masterGrid.logVisible).toBe(true)
+    expect(wrapper.text()).toContain('01 03 00 00 00 02')
+
+    await findButton(wrapper, '轮询').trigger('click')
+    expect(store.registerReadForm.polling).toBe(true)
+    await findButton(wrapper, '停止轮询').trigger('click')
+    expect(store.registerReadForm.polling).toBe(false)
+  }, slowCoverageTestTimeoutMs)
+
+  it('updates inline master mappings and row actions from the table controls', async () => {
+    const store = useModbusStore()
+    store.sessions.set('modbus-master', sampleSession('modbus-master', SessionRole.SessionRoleMaster))
+    store.setActiveSession('modbus-master')
+    const table = store.masterRegisterTables.find(item => item.type === 'holding_registers')!
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+
+    table.mappings[0].comment = '温度 A'
+    table.mappings[0].dataType = 'float'
+    table.mappings[0].wordOrder = 'little'
+    table.mappings[0].length = 3
+    table.mappings[0].scalingFactor = 0.5
+    await wrapper.vm.$nextTick()
+
+    expect(table.mappings[0]).toMatchObject({
+      comment: '温度 A',
+      dataType: 'float',
+      wordOrder: 'little',
+      length: 3,
+      scalingFactor: 0.5,
+    })
+
+    await wrapper.find('[data-testid="modbus-remove-mapping-holding_registers-0"]').trigger('click')
+    expect(table.mappings.some(row => row.address === 0)).toBe(false)
+    await wrapper.find('[data-testid="modbus-add-mapping-holding_registers-0"]').trigger('click')
+    expect(table.mappings.some(row => row.address === 0)).toBe(true)
+    await wrapper.find('[data-testid="modbus-remove-row-holding_registers-0"]').trigger('click')
+    expect(table.rows.some(row => row.address === 0)).toBe(false)
+  })
+
+  it('drives master table address, mapping, endian, and add-row controls', async () => {
+    const store = useModbusStore()
+    store.sessions.set('modbus-master', sampleSession('modbus-master', SessionRole.SessionRoleMaster))
+    store.setActiveSession('modbus-master')
+    const table = store.masterRegisterTables.find(item => item.type === 'holding_registers')!
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+    const card = wrapper.find('[data-testid="modbus-master-card-holding_registers"]')
+
+    await wrapper.find('[data-testid="modbus-master-row-holding_registers-0"] input').setValue('5')
+    await wrapper.vm.$nextTick()
+    expect(table.rows[0].address).toBe(5)
+    expect(table.mappings[0].address).toBe(5)
+
+    const editedRow = wrapper.find('[data-testid="modbus-master-row-holding_registers-5"]')
+    const rowInputs = editedRow.findAll('input')
+    await rowInputs[1].setValue('温度 B')
+    ;(wrapper.findComponent('[data-testid="modbus-mapping-type-holding_registers-5"]') as VueWrapper<ComponentPublicInstance>).vm.$emit('update:value', 'double')
+    ;(wrapper.findComponent('[data-testid="modbus-mapping-word-holding_registers-5"]') as VueWrapper<ComponentPublicInstance>).vm.$emit('update:value', 'little')
+    await wrapper.vm.$nextTick()
+    await rowInputs[2].setValue('4')
+    await rowInputs[3].setValue('0.25')
+    expect(table.mappings[0]).toMatchObject({
+      address: 5,
+      comment: '温度 B',
+      dataType: 'double',
+      wordOrder: 'little',
+      length: 4,
+      scalingFactor: 0.25,
+    })
+
+    await card.findAll('button').find(button => button.text() === 'BE')!.trigger('click')
+    expect(store.masterGrid.littleEndian).toBe(false)
+    expect(table.mappings.every(row => row.wordOrder === 'big')).toBe(true)
+    await card.findAll('button').find(button => button.text() === 'LE')!.trigger('click')
+    expect(store.masterGrid.littleEndian).toBe(true)
+    expect(table.mappings.every(row => row.wordOrder === 'little')).toBe(true)
+
+    const beforeRows = table.rows.length
+    await card.findAll('button').find(button => button.text() === '添加')!.trigger('click')
+    expect(table.rows).toHaveLength(beforeRows + 1)
+    expect(table.length).toBeGreaterThanOrEqual(table.rows.length)
   })
 
   it('renders a slave workbench with unit tabs and four data sections instead of textareas', () => {
@@ -527,6 +691,216 @@ describe('ModbusPanel', () => {
     await wrapper.find('[data-testid="modbus-slave-unit-tab-2"]').trigger('click')
     expect(store.activeSlaveUnitId).toBe(2)
     expect(store.slaveUnitGrids.find(unit => unit.unitId === 2)?.holdingRegisters[0].value).toBe(22)
+
+    await findButton(wrapper, '删除 Unit').trigger('click')
+    await flushPromises()
+    expect(store.slaveUnitGrids.map(unit => unit.unitId)).toEqual([1])
+    expect(store.activeSlaveUnitId).toBe(1)
+  })
+
+  it('uses slave toolbar and row controls to apply backend-backed data grids', async () => {
+    const store = useModbusStore()
+    store.sessions.set('modbus-slave', { ...sampleSession('modbus-slave', SessionRole.SessionRoleSlave), SlaveRunning: false })
+    store.setActiveSession('modbus-slave')
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-slave' },
+      global: { stubs },
+    })
+
+    await findButton(wrapper, '启动从站').trigger('click')
+    await flushPromises()
+    expect(serialService.startModbusSlave).toHaveBeenCalledWith(expect.objectContaining({
+      SessionID: 'modbus-slave',
+      Units: [expect.objectContaining({ UnitID: 1 })],
+    }))
+
+    store.sessions.set('modbus-slave', { ...sampleSession('modbus-slave', SessionRole.SessionRoleSlave), SlaveRunning: true })
+    store.setActiveSession('modbus-slave')
+    await findButton(wrapper, '应用数据').trigger('click')
+    await flushPromises()
+    expect(serialService.updateModbusSlaveUnitData).toHaveBeenCalledWith(
+      'modbus-slave',
+      1,
+      expect.objectContaining({ HoldingRegisters: expect.any(Array) })
+    )
+
+    await findButton(wrapper, '停止从站').trigger('click')
+    await flushPromises()
+    expect(serialService.stopModbusSlave).toHaveBeenCalledWith('modbus-slave')
+
+    await findButton(wrapper, 'ON').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 1)?.coils[0].value).toBe(false)
+    await wrapper.find('[data-testid="modbus-slave-table-coils"] .modbus-panel__row-actions button').trigger('click')
+    expect(store.slaveUnitGrids.find(unit => unit.unitId === 1)?.coils).toHaveLength(2)
+  })
+
+  it('adds and removes rows across the slave data grids', async () => {
+    const store = useModbusStore()
+    store.sessions.set('modbus-slave', sampleSession('modbus-slave', SessionRole.SessionRoleSlave))
+    store.setActiveSession('modbus-slave')
+    store.activeSlaveUnitId = 9
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-slave' },
+      global: { stubs },
+    })
+    await wrapper.vm.$nextTick()
+
+    const grid = store.slaveUnitGrids.find(unit => unit.unitId === 9)!
+    expect(grid).toBeTruthy()
+    const addButtons = wrapper.findAll('.modbus-panel__slave-grid .modbus-panel__section-header button')
+      .filter(button => button.text() === '添加')
+    expect(addButtons).toHaveLength(4)
+    await addButtons[0].trigger('click')
+    await addButtons[1].trigger('click')
+    await addButtons[2].trigger('click')
+    await addButtons[3].trigger('click')
+    expect(grid.coils).toHaveLength(4)
+    expect(grid.discreteInputs).toHaveLength(3)
+    expect(grid.inputRegisters).toHaveLength(3)
+    expect(grid.holdingRegisters).toHaveLength(3)
+
+    const inputRegisterInputs = wrapper.find('[data-testid="modbus-slave-table-inputRegisters"]').findAll('input')
+    await inputRegisterInputs[0].setValue('5')
+    await inputRegisterInputs[1].setValue('77')
+    await inputRegisterInputs[2].setValue('输入备注')
+    expect(grid.inputRegisters[0]).toMatchObject({ address: 5, value: 77, comment: '输入备注' })
+
+    const holdingRegisterInputs = wrapper.find('[data-testid="modbus-slave-table-holdingRegisters"]').findAll('input')
+    await holdingRegisterInputs[0].setValue('6')
+    await holdingRegisterInputs[1].setValue('88')
+    await holdingRegisterInputs[2].setValue('保持备注')
+    expect(grid.holdingRegisters[0]).toMatchObject({ address: 6, value: 88, comment: '保持备注' })
+
+    await wrapper.find('[data-testid="modbus-slave-table-discreteInputs"] .modbus-panel__row-actions button').trigger('click')
+    await wrapper.findAll('[data-testid="modbus-slave-table-inputRegisters"] .modbus-panel__row-actions button')
+      .find(button => button.text() === '删除')!
+      .trigger('click')
+    await wrapper.findAll('[data-testid="modbus-slave-table-holdingRegisters"] .modbus-panel__row-actions button')
+      .find(button => button.text() === '删除')!
+      .trigger('click')
+    expect(grid.discreteInputs).toHaveLength(2)
+    expect(grid.inputRegisters).toHaveLength(2)
+    expect(grid.holdingRegisters).toHaveLength(2)
+  })
+
+  it('reacts to session prop changes and exposes empty, raw-bit, exception, and value summaries', async () => {
+    const store = useModbusStore()
+    store.sessions.set('modbus-empty', sampleSession('modbus-empty', SessionRole.SessionRoleMaster))
+    store.sessions.set('modbus-master', sampleSession('modbus-master', SessionRole.SessionRoleMaster))
+    store.setActiveSession('modbus-empty')
+    store.registerReadResult = {
+      Transaction: null,
+      RawRegisters: [],
+      Bits: [true, false],
+      Values: [],
+    }
+    store.history = [
+      {
+        ...sampleTransaction('exception-tx'),
+        Response: { ...sampleTransaction('exception-tx').Response, Exception: true, ExceptionCode: 2, Values: [], Bits: [] },
+      },
+      {
+        ...sampleTransaction('value-tx'),
+        Response: { ...sampleTransaction('value-tx').Response, Values: [], Bits: [], Quantity: 0, Value: 99 },
+      },
+      {
+        ...sampleTransaction('empty-tx'),
+        Response: { ...sampleTransaction('empty-tx').Response, Values: [], Bits: [], Quantity: 0, Value: 0 },
+        ResponseFrameHex: '',
+      },
+    ] as any
+
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'missing-session' },
+      global: { stubs },
+    })
+    expect(wrapper.text()).toContain('会话不存在')
+    expect(store.activeSessionId).toBe('missing-session')
+
+    await wrapper.setProps({ sessionId: 'modbus-master' })
+    await wrapper.vm.$nextTick()
+    expect(store.activeSessionId).toBe('modbus-master')
+    expect(wrapper.text()).toContain('1, 0')
+
+    await findButton(wrapper, '日志').trigger('click')
+
+    expect(wrapper.text()).toContain('异常码 2')
+    expect(wrapper.text()).toContain('值 99')
+    expect(wrapper.text()).toContain('无响应数据')
+  })
+
+  it('covers master register focus, toolbar toggles, delete fallback, and dialog saturation', async () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-master',
+      sessions: [sampleSession('modbus-master', SessionRole.SessionRoleMaster)],
+    })
+    store.addMasterUnit(2)
+    const wrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+    const inputCard = wrapper.find('[data-testid="modbus-master-card-input_registers"]')
+
+    await inputCard.trigger('focusin')
+    expect(store.masterGrid.registerType).toBe('input_registers')
+    await wrapper.find('[data-testid="modbus-master-card-coils"] .modbus-panel__title-button').trigger('click')
+    expect(store.masterGrid.registerType).toBe('coils')
+    await findButton(wrapper, 'Raw').trigger('click')
+    expect(store.masterGrid.rawVisible).toBe(false)
+    await findButton(wrapper, '删除').trigger('click')
+    expect(store.masterUnitGrids.map(unit => unit.unitId)).toEqual([1])
+
+    store.masterUnitGrids = Array.from({ length: 247 }, (_, index) => ({
+      ...store.masterUnitGrids[0],
+      unitId: index + 1,
+    }))
+    await wrapper.vm.$nextTick()
+    await wrapper.find('[data-testid="modbus-add-master-unit"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="modbus-master-unit-dialog"]').exists()).toBe(true)
+    expect((wrapper.find('[data-testid="modbus-new-master-unit-id"] input').element as HTMLInputElement).value).toBe('247')
+  })
+
+  it('drives collapsed master/slave config controls and slave row selectors', async () => {
+    const store = useModbusStore()
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-master',
+      sessions: [sampleSession('modbus-master', SessionRole.SessionRoleMaster)],
+    })
+    const masterWrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-master' },
+      global: { stubs },
+    })
+    await masterWrapper.find('[data-testid="modbus-master-config-toggle"]').trigger('click')
+    await masterWrapper.find('[data-testid="modbus-master-request-toggle"]').trigger('click')
+    ;(masterWrapper.findComponent('[data-testid="modbus-master-request-function"]') as VueWrapper<ComponentPublicInstance>).vm.$emit('update:value', 2)
+    await masterWrapper.vm.$nextTick()
+    expect(store.masterForm.functionCode).toBe(2)
+
+    store.restoreState({
+      ...store.exportState(),
+      activeSessionId: 'modbus-slave',
+      sessions: [sampleSession('modbus-slave', SessionRole.SessionRoleSlave)],
+    })
+    const slaveWrapper = mount(ModbusPanel, {
+      props: { variant: 'tab', sessionId: 'modbus-slave' },
+      global: { stubs },
+    })
+    await slaveWrapper.vm.$nextTick()
+    await slaveWrapper.find('.modbus-panel__collapsible .modbus-panel__collapse-header').trigger('click')
+    await slaveWrapper.vm.$nextTick()
+    expect(slaveWrapper.text()).toContain('字序')
+    await slaveWrapper.find('[data-testid="modbus-slave-table-coils"] input').setValue('9')
+    await slaveWrapper.find('[data-testid="modbus-slave-table-discreteInputs"] input').setValue('10')
+    await slaveWrapper.vm.$nextTick()
+
+    const grid = store.slaveUnitGrids.find(unit => unit.unitId === 1)!
+    expect(grid.coils[0].address).toBe(9)
+    expect(grid.discreteInputs[0].address).toBe(10)
   })
 })
 
@@ -557,6 +931,40 @@ function sampleSession(id: string, role: SessionRole) {
   }
 }
 
+function sampleTransaction(id: string) {
+  return {
+    ID: id,
+    SessionID: 'modbus-master',
+    StartedAt: '',
+    CompletedAt: '',
+    UnitID: 1,
+    Mode: FrameMode.FrameModeRTU,
+    RequestPDU: { Function: 3, Data: '' },
+    ResponsePDU: { Function: 3, Data: '' },
+    RequestFrameHex: '01 03 00 00 00 02',
+    ResponseFrameHex: '01 03 04 00 05 00 06',
+    BytesWritten: 8,
+    Response: {
+      Function: 3,
+      Exception: false,
+      ExceptionCode: 0,
+      Address: 0,
+      Quantity: 2,
+      Value: 0,
+      Values: [5, 6],
+      Bits: [],
+      Raw: '',
+    },
+    Error: '',
+  }
+}
+
+function findButton(wrapper: ReturnType<typeof mount>, label: string) {
+  const button = wrapper.findAll('button').find(item => item.text() === label)
+  if (!button) throw new Error(`Button not found: ${label}`)
+  return button
+}
+
 const stubs = {
   NAlert: { template: '<div><slot /></div>' },
   NButton: { props: ['disabled'], emits: ['click'], template: '<button v-bind="$attrs" :disabled="disabled" @click="$emit(\'click\', $event)"><slot /></button>' },
@@ -564,9 +972,10 @@ const stubs = {
   NCheckbox: { template: '<label><input type="checkbox" /><slot /></label>' },
   NForm: { template: '<form><slot /></form>' },
   NFormItem: { props: ['label'], template: '<label><span>{{ label }}</span><slot /></label>' },
-  NInput: { props: ['value', 'disabled'], emits: ['update:value'], template: '<input v-bind="$attrs" :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />' },
-  NInputNumber: { props: ['value', 'disabled'], emits: ['update:value'], template: '<input v-bind="$attrs" type="number" :value="value" :disabled="disabled" @input="$emit(\'update:value\', Number($event.target.value))" />' },
+  NInput: { name: 'NInput', props: ['value', 'disabled'], emits: ['update:value'], template: '<input v-bind="$attrs" :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />' },
+  NInputNumber: { name: 'NInputNumber', props: ['value', 'disabled'], emits: ['update:value'], template: '<input v-bind="$attrs" type="number" :value="value" :disabled="disabled" @input="$emit(\'update:value\', Number($event.target.value))" />' },
   NSelect: {
+    name: 'NSelect',
     props: ['value', 'options', 'disabled'],
     emits: ['update:value'],
     template: '<select v-bind="$attrs" :value="value" :disabled="disabled" @change="$emit(\'update:value\', $event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option></select>',

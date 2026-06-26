@@ -52,7 +52,7 @@ test.describe('App Shell Smoke', () => {
     await expect(metrics).toContainText(/内存 (\d+(\.\d)? (B|KB|MB|GB)|0 B)/);
   });
 
-  test('should show sidebar views when activating the serial module', async ({ page }) => {
+  test('should show the serial topology view when activating the serial module', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.activity-bar', { timeout: 10000 });
 
@@ -60,11 +60,9 @@ test.describe('App Shell Smoke', () => {
     const serialIcon = page.locator('.activity-bar__item').first();
     await serialIcon.click();
 
-    // The sidebar should now show the serial module's views
+    // The sidebar should now show the serial module's current contributed view.
     await expect(page.locator('.sidebar__title')).toContainText('串口调试');
-    await expect(page.locator('.sidebar__item').filter({ hasText: '打开串口' })).toBeVisible();
-    await expect(page.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' })).toBeVisible();
-    await expect(page.locator('.sidebar__item').filter({ hasText: '添加串口桥接' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '串口拓扑' })).toBeVisible();
   });
 
   test('should update status bar with active module id', async ({ page }) => {

@@ -18,8 +18,9 @@ const props = defineProps<{
 
 const nodeWidth = 180
 const nodeHeight = 104
+const compactCanvasHeight = 80
 const minCanvasHeight = 120
-const minWorkbenchHeight = 160
+const minWorkbenchHeight = 48
 const defaultWorkbenchHeight = 320
 type GraphViewMode = 'content' | 'split' | 'topology'
 type GraphFrame = {
@@ -74,6 +75,7 @@ const operationLogTabOpen = ref(false)
 const operationLogTabActive = ref(false)
 let splitResizeStartY = 0
 let splitResizeStartHeight = 0
+let workspaceResizeObserver: ResizeObserver | null = null
 const operationLogLevelOptions = ['all', 'debug', 'info', 'warn', 'error'] as const
 const operationLogModeOptions = [
   { value: 'plain', label: 'plain keyword' },
@@ -308,8 +310,10 @@ function workspaceAvailableHeight(): number {
 function clampWorkbenchHeight(value: number): number {
   const availableHeight = workspaceAvailableHeight()
   if (availableHeight <= 0) return value
-  const maxHeight = Math.max(minWorkbenchHeight, availableHeight - minCanvasHeight)
-  return Math.min(Math.max(value, minWorkbenchHeight), maxHeight)
+  const canvasHeight = availableHeight >= minCanvasHeight + minWorkbenchHeight ? minCanvasHeight : compactCanvasHeight
+  const maxHeight = Math.max(0, availableHeight - canvasHeight)
+  const minHeight = Math.min(minWorkbenchHeight, maxHeight)
+  return Math.min(Math.max(value, minHeight), maxHeight)
 }
 
 function resizeSplitTo(clientY: number) {
@@ -1075,11 +1079,17 @@ watch(
 onMounted(() => {
   void nextTick(() => {
     clampCurrentWorkbenchHeight()
+    if (typeof ResizeObserver !== 'undefined' && workspaceRef.value) {
+      workspaceResizeObserver = new ResizeObserver(clampCurrentWorkbenchHeight)
+      workspaceResizeObserver.observe(workspaceRef.value)
+    }
   })
   window.addEventListener('resize', clampCurrentWorkbenchHeight)
 })
 
 onUnmounted(() => {
+  workspaceResizeObserver?.disconnect()
+  workspaceResizeObserver = null
   stopRuntimePolling()
   stopNodeDrag()
   stopCanvasPan()
@@ -1922,12 +1932,14 @@ onUnmounted(() => {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 .serial-graph__workspace--resizing {
   cursor: row-resize;
 }
 .serial-graph__toolbar {
   display: flex;
+  flex: 0 0 32px;
   align-items: center;
   gap: 12px;
   height: 32px;
@@ -2024,9 +2036,9 @@ onUnmounted(() => {
 }
 .serial-graph__canvas {
   position: relative;
-  flex: 1 1 260px;
+  flex: 1 1 220px;
   min-width: 0;
-  min-height: 120px;
+  min-height: 80px;
   overflow: auto;
   cursor: grab;
   background-image:
@@ -2064,7 +2076,7 @@ onUnmounted(() => {
   flex: 1 1 320px;
   display: flex;
   flex-direction: column;
-  min-height: 160px;
+  min-height: 48px;
   border-top: 1px solid var(--app-border, #2d2d2d);
   background: var(--app-bg, #1e1e1e);
 }
@@ -2074,7 +2086,7 @@ onUnmounted(() => {
 }
 .serial-graph__node-workbench--empty {
   flex: 0 0 320px;
-  min-height: 160px;
+  min-height: 48px;
 }
 .serial-graph__node-workbench--empty.serial-graph__node-workbench--full {
   flex: 1 1 auto;

@@ -172,6 +172,119 @@ func TestBuildSlaveResponse(t *testing.T) {
 	assertHex(t, response.PDU.Bytes(), "03040018002a")
 }
 
+func TestParseResponseVariantsAndErrors(t *testing.T) {
+	bitResponse, err := ParseResponse(PDU{Function: FunctionReadCoils, Data: []byte{1, 0x05}})
+	if err != nil {
+		t.Fatalf("ParseResponse(bit read) error = %v", err)
+	}
+	if got, want := bitResponse.Bits[:4], []bool{true, false, true, false}; !equalBool(got, want) {
+		t.Fatalf("bit response bits = %v, want %v", got, want)
+	}
+
+	singleWrite, err := ParseResponse(PDU{Function: FunctionWriteSingleRegister, Data: []byte{0, 7, 0x12, 0x34}})
+	if err != nil {
+		t.Fatalf("ParseResponse(single write) error = %v", err)
+	}
+	if singleWrite.Address != 7 || singleWrite.Value != 0x1234 {
+		t.Fatalf("single write response = %#v, want address 7 value 0x1234", singleWrite)
+	}
+
+	multipleWrite, err := ParseResponse(PDU{Function: FunctionWriteMultipleRegisters, Data: []byte{0, 8, 0, 3}})
+	if err != nil {
+		t.Fatalf("ParseResponse(multiple write) error = %v", err)
+	}
+	if multipleWrite.Address != 8 || multipleWrite.Quantity != 3 {
+		t.Fatalf("multiple write response = %#v, want address 8 quantity 3", multipleWrite)
+	}
+
+	errorCases := []PDU{
+		{Function: FunctionReadCoils, Data: nil},
+		{Function: FunctionReadCoils, Data: []byte{2, 0xff}},
+		{Function: FunctionReadHoldingRegisters, Data: nil},
+		{Function: FunctionReadHoldingRegisters, Data: []byte{3, 0, 1}},
+		{Function: FunctionWriteSingleCoil, Data: []byte{0, 1}},
+		{Function: FunctionWriteMultipleCoils, Data: []byte{0, 1}},
+		{Function: FunctionReadHoldingRegisters | exceptionMask, Data: []byte{1, 2}},
+		{Function: FunctionCode(0x2b), Data: []byte{0}},
+	}
+	for _, pdu := range errorCases {
+		if _, err := ParseResponse(pdu); err == nil {
+			t.Fatalf("ParseResponse(%#v) error = nil, want error", pdu)
+		}
+	}
+}
+
+func TestFrameRequestAndAddressValidationErrors(t *testing.T) {
+	if _, err := EncodeFrame(FrameModeRTU, 0, PDU{}); err == nil {
+		t.Fatalf("EncodeFrame(unit=0) error = nil, want error")
+	}
+	if _, err := EncodeFrame(FrameMode("tcp"), 1, PDU{}); err == nil {
+		t.Fatalf("EncodeFrame(unsupported mode) error = nil, want error")
+	}
+	if _, err := DecodeFrame(FrameMode("tcp"), []byte{1, 3, 0, 0}); err == nil {
+		t.Fatalf("DecodeFrame(unsupported mode) error = nil, want error")
+	}
+	if _, err := DecodeFrame(FrameModeRTU, []byte{1, 3, 0}); err == nil {
+		t.Fatalf("DecodeFrame(short RTU) error = nil, want error")
+	}
+	if _, err := DecodeFrame(FrameModeRTU, []byte{1, 3, 0, 0}); err == nil {
+		t.Fatalf("DecodeFrame(bad RTU CRC) error = nil, want error")
+	}
+	if _, err := DecodeFrame(FrameModeASCII, []byte("010300000002FA\r\n")); err == nil {
+		t.Fatalf("DecodeFrame(missing ASCII colon) error = nil, want error")
+	}
+	if _, err := DecodeFrame(FrameModeASCII, []byte(":01030Z\r\n")); err == nil {
+		t.Fatalf("DecodeFrame(invalid ASCII hex) error = nil, want error")
+	}
+	if _, err := DecodeFrame(FrameModeASCII, []byte(":01030000000200\r\n")); err == nil {
+		t.Fatalf("DecodeFrame(bad ASCII LRC) error = nil, want error")
+	}
+
+	defaultModeFrame, err := EncodeFrame("", 1, MustBuildReadRequest(FunctionReadHoldingRegisters, 0, 1))
+	if err != nil {
+		t.Fatalf("EncodeFrame(default mode) error = %v", err)
+	}
+	if decoded, err := DecodeFrame("", defaultModeFrame); err != nil || decoded.Mode != FrameModeRTU {
+		t.Fatalf("DecodeFrame(default mode) = %#v, %v; want RTU", decoded, err)
+	}
+
+	if _, err := BuildReadRequest(FunctionWriteSingleCoil, 0, 1); err == nil {
+		t.Fatalf("BuildReadRequest(unsupported) error = nil, want error")
+	}
+	if _, err := BuildReadRequest(FunctionReadCoils, 0, 0); err == nil {
+		t.Fatalf("BuildReadRequest(quantity=0) error = nil, want error")
+	}
+	if _, err := BuildWriteSingleRequest(FunctionReadCoils, 0, 1); err == nil {
+		t.Fatalf("BuildWriteSingleRequest(unsupported) error = nil, want error")
+	}
+	if _, err := BuildWriteMultipleCoilsRequest(0, nil); err == nil {
+		t.Fatalf("BuildWriteMultipleCoilsRequest(empty) error = nil, want error")
+	}
+	if _, err := BuildWriteMultipleCoilsRequest(0, make([]bool, 1969)); err == nil {
+		t.Fatalf("BuildWriteMultipleCoilsRequest(too many) error = nil, want error")
+	}
+	if _, err := BuildWriteMultipleRegistersRequest(0, nil); err == nil {
+		t.Fatalf("BuildWriteMultipleRegistersRequest(empty) error = nil, want error")
+	}
+	if _, err := BuildWriteMultipleRegistersRequest(0, make([]uint16, 124)); err == nil {
+		t.Fatalf("BuildWriteMultipleRegistersRequest(too many) error = nil, want error")
+	}
+	if _, err := ProtocolAddress(AddressMode("relative"), FunctionReadCoils, 1); err == nil {
+		t.Fatalf("ProtocolAddress(unsupported mode) error = nil, want error")
+	}
+	if _, err := ProtocolAddress(AddressModePLC, FunctionCode(0x2b), 1); err == nil {
+		t.Fatalf("ProtocolAddress(unsupported function) error = nil, want error")
+	}
+	if _, err := ProtocolAddress(AddressModePLC, FunctionReadHoldingRegisters, 40000); err == nil {
+		t.Fatalf("ProtocolAddress(below base) error = nil, want error")
+	}
+
+	assertPanics(t, func() { MustBuildReadRequest(FunctionWriteSingleCoil, 0, 1) })
+	assertPanics(t, func() { MustBuildWriteSingleRequest(FunctionReadCoils, 0, 1) })
+	assertPanics(t, func() { MustBuildWriteMultipleCoilsRequest(0, nil) })
+	assertPanics(t, func() { MustBuildWriteMultipleRegistersRequest(0, nil) })
+}
+
 func mustHex(t *testing.T, value string) []byte {
 	t.Helper()
 	data, err := hex.DecodeString(value)
@@ -210,4 +323,14 @@ func equalBool(a, b []bool) bool {
 		}
 	}
 	return true
+}
+
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("function did not panic")
+		}
+	}()
+	fn()
 }

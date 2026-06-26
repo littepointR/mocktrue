@@ -243,6 +243,333 @@ describe('workspaceFileStore graph tab files', () => {
     expect(files.currentPath).toBe('/tmp/second.portweave.json')
     expect(workspaceServiceMock.LoadLastWorkspace).not.toHaveBeenCalled()
   })
+
+  it('exposes graph path labels and mutates explicit graph file state', () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    expect(files.graphPath('missing')).toBe('')
+    expect(files.graphTooltip('missing')).toBe('未保存')
+    expect(files.graphTitle('missing', 'Fallback')).toBe('Fallback')
+
+    files.markDirty('graph-1')
+    expect(files.graphState('graph-1')).toBeNull()
+
+    files.markClean('/tmp/first.portweave.json', JSON.parse(graphFile('/tmp/first.portweave.json', '第一拓扑')), 'graph-1')
+    expect(files.graphPath('graph-1')).toBe('/tmp/first.portweave.json')
+    expect(files.graphTooltip('graph-1')).toBe('/tmp/first.portweave.json')
+    expect(files.graphTitle('graph-1', '第一拓扑')).toBe('第一拓扑')
+
+    files.markDirty('graph-1')
+    expect(files.graphTitle('graph-1', '第一拓扑')).toBe('第一拓扑*')
+
+    const second = graph.createGraph('第二拓扑', false)
+    files.setPath('/tmp/second.portweave.json', second.id)
+    expect(files.graphState(second.id)).toEqual(expect.objectContaining({
+      path: '/tmp/second.portweave.json',
+      sourceKind: 'file',
+      readOnly: false,
+    }))
+
+    files.setEditableSource('/tmp/editable.portweave.json')
+    files.markSnapshotClean({ kind: 'clean-snapshot' })
+    expect(files.currentPath).toBe('/tmp/editable.portweave.json')
+    expect(files.isDirty).toBe(false)
+  })
+
+  it('handles picker cancellations and service errors for file actions', async () => {
+    const files = useWorkspaceFileStore()
+
+    workspaceServiceMock.SelectWorkspaceSavePath.mockResolvedValueOnce('')
+    await expect(files.saveAs()).resolves.toBe('')
+
+    workspaceServiceMock.SelectWorkspaceSavePath.mockResolvedValueOnce('')
+    await expect(files.exportCopy()).resolves.toBe('')
+
+    workspaceServiceMock.SelectWorkspaceOpenPath.mockResolvedValueOnce('')
+    await expect(files.importSelected()).resolves.toBeNull()
+
+    workspaceServiceMock.SelectWorkspaceOpenPath.mockRejectedValueOnce(new Error('open picker failed'))
+    await expect(files.selectOpenPath()).rejects.toThrow('open picker failed')
+    expect(files.lastError).toBe('open picker failed')
+
+    workspaceServiceMock.SelectWorkspaceSavePath.mockRejectedValueOnce(new Error('save picker failed'))
+    await expect(files.saveAs()).rejects.toThrow('save picker failed')
+    expect(files.lastError).toBe('save picker failed')
+
+    workspaceServiceMock.SelectWorkspaceSavePath.mockResolvedValueOnce('/tmp/export-copy.portweave.json')
+    workspaceServiceMock.ExportWorkspace.mockRejectedValueOnce(new Error('export denied'))
+    await expect(files.exportCopy()).rejects.toThrow('export denied')
+    expect(files.lastError).toBe('export denied')
+  })
+
+  it('imports selected paths exports copies and mutates demo and graph state helpers', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    const firstDemo = files.listDemos()[0]
+    const secondDemo = files.listDemos()[1]
+
+    files.setSelectedDemo(42)
+    expect(files.selectedDemoId).toBe(firstDemo?.id ?? '')
+    files.setSelectedDemo(secondDemo?.id ?? firstDemo?.id ?? '')
+    expect(files.selectedDemoId).toBe(secondDemo?.id ?? firstDemo?.id ?? '')
+
+    const imported = await files.importFromPath('/tmp/direct-import.portweave.json')
+    expect(imported.activeGraphId).toEqual(expect.any(String))
+    expect(files.currentPath).toBe('/tmp/direct-import.portweave.json')
+
+    files.removeGraphState(imported.activeGraphId!)
+    files.removeGraphState(imported.activeGraphId!)
+    expect(files.graphState(imported.activeGraphId!)).toBeNull()
+
+    workspaceServiceMock.SelectWorkspaceOpenPath.mockResolvedValueOnce('/tmp/picked-import.portweave.json')
+    const selected = await files.importSelected()
+    expect(selected?.activeGraphId).toEqual(expect.any(String))
+    expect(files.currentPath).toBe('/tmp/picked-import.portweave.json')
+
+    const exported = await files.exportCopy()
+    expect(exported).toBe('/tmp/selected-save.portweave.json')
+    expect(workspaceServiceMock.ExportWorkspace).toHaveBeenCalledWith(
+      '/tmp/selected-save.portweave.json',
+      expect.stringContaining('mocktrue.graph.v1')
+    )
+    expect(graph.graphList.map(item => item.name)).toContain('导入拓扑')
+  })
+
+  it('falls back from invalid recent storage and filters saved recent file lists', async () => {
+    localStorage.setItem('mocktrue.open-config-files.v1', 'not json')
+    workspaceServiceMock.LoadLastWorkspace.mockResolvedValueOnce({ Found: false, Path: '', Content: '' })
+    const files = useWorkspaceFileStore()
+
+    await expect(files.loadLast()).resolves.toBe(false)
+    expect(workspaceServiceMock.LoadLastWorkspace).toHaveBeenCalled()
+
+    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/recent.portweave.json', 42, null]))
+    workspaceServiceMock.readFiles.set('/tmp/recent.portweave.json', graphFile('/tmp/recent.portweave.json', '最近拓扑'))
+
+    await expect(files.loadLast()).resolves.toBe(true)
+    expect(files.currentPath).toBe('/tmp/recent.portweave.json')
+  })
+
+  it('returns false when all recent workspace restores fail during startup', async () => {
+    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/broken-only.portweave.json']))
+    workspaceServiceMock.ReadWorkspace.mockRejectedValueOnce(new Error('broken recent file'))
+    const files = useWorkspaceFileStore()
+
+    await expect(files.loadLast()).resolves.toBe(false)
+
+    expect(workspaceServiceMock.ReadWorkspace).toHaveBeenCalledWith('/tmp/broken-only.portweave.json')
+    expect(workspaceServiceMock.LoadLastWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('opens aborted and empty files with structured results or errors', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    workspaceServiceMock.ReadWorkspace.mockResolvedValueOnce({ Path: '/tmp/abort.portweave.json', Content: graphFile('/tmp/abort.portweave.json', '取消拓扑') })
+    await expect(files.openFromPath('/tmp/abort.portweave.json', { shouldAbort: () => true })).resolves.toEqual({
+      graphIds: [],
+      activeGraphId: null,
+      reused: false,
+      aborted: true,
+    })
+    expect(graph.graphList.map(item => item.name)).toEqual(['拓扑图 1'])
+
+    workspaceServiceMock.ReadWorkspace.mockResolvedValueOnce(null as any)
+    await expect(files.openFromPath('/tmp/empty.portweave.json')).rejects.toThrow('config file is empty')
+    expect(files.lastError).toBe('config file is empty')
+
+    workspaceServiceMock.RememberLastWorkspace.mockRejectedValueOnce(new Error('non-critical remember failure'))
+    await expect(files.openFromPath('/tmp/remember-fail.portweave.json')).resolves.toEqual(expect.objectContaining({
+      reused: false,
+      activeGraphId: expect.any(String),
+    }))
+  })
+
+  it('applies saved serial settings and reports unknown demos', async () => {
+    const settings = useSettingsStore()
+    const files = useWorkspaceFileStore()
+    files.markClean('/tmp/settings.portweave.json', JSON.parse(graphFile('/tmp/settings.portweave.json', '设置拓扑', { TerminalFontSize: 22 })), 'graph-1')
+    files.states['graph-1'].currentSnapshot = '{bad json'
+    settings.updateSerial({ TerminalFontSize: 11 })
+
+    expect(files.applyGraphSerialSettings('graph-1')).toBe(true)
+    expect(settings.serial.TerminalFontSize).toBe(22)
+    expect(files.applyGraphSerialSettings('missing')).toBe(false)
+
+    await expect(files.loadDemo('missing-demo')).rejects.toThrow('Unknown demo workspace: missing-demo')
+    expect(files.lastError).toBe('Unknown demo workspace: missing-demo')
+  })
+
+  it('loads the last workspace directly and aborts stale startup restores', async () => {
+    const files = useWorkspaceFileStore()
+
+    await expect(files.loadLast()).resolves.toBe(true)
+    expect(files.currentPath).toBe('/tmp/last.portweave.json')
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    const racedFiles = useWorkspaceFileStore()
+    const releaseLoad = deferred<{ Found: boolean; Path: string; Content: string }>()
+    workspaceServiceMock.LoadLastWorkspace.mockImplementationOnce(() => releaseLoad.promise)
+
+    const staleRestore = racedFiles.loadLast()
+    await racedFiles.loadDemo('bridge-demo')
+    releaseLoad.resolve({ Found: true, Path: '/tmp/stale-last.portweave.json', Content: graphFile('/tmp/stale-last.portweave.json', '过期拓扑') })
+
+    await expect(staleRestore).resolves.toBe(false)
+    expect(racedFiles.currentPath).toBe('')
+  })
+
+  it('keeps empty-workspace file helpers as no-ops when no graph is active', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    await graph.removeGraph('graph-1')
+    files.markClean('/tmp/ignored.portweave.json', { ignored: true })
+    files.updateCurrentSnapshot({ ignored: true })
+    files.markDirty()
+    files.setPath('/tmp/ignored.portweave.json')
+
+    expect(graph.graphList).toEqual([])
+    expect(files.currentPath).toBe('')
+    expect(files.sourceKind).toBe('empty')
+    expect(files.activeState).toBeNull()
+    expect(files.isDirty).toBe(false)
+    expect(files.graphPath('missing')).toBe('')
+    expect(files.graphTooltip('missing')).toBe('未保存')
+  })
+
+  it('continues startup restore after recent-file failures and keeps dirty graphs while loading demos', async () => {
+    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/broken.portweave.json', '/tmp/good.portweave.json']))
+    workspaceServiceMock.ReadWorkspace.mockRejectedValueOnce(new Error('broken recent file'))
+    workspaceServiceMock.readFiles.set('/tmp/good.portweave.json', graphFile('/tmp/good.portweave.json', '恢复拓扑'))
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    await expect(files.loadLast()).resolves.toBe(true)
+
+    expect(workspaceServiceMock.ReadWorkspace).toHaveBeenCalledWith('/tmp/broken.portweave.json')
+    expect(workspaceServiceMock.ReadWorkspace).toHaveBeenCalledWith('/tmp/good.portweave.json')
+    expect(files.currentPath).toBe('/tmp/good.portweave.json')
+    expect(graph.graphList.map(item => item.name)).toContain('恢复拓扑')
+
+    graph.setActiveGraph('graph-1')
+    files.syncGraphSnapshot('graph-1')
+    graph.addNode('serial.sender')
+    files.syncGraphSnapshot('graph-1')
+    expect(files.isGraphDirty('graph-1')).toBe(true)
+
+    const demo = await files.loadDemo('bridge-demo')
+
+    expect(graph.graphList.map(item => item.id)).toContain('graph-1')
+    expect(graph.graphList.map(item => item.id)).toContain(demo.activeGraphId)
+  })
+
+  it('tracks empty paths custom titles and non-graph snapshots through helper fallbacks', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    const settings = useSettingsStore()
+
+    files.markClean('', { kind: 'empty-snapshot' }, 'graph-1')
+    expect(files.currentPath).toBe('')
+    expect(files.sourceKind).toBe('empty')
+
+    files.setPath('', 'graph-1')
+    expect(files.graphState('graph-1')).toEqual(expect.objectContaining({
+      path: '',
+      sourceKind: 'empty',
+    }))
+
+    files.states['graph-1'].title = '自定义标题'
+    files.setPath('/tmp/titled.portweave.json', 'graph-1')
+    expect(files.graphTitle('graph-1', 'Fallback')).toBe('自定义标题')
+
+    files.updateCurrentSnapshot({ kind: 'not-a-graph-tab' }, 'graph-1')
+    settings.updateSerial({ TerminalFontSize: 17 })
+    expect(files.applyGraphSerialSettings('graph-1')).toBe(false)
+    expect(settings.serial.TerminalFontSize).toBe(17)
+
+    await graph.removeGraph('graph-1')
+    expect(files.applyGraphSerialSettings()).toBe(false)
+  })
+
+  it('uses fallback error messages when workspace services reject non-error values', async () => {
+    const files = useWorkspaceFileStore()
+
+    workspaceServiceMock.SaveWorkspace.mockRejectedValueOnce('save rejected')
+    await expect(files.save()).rejects.toBe('save rejected')
+    expect(files.lastError).toBe('Save config failed')
+
+    workspaceServiceMock.SelectWorkspaceOpenPath.mockRejectedValueOnce('open picker rejected')
+    await expect(files.selectOpenPath()).rejects.toBe('open picker rejected')
+    expect(files.lastError).toBe('Select config file failed')
+
+    workspaceServiceMock.SelectWorkspaceSavePath.mockRejectedValueOnce('save picker rejected')
+    await expect(files.saveAs()).rejects.toBe('save picker rejected')
+    expect(files.lastError).toBe('Save config failed')
+
+    workspaceServiceMock.ReadWorkspace.mockRejectedValueOnce('open rejected')
+    await expect(files.openFromPath('/tmp/open-error.portweave.json')).rejects.toBe('open rejected')
+    expect(files.lastError).toBe('Open config failed')
+
+    workspaceServiceMock.SelectWorkspaceOpenPath.mockRejectedValueOnce('import picker rejected')
+    await expect(files.importSelected()).rejects.toBe('import picker rejected')
+    expect(files.lastError).toBe('Open config failed')
+
+    workspaceServiceMock.SelectWorkspaceSavePath.mockResolvedValueOnce('/tmp/export-error.portweave.json')
+    workspaceServiceMock.ExportWorkspace.mockRejectedValueOnce('export rejected')
+    await expect(files.exportCopy()).rejects.toBe('export rejected')
+    expect(files.lastError).toBe('Export config failed')
+
+    workspaceServiceMock.LoadLastWorkspace.mockRejectedValueOnce('load rejected')
+    await expect(files.loadLast()).rejects.toBe('load rejected')
+    expect(files.lastError).toBe('Load last config failed')
+  })
+
+  it('treats blank clean graph states and object-shaped recent storage as fallback startup cases', async () => {
+    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify({ path: '/tmp/not-a-list.portweave.json' }))
+    workspaceServiceMock.LoadLastWorkspace.mockResolvedValueOnce({ Found: false, Path: '', Content: '' })
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    await expect(files.loadLast()).resolves.toBe(false)
+    expect(workspaceServiceMock.LoadLastWorkspace).toHaveBeenCalled()
+
+    files.setPath('/tmp/blank-empty.portweave.json', 'graph-1')
+    const demo = await files.loadDemo('bridge-demo')
+
+    expect(graph.graphList.map(item => item.id)).toEqual([demo.activeGraphId])
+  })
+
+  it('keeps clean empty graph states when their serialized snapshot cannot be parsed', async () => {
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+    files.setPath('/tmp/bad-empty.portweave.json', 'graph-1')
+    files.states['graph-1'].savedSnapshot = '{bad json'
+    files.states['graph-1'].currentSnapshot = '{bad json'
+
+    const demo = await files.loadDemo('bridge-demo')
+
+    expect(graph.graphList.map(item => item.id)).toContain('graph-1')
+    expect(graph.graphList.map(item => item.id)).toContain(demo.activeGraphId)
+  })
+
+  it('opens service results with blank paths without remembering an empty recent file', async () => {
+    workspaceServiceMock.ReadWorkspace.mockResolvedValueOnce({
+      Path: '',
+      Content: graphFile('/tmp/blank-service-path.portweave.json', '空路径拓扑'),
+    })
+    const graph = useSerialGraphStore()
+    const files = useWorkspaceFileStore()
+
+    const result = await files.openFromPath('/tmp/blank-service-path.portweave.json')
+
+    expect(result.graphIds).toHaveLength(1)
+    expect(files.currentPath).toBe('')
+    expect(graph.graphList.map(item => item.name)).toContain('空路径拓扑')
+    expect(workspaceServiceMock.RememberLastWorkspace).not.toHaveBeenCalled()
+  })
 })
 
 function graphFile(path: string, name: string, serialSettings: Partial<typeof defaultSerialSettings> = {}) {

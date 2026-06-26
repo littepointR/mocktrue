@@ -86,3 +86,64 @@ func TestChecksumSum8(t *testing.T) {
 		t.Fatalf("sum8 = %d, want 6", result)
 	}
 }
+
+func TestVisualParserAccessors(t *testing.T) {
+	t.Parallel()
+	spec := protocol.FrameSpec{Name: "accessors"}
+	parser := NewVisualParser(spec)
+
+	if parser.Name() != "accessors" {
+		t.Fatalf("Name = %q, want accessors", parser.Name())
+	}
+	if parser.Kind() != protocol.KindVisual {
+		t.Fatalf("Kind = %q, want visual", parser.Kind())
+	}
+	config := parser.Config()
+	if config.Kind != protocol.KindVisual || config.Visual == nil || config.Visual.Name != "accessors" {
+		t.Fatalf("Config = %#v, want visual config", config)
+	}
+}
+
+func TestChecksumAlgorithms(t *testing.T) {
+	t.Parallel()
+	data := []byte("123456789")
+
+	cases := []struct {
+		name string
+		spec ChecksumSpec
+	}{
+		{name: "none", spec: ChecksumSpec{Type: "none"}},
+		{name: "crc8", spec: ChecksumSpec{Type: "crc8", Poly: 0x07}},
+		{name: "crc16", spec: ChecksumSpec{Type: "crc16", Poly: 0x1021, Init: 0xffff}},
+		{name: "crc32", spec: ChecksumSpec{Type: "crc32", Poly: 0x04c11db7, Init: 0xffffffff, XorOut: 0xffffffff}},
+	}
+	for _, tc := range cases {
+		if got := Checksum(data, tc.spec); tc.name == "none" && got != 0 {
+			t.Fatalf("Checksum(%s) = %#x, want 0", tc.name, got)
+		}
+	}
+}
+
+func TestVisualParserNoHeaderAndChecksumMismatch(t *testing.T) {
+	t.Parallel()
+	parser := NewVisualParser(protocol.FrameSpec{
+		Name:        "no-header",
+		MinFrameLen: 2,
+		Checksum: &protocol.ChecksumSpec{
+			Type:   "sum8",
+			Offset: 1,
+			Width:  1,
+		},
+	})
+
+	result, err := parser.Parse([]byte{0x01, 0xff})
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if result.OK {
+		t.Fatalf("Parse OK = true, want checksum mismatch")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("Errors = %#v, want checksum mismatch", result.Errors)
+	}
+}

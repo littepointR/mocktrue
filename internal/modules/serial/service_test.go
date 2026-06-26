@@ -2,6 +2,7 @@ package serial
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -182,6 +183,56 @@ func TestServiceCreateVirtualPortRejectsEmptyInputs(t *testing.T) {
 	}
 	if _, err := svc.CreateVirtualPort(context.Background(), "id", ""); err == nil {
 		t.Fatalf("CreateVirtualPort must reject empty port name")
+	}
+}
+
+func TestServiceSendRejectsInvalidRequestsAndHexMode(t *testing.T) {
+	svc := NewService(eventbus.New())
+	if _, err := svc.Send(SendRequest{Content: "x"}); err == nil {
+		t.Fatalf("Send must reject empty port IDs")
+	}
+	if _, err := svc.Send(SendRequest{PortID: "missing"}); err == nil {
+		t.Fatalf("Send must reject empty content")
+	}
+	if _, err := svc.Send(SendRequest{PortID: "missing", Content: "zz", Mode: "hex"}); err == nil {
+		t.Fatalf("Send must reject malformed hex content")
+	}
+	if _, err := svc.Send(SendRequest{PortID: "missing", Content: "é", Encoding: "ascii"}); err == nil {
+		t.Fatalf("Send must reject content that cannot be encoded")
+	}
+
+	memorySvc, _ := newMemoryServiceWithPair(t, "sendA", "sendB")
+	handle, err := memorySvc.OpenPort(context.Background(), manager.OpenRequest{Config: porttest.DefaultSerialConfig("sendA")})
+	if err != nil {
+		t.Fatalf("OpenPort: %v", err)
+	}
+	defer func() { _ = memorySvc.ClosePort(handle.ID) }()
+	written, err := memorySvc.Send(SendRequest{PortID: handle.ID, Content: "41 42", Mode: "hex"})
+	if err != nil {
+		t.Fatalf("Send hex returned error: %v", err)
+	}
+	if written != 2 {
+		t.Fatalf("Send hex wrote %d bytes, want 2", written)
+	}
+}
+
+func TestServiceHelpersCoverNilVirtualManagerAndTokenFallbacks(t *testing.T) {
+	svc := NewService(eventbus.New())
+	svc.vmgr = nil
+	if got := svc.monitorEndpoint("COM1"); got != "COM1" {
+		t.Fatalf("monitorEndpoint without virtual manager = %q, want COM1", got)
+	}
+	if svc.monitorPortInUse("") {
+		t.Fatalf("monitorPortInUse must ignore empty port names")
+	}
+	if svc.bridgePortInUse("COM1") {
+		t.Fatalf("bridgePortInUse without virtual manager must be false")
+	}
+	if id := autoVirtualPortID("!!!"); id == "" {
+		t.Fatalf("autoVirtualPortID must fall back to a non-empty monitor token")
+	}
+	if name := autoVirtualPortName(string(filepath.Separator), "???"); name == "" {
+		t.Fatalf("autoVirtualPortName must fall back to non-empty port and monitor tokens")
 	}
 }
 

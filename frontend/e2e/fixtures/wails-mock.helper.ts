@@ -12,6 +12,7 @@ export async function injectWailsMock(page: Page) {
       virtualPairs: [] as any[],
       virtualPorts: [] as any[],
       bridges: [] as any[],
+      graphRuntimes: new Map<string, any>(),
       graphBufferText: 'hello',
       nextHandleId: 1,
     };
@@ -46,6 +47,40 @@ export async function injectWailsMock(page: Page) {
       };
       mockState.handles.push(handle);
       return handle;
+    }
+
+    function graphRuntimeInfo(req: any, status = 'running') {
+      return {
+        ID: req.ID,
+        Status: status,
+        StartedAt: '',
+        StoppedAt: '',
+        Error: '',
+        Nodes: (req.Nodes ?? []).map((node: any) => ({
+          ID: node.ID,
+          Type: node.Type,
+          Status: status,
+          RxBytes: node.Type === 'serial.receiver' ? utf8Length(mockState.graphBufferText) : 0,
+          TxBytes: node.Type === 'serial.sender' ? 5 : 0,
+          FrameCount: 0,
+          ResourceID: '',
+          Error: '',
+        })),
+      };
+    }
+
+    function graphBufferSnapshot(req: any) {
+      const offset = Math.max(0, Number(req?.Offset ?? 0));
+      const text = mockState.graphBufferText;
+      const data = text.slice(offset);
+      const encoded = btoa(data);
+      return {
+        Offset: offset,
+        Data: encoded,
+        Chunks: data.length > 0 ? [{ Offset: offset, Timestamp: '', Data: encoded }] : [],
+        Total: utf8Length(text),
+        EOF: offset + data.length >= text.length,
+      };
     }
 
     const handlers: Record<number, (...args: any[]) => any> = {
@@ -128,36 +163,31 @@ export async function injectWailsMock(page: Page) {
         return null;
       },
       2577893816: () => mockState.bridges,
-      1844679930: (req: any) => ({
-        ID: req.ID,
-        Status: 'running',
-        Error: '',
-        Nodes: (req.Nodes ?? []).map((node: any) => ({
-          ID: node.ID,
-          Type: node.Type,
-          Status: 'running',
-          RxBytes: node.Type === 'serial.receiver' ? 5 : 0,
-          TxBytes: node.Type === 'serial.sender' ? 5 : 0,
-          FrameCount: 0,
-          ResourceID: '',
-          Error: '',
-        })),
-      }),
-      3195045016: (id: string) => ({
-        ID: id,
-        Status: 'running',
-        Error: '',
-        Nodes: [],
-      }),
-      2736010660: () => ({
-        Offset: 0,
-        Data: btoa(mockState.graphBufferText),
-        Total: mockState.graphBufferText.length,
-        EOF: true,
-      }),
-      514153512: () => ({ Frames: [], Total: 0, NextOffset: 0 }),
-      2969054863: () => null,
-      151526110: () => null,
+      1012747357: (req: any) => {
+        const info = graphRuntimeInfo(req);
+        mockState.graphRuntimes.set(req.ID, info);
+        return info;
+      },
+      683655879: (id: string) => mockState.graphRuntimes.get(id) ?? null,
+      3861305359: graphBufferSnapshot,
+      4031508859: () => ({ Frames: [], Total: 0, NextOffset: 0 }),
+      2404770757: (req: any) => utf8Length(req.Content ?? ''),
+      302086400: () => {
+        mockState.graphBufferText = '';
+        return null;
+      },
+      3006074319: (id: string) => {
+        const info = mockState.graphRuntimes.get(id);
+        if (info) {
+          mockState.graphRuntimes.set(id, {
+            ...info,
+            Status: 'stopped',
+            Nodes: (info.Nodes ?? []).map((node: any) => ({ ...node, Status: 'stopped' })),
+          });
+        }
+        return null;
+      },
+      3144020029: () => null,
       3331981752: (req: any) => utf8Length(req.Content ?? ''),
       3380062301: () => null,
       1653301220: () => ({ CPUPercent: 7.5, MemoryBytes: 64 * 1024 * 1024 }),

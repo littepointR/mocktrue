@@ -69,3 +69,24 @@ func TestIndexInsertAndFind(t *testing.T) {
 		t.Fatalf("FindByFrameNo(2) = offset %d, want 200", entry.Offset)
 	}
 }
+
+func TestIndexResetClearsEntries(t *testing.T) {
+	t.Parallel()
+	idx := NewIndex()
+	idx.Insert(IndexEntry{Offset: 100, Ts: 2000, FrameNo: 2})
+
+	idx.Reset()
+
+	if _, found := idx.FindByTs(2000); found {
+		t.Fatalf("FindByTs after Reset found an entry")
+	}
+	if _, found := idx.FindByFrameNo(2); found {
+		t.Fatalf("FindByFrameNo after Reset found an entry")
+	}
+
+	idx.Insert(IndexEntry{Offset: 0, Ts: 3000, FrameNo: 3})
+	entry, found := idx.FindByTs(3000)
+	if !found || entry.Offset != 0 || entry.FrameNo != 3 {
+		t.Fatalf("FindByTs after reuse = %+v, found %v; want reset index to accept new entries", entry, found)
+	}
+}

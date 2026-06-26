@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/dop251/goja"
 )
 
 func TestSerialScriptRuntimeFunctionAPI(t *testing.T) {
@@ -230,6 +232,181 @@ func TestSerialScriptRuntimeRejectsUnavailableAPIsByNodeType(t *testing.T) {
 			_, err := runtime.run(serialScriptRunInput{Data: tc.input})
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("run error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestSerialScriptRuntimeUsesDefaultsForNonPositiveLimits(t *testing.T) {
+	runtime := newSerialScriptRuntimeForNode("serial.script.transform", map[string]any{
+		"script":         `output.text("ok");`,
+		"timeoutMs":      0,
+		"maxOutputBytes": 0,
+		"maxStateBytes":  0,
+	})
+
+	if runtime.timeout != serialScriptDefaultTimeout {
+		t.Fatalf("timeout = %s, want default %s", runtime.timeout, serialScriptDefaultTimeout)
+	}
+	if runtime.maxOutputSize != serialScriptDefaultMaxOutputSize {
+		t.Fatalf("maxOutputSize = %d, want default %d", runtime.maxOutputSize, serialScriptDefaultMaxOutputSize)
+	}
+	if runtime.state.maxSize != serialScriptDefaultMaxStateSize {
+		t.Fatalf("state maxSize = %d, want default %d", runtime.state.maxSize, serialScriptDefaultMaxStateSize)
+	}
+}
+
+func TestSerialScriptRuntimeCoversErrorBranchesAndDisplayFields(t *testing.T) {
+	t.Run("empty script", func(t *testing.T) {
+		runtime := newSerialScriptRuntime(map[string]any{"script": "   "})
+		if _, err := runtime.run(serialScriptRunInput{}); err == nil || !strings.Contains(err.Error(), "script must not be empty") {
+			t.Fatalf("empty script error = %v, want validation error", err)
+		}
+	})
+
+	for _, tc := range []struct {
+		name   string
+		script string
+		input  []byte
+		limit  int
+		want   string
+	}{
+		{name: "input text unsupported encoding", script: `input.text("unsupported");`, input: []byte("abc"), want: "unsupported text encoding"},
+		{name: "output hex invalid", script: `output.hex("zz");`, want: "invalid byte"},
+		{name: "output text unsupported ascii rune", script: `output.text("é", "ascii");`, want: "not supported by ascii"},
+		{name: "output text over limit", script: `output.text("too long");`, limit: 2, want: "output exceeds"},
+		{name: "output bytes invalid numeric", script: `output.bytes([256]);`, want: "not numeric"},
+		{name: "crc16 invalid bytes", script: `crc16(["bad"]);`, want: "not numeric"},
+		{name: "sum8 invalid bytes", script: `sum8(["bad"]);`, want: "not numeric"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			maxOutputBytes := tc.limit
+			if maxOutputBytes == 0 {
+				maxOutputBytes = 64
+			}
+			runtime := newSerialScriptRuntime(map[string]any{
+				"script":         tc.script,
+				"timeoutMs":      100,
+				"maxOutputBytes": maxOutputBytes,
+			})
+			_, err := runtime.run(serialScriptRunInput{Data: tc.input})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("run error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	t.Run("field display and empty outputs", func(t *testing.T) {
+		runtime := newSerialScriptRuntime(map[string]any{
+			"script":    `field("speed", 115200, "115.2 kbps"); output.bytes(null); output.bytes([]); drop();`,
+			"timeoutMs": 100,
+		})
+		result, err := runtime.run(serialScriptRunInput{})
+		if err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+		if len(result.Output) != 0 || !result.Drop {
+			t.Fatalf("result output=% x drop=%v, want dropped empty output", result.Output, result.Drop)
+		}
+		if len(result.Fields) != 1 || result.Fields[0].Name != "speed" || result.Fields[0].Display != "115.2 kbps" {
+			t.Fatalf("fields = %#v, want speed field with display text", result.Fields)
+		}
+	})
+}
+
+func TestSerialScriptStateRejectsUncloneableValues(t *testing.T) {
+	state := newSerialScriptState(64)
+	state.values["bad"] = func() {}
+	if got := state.get("bad"); got != nil {
+		t.Fatalf("state.get uncloneable value = %#v, want nil", got)
+	}
+	if err := state.set("bad", func() {}); err == nil {
+		t.Fatalf("state.set must reject values that cannot be JSON cloned")
+	}
+	if _, err := jsonEncodedSize(func() {}); err == nil {
+		t.Fatalf("jsonEncodedSize must reject values that cannot be JSON encoded")
+	}
+	if _, err := jsonCompatibleClone(func() {}); err == nil {
+		t.Fatalf("jsonCompatibleClone must reject values that cannot be JSON cloned")
+	}
+}
+
+func TestGojaValueToBytesCoversSupportedAndInvalidValues(t *testing.T) {
+	vm := goja.New()
+	tests := []struct {
+		name    string
+		value   goja.Value
+		want    []byte
+		wantErr string
+	}{
+		{name: "undefined", value: goja.Undefined()},
+		{name: "null", value: goja.Null()},
+		{name: "bytes", value: vm.ToValue([]byte{0x01, 0x02}), want: []byte{0x01, 0x02}},
+		{name: "ints", value: vm.ToValue([]int{0, 255}), want: []byte{0x00, 0xff}},
+		{name: "int out of range", value: vm.ToValue([]int{256}), wantErr: "out of range"},
+		{name: "any numeric", value: vm.ToValue([]any{float64(1), int64(2), uint8(3)}), want: []byte{0x01, 0x02, 0x03}},
+		{name: "any nonnumeric", value: vm.ToValue([]any{"x"}), wantErr: "not numeric"},
+		{name: "string", value: vm.ToValue("abc"), want: []byte("abc")},
+		{name: "unsupported", value: vm.ToValue(true), wantErr: "unsupported byte value"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := gojaValueToBytes(tt.value)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("gojaValueToBytes error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("gojaValueToBytes returned error: %v", err)
+			}
+			if string(got) != string(tt.want) {
+				t.Fatalf("gojaValueToBytes = % x, want % x", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNumericByteCoversIntegerAndFloatShapes(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  int
+		ok    bool
+	}{
+		{name: "int", value: int(255), want: 255, ok: true},
+		{name: "int negative", value: int(-1)},
+		{name: "int8", value: int8(127), want: 127, ok: true},
+		{name: "int8 negative", value: int8(-1)},
+		{name: "int16", value: int16(255), want: 255, ok: true},
+		{name: "int16 too large", value: int16(256)},
+		{name: "int32", value: int32(255), want: 255, ok: true},
+		{name: "int32 too large", value: int32(256)},
+		{name: "int64", value: int64(255), want: 255, ok: true},
+		{name: "int64 too large", value: int64(256)},
+		{name: "uint", value: uint(255), want: 255, ok: true},
+		{name: "uint too large", value: uint(256)},
+		{name: "uint8", value: uint8(7), want: 7, ok: true},
+		{name: "uint16", value: uint16(255), want: 255, ok: true},
+		{name: "uint16 too large", value: uint16(256)},
+		{name: "uint32", value: uint32(255), want: 255, ok: true},
+		{name: "uint32 too large", value: uint32(256)},
+		{name: "uint64", value: uint64(255), want: 255, ok: true},
+		{name: "uint64 too large", value: uint64(256)},
+		{name: "float32 integer", value: float32(42), want: 42, ok: true},
+		{name: "float32 fractional", value: float32(42.5)},
+		{name: "float64 integer", value: float64(43), want: 43, ok: true},
+		{name: "float64 fractional", value: float64(43.5)},
+		{name: "unsupported", value: "44"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := numericByte(tt.value)
+			if ok != tt.ok || (ok && got != tt.want) {
+				t.Fatalf("numericByte(%T(%v)) = %d, %v; want %d, %v", tt.value, tt.value, got, ok, tt.want, tt.ok)
 			}
 		})
 	}

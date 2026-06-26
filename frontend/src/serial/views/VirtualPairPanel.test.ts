@@ -23,7 +23,7 @@ const virtualApi = vi.hoisted(() => {
   }
 })
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => virtualApi)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => virtualApi)
 vi.mock('naive-ui', () => naiveStubs)
 
 describe('VirtualPairPanel', () => {

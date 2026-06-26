@@ -5,7 +5,7 @@ import type { ComponentPublicInstance } from 'vue'
 import ModbusPanel from './ModbusPanel.vue'
 import { useModbusStore } from '../stores/modbusStore'
 import { serialService } from '../services/serialService'
-import { FrameMode, SessionRole } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
+import { FrameMode, SessionRole } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/modbus/models.js'
 
 vi.mock('../services/serialService', () => ({
   serialService: {

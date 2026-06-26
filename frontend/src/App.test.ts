@@ -18,7 +18,7 @@ const workspaceBindings = vi.hoisted(() => ({
   ReadWorkspace: vi.fn(async (path: string) => ({
     Path: path,
     Content: JSON.stringify({
-      kind: 'mocktrue.graph.v1',
+      kind: 'portweave.graph.v1',
       settings: {},
       graph: {
         id: 'opened-graph',
@@ -38,7 +38,7 @@ const workspaceBindings = vi.hoisted(() => ({
   SelectWorkspaceSavePath: vi.fn(async () => '/tmp/save-as.portweave.json'),
 }))
 
-vi.mock('../bindings/github.com/littepointR/mocktrue/internal/core/workspace/service.js', () => workspaceBindings)
+vi.mock('../bindings/github.com/littepointR/portweave/internal/core/workspace/service.js', () => workspaceBindings)
 
 describe('App settings effects', () => {
   beforeEach(() => {
@@ -323,7 +323,7 @@ const stubs = {
 
 function graphSnapshot(id: string, name: string, terminalFontSize: number) {
   return {
-    kind: 'mocktrue.graph.v1',
+    kind: 'portweave.graph.v1',
     settings: {
       serial: {
         ...defaultSerialSettings,

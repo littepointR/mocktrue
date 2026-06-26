@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/littepointR/mocktrue/internal/core/errors"
+	"github.com/littepointR/portweave/internal/core/errors"
 )
 
 // Manager manages multiple virtual serial pairs and bridges.

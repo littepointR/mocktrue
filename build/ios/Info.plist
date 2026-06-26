@@ -9,7 +9,7 @@
 		<key>CFBundleGetInfoString</key>
 		<string>PortWeave — cross-platform embedded debugging toolkit</string>
 		<key>CFBundleIdentifier</key>
-		<string>com.mocktrue.app</string>
+		<string>com.portweave.app</string>
 		<key>CFBundleName</key>
 		<string>PortWeave</string>
 		<key>CFBundlePackageType</key>

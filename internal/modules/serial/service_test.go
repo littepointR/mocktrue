@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/littepointR/mocktrue/internal/core/eventbus"
-	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
-	"github.com/littepointR/mocktrue/internal/modules/serial/monitor"
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
-	"github.com/littepointR/mocktrue/internal/modules/serial/porttest"
+	"github.com/littepointR/portweave/internal/core/eventbus"
+	"github.com/littepointR/portweave/internal/modules/serial/manager"
+	"github.com/littepointR/portweave/internal/modules/serial/monitor"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/modules/serial/porttest"
 	goserial "go.bug.st/serial"
 )
 

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
 )
 
 // MemoryBackend is a deterministic in-memory implementation of port.Backend for

@@ -33,7 +33,7 @@ const serialServiceMock = vi.hoisted(() => ({
   ]),
 }))
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => virtualApi)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => virtualApi)
 vi.mock('../services/serialService', () => ({ serialService: serialServiceMock }))
 vi.mock('naive-ui', () => naiveStubs)
 

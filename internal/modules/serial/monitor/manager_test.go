@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	coreerrors "github.com/littepointR/mocktrue/internal/core/errors"
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
-	"github.com/littepointR/mocktrue/internal/modules/serial/virtualserial"
+	coreerrors "github.com/littepointR/portweave/internal/core/errors"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/modules/serial/virtualserial"
 )
 
 func TestManagerRejectsInvalidStartRequests(t *testing.T) {

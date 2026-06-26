@@ -11,7 +11,7 @@
 		<key>CFBundleIconName</key>
 		<string>appicon</string>
 		<key>CFBundleIdentifier</key>
-		<string>com.mocktrue.app</string>
+		<string>com.portweave.app</string>
 		<key>CFBundleName</key>
 		<string>PortWeave</string>
 		<key>CFBundlePackageType</key>

@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
-	"github.com/littepointR/mocktrue/internal/core/platform"
+	mterrors "github.com/littepointR/portweave/internal/core/errors"
+	"github.com/littepointR/portweave/internal/core/platform"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

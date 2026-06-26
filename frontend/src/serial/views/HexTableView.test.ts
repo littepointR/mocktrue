@@ -32,7 +32,7 @@ const runtimeApi = vi.hoisted(() => {
   return state
 })
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => serviceApi)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => serviceApi)
 vi.mock('../services/serialService', () => ({ serialService: {} }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: runtimeApi.On } }))
 vi.mock('naive-ui', () => ({

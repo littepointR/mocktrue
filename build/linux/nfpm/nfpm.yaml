@@ -12,7 +12,7 @@ priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
 description: "跨平台高性能嵌入式调试工具"
 vendor: "PortWeave"
-homepage: "https://github.com/littepointR/mocktrue"
+homepage: "https://wails.io"
 license: "MIT"
 release: "1"
 

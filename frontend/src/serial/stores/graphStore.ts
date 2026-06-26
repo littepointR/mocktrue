@@ -9,10 +9,10 @@ import {
   SendSerialGraphNode,
   StartSerialGraph,
   StopSerialGraph,
-} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
-import type { Snapshot } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/buffer/models.js'
-import type { Frame } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/monitor/models.js'
-import type { SerialGraphRuntimeInfo, SerialGraphNodeStatus } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/models.js'
+} from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js'
+import type { Snapshot } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/buffer/models.js'
+import type { Frame } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/monitor/models.js'
+import type { SerialGraphRuntimeInfo, SerialGraphNodeStatus } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/models.js'
 import {
   canConnect,
   cloneSerialGraphDocument,

@@ -4,7 +4,7 @@ import { Events } from '@wailsio/runtime'
 import { useSerialStore } from '../stores/serialStore'
 import { useVirtualWindow } from '../../shared/composables/useVirtualWindow'
 import { useBlobChunk } from '../../shared/composables/useBlobChunk'
-import { QueryPage } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
+import { QueryPage } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js'
 
 const ROW_BYTES = 16
 const ROW_HEIGHT = 20

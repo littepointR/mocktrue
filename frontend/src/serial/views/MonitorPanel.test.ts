@@ -39,7 +39,7 @@ vi.mock('../services/serialService', () => ({
   },
 }))
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => ({
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => ({
   StartMonitor: vi.fn(),
   StartAutoVirtualMonitor: vi.fn(),
   ListMonitors: vi.fn(async () => []),

@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
+	mterrors "github.com/littepointR/portweave/internal/core/errors"
 )
 
 // Paths is the set of per-OS application directories, all absolute and

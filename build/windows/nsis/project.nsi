@@ -19,7 +19,7 @@ Unicode true
 ####
 ## The following information is taken from the wails_tools.nsh file, but they can be overwritten here.
 ####
-## !define INFO_PROJECTNAME    "my-project" # Default "mocktrue"
+## !define INFO_PROJECTNAME    "my-project" # Default "portweave"
 ## !define INFO_COMPANYNAME    "PortWeave" # Default "PortWeave"
 ## !define INFO_PRODUCTNAME    "PortWeave" # Default "PortWeave"
 ## !define INFO_PRODUCTVERSION "1.0.0"     # Default "0.1.0"

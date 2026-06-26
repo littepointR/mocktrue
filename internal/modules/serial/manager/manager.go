@@ -6,9 +6,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/littepointR/mocktrue/internal/core/errors"
-	"github.com/littepointR/mocktrue/internal/core/eventbus"
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/core/errors"
+	"github.com/littepointR/portweave/internal/core/eventbus"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
 )
 
 // PortManager manages multiple concurrent serial port handles.

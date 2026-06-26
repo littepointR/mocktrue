@@ -10,9 +10,9 @@ import (
 
 	goserial "go.bug.st/serial"
 
-	"github.com/littepointR/mocktrue/internal/core/eventbus"
-	"github.com/littepointR/mocktrue/internal/modules/serial"
-	"github.com/littepointR/mocktrue/tests/automation/helpers"
+	"github.com/littepointR/portweave/internal/core/eventbus"
+	"github.com/littepointR/portweave/internal/modules/serial"
+	"github.com/littepointR/portweave/tests/automation/helpers"
 )
 
 // TestVirtualPairLifecycle 测试虚拟串口对的完整生命周期

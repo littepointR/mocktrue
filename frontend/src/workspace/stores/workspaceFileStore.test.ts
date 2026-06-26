@@ -20,7 +20,7 @@ const workspaceServiceMock = vi.hoisted(() => {
 
   function graphFile(path: string, name: string) {
     return JSON.stringify({
-      kind: 'mocktrue.graph.v1',
+      kind: 'portweave.graph.v1',
       settings: { serial: defaultSerialSettings },
       graph: {
         id: path.includes('last') ? 'last-graph' : 'imported-graph',
@@ -48,8 +48,8 @@ const serialBindingsMock = vi.hoisted(() => ({
   ResetSerialGraphNodeCounters: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/core/workspace/service.js', () => workspaceServiceMock)
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => serialBindingsMock)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/core/workspace/service.js', () => workspaceServiceMock)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => serialBindingsMock)
 
 describe('workspaceFileStore graph tab files', () => {
   beforeEach(() => {
@@ -91,7 +91,7 @@ describe('workspaceFileStore graph tab files', () => {
     expect(path).toBe('/tmp/default.portweave.json')
     expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalledWith(
       '/tmp/default.portweave.json',
-      expect.stringContaining('mocktrue.graph.v1')
+      expect.stringContaining('portweave.graph.v1')
     )
     const savedContent = workspaceServiceMock.SaveWorkspace.mock.calls[0]?.[1] as string
     expect(savedContent).toContain('主拓扑')
@@ -152,7 +152,7 @@ describe('workspaceFileStore graph tab files', () => {
     expect(workspaceServiceMock.SelectWorkspaceSavePath).toHaveBeenCalled()
     expect(workspaceServiceMock.SaveWorkspace).toHaveBeenCalledWith(
       '/tmp/selected-save.portweave.json',
-      expect.stringContaining('mocktrue.graph.v1')
+      expect.stringContaining('portweave.graph.v1')
     )
     expect(files.graphState(graphId)?.readOnly).toBe(false)
     expect(files.graphState(graphId)?.sourceKind).toBe('file')
@@ -173,7 +173,7 @@ describe('workspaceFileStore graph tab files', () => {
   })
 
   it('keeps only the demo graph when startup restore races with loading an example', async () => {
-    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/startup.portweave.json']))
+    localStorage.setItem('portweave.open-config-files.v1', JSON.stringify(['/tmp/startup.portweave.json']))
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
     const releaseRead = deferred<void>()
@@ -194,7 +194,7 @@ describe('workspaceFileStore graph tab files', () => {
   })
 
   it('replaces a clean empty topology restored from a workspace without graph state when loading an example', async () => {
-    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/empty-workspace.portweave.json']))
+    localStorage.setItem('portweave.open-config-files.v1', JSON.stringify(['/tmp/empty-workspace.portweave.json']))
     workspaceServiceMock.readFiles.set('/tmp/empty-workspace.portweave.json', workspaceFileWithoutGraph())
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
@@ -212,7 +212,7 @@ describe('workspaceFileStore graph tab files', () => {
   it('prevents two graph tabs from binding to the same file path', async () => {
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
-    files.markClean('/tmp/current.portweave.json', { kind: 'mocktrue.graph.v1', graph: 'one' }, 'graph-1')
+    files.markClean('/tmp/current.portweave.json', { kind: 'portweave.graph.v1', graph: 'one' }, 'graph-1')
     const second = graph.createGraph('第二拓扑')
     files.syncGraphSnapshot(second.id)
 
@@ -230,7 +230,7 @@ describe('workspaceFileStore graph tab files', () => {
   })
 
   it('loads recent files from local storage as graph tabs on startup', async () => {
-    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/first.portweave.json', '/tmp/second.portweave.json']))
+    localStorage.setItem('portweave.open-config-files.v1', JSON.stringify(['/tmp/first.portweave.json', '/tmp/second.portweave.json']))
     workspaceServiceMock.readFiles.set('/tmp/first.portweave.json', graphFile('/tmp/first.portweave.json', '第一拓扑'))
     workspaceServiceMock.readFiles.set('/tmp/second.portweave.json', graphFile('/tmp/second.portweave.json', '第二拓扑'))
     const graph = useSerialGraphStore()
@@ -331,20 +331,20 @@ describe('workspaceFileStore graph tab files', () => {
     expect(exported).toBe('/tmp/selected-save.portweave.json')
     expect(workspaceServiceMock.ExportWorkspace).toHaveBeenCalledWith(
       '/tmp/selected-save.portweave.json',
-      expect.stringContaining('mocktrue.graph.v1')
+      expect.stringContaining('portweave.graph.v1')
     )
     expect(graph.graphList.map(item => item.name)).toContain('导入拓扑')
   })
 
   it('falls back from invalid recent storage and filters saved recent file lists', async () => {
-    localStorage.setItem('mocktrue.open-config-files.v1', 'not json')
+    localStorage.setItem('portweave.open-config-files.v1', 'not json')
     workspaceServiceMock.LoadLastWorkspace.mockResolvedValueOnce({ Found: false, Path: '', Content: '' })
     const files = useWorkspaceFileStore()
 
     await expect(files.loadLast()).resolves.toBe(false)
     expect(workspaceServiceMock.LoadLastWorkspace).toHaveBeenCalled()
 
-    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/recent.portweave.json', 42, null]))
+    localStorage.setItem('portweave.open-config-files.v1', JSON.stringify(['/tmp/recent.portweave.json', 42, null]))
     workspaceServiceMock.readFiles.set('/tmp/recent.portweave.json', graphFile('/tmp/recent.portweave.json', '最近拓扑'))
 
     await expect(files.loadLast()).resolves.toBe(true)
@@ -352,7 +352,7 @@ describe('workspaceFileStore graph tab files', () => {
   })
 
   it('returns false when all recent workspace restores fail during startup', async () => {
-    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/broken-only.portweave.json']))
+    localStorage.setItem('portweave.open-config-files.v1', JSON.stringify(['/tmp/broken-only.portweave.json']))
     workspaceServiceMock.ReadWorkspace.mockRejectedValueOnce(new Error('broken recent file'))
     const files = useWorkspaceFileStore()
 
@@ -441,7 +441,7 @@ describe('workspaceFileStore graph tab files', () => {
   })
 
   it('continues startup restore after recent-file failures and keeps dirty graphs while loading demos', async () => {
-    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify(['/tmp/broken.portweave.json', '/tmp/good.portweave.json']))
+    localStorage.setItem('portweave.open-config-files.v1', JSON.stringify(['/tmp/broken.portweave.json', '/tmp/good.portweave.json']))
     workspaceServiceMock.ReadWorkspace.mockRejectedValueOnce(new Error('broken recent file'))
     workspaceServiceMock.readFiles.set('/tmp/good.portweave.json', graphFile('/tmp/good.portweave.json', '恢复拓扑'))
     const graph = useSerialGraphStore()
@@ -528,7 +528,7 @@ describe('workspaceFileStore graph tab files', () => {
   })
 
   it('treats blank clean graph states and object-shaped recent storage as fallback startup cases', async () => {
-    localStorage.setItem('mocktrue.open-config-files.v1', JSON.stringify({ path: '/tmp/not-a-list.portweave.json' }))
+    localStorage.setItem('portweave.open-config-files.v1', JSON.stringify({ path: '/tmp/not-a-list.portweave.json' }))
     workspaceServiceMock.LoadLastWorkspace.mockResolvedValueOnce({ Found: false, Path: '', Content: '' })
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
@@ -574,7 +574,7 @@ describe('workspaceFileStore graph tab files', () => {
 
 function graphFile(path: string, name: string, serialSettings: Partial<typeof defaultSerialSettings> = {}) {
   return JSON.stringify({
-    kind: 'mocktrue.graph.v1',
+    kind: 'portweave.graph.v1',
     settings: { serial: { ...defaultSerialSettings, ...serialSettings } },
     graph: {
       id: path.includes('second') ? 'second-graph' : 'first-graph',
@@ -592,7 +592,7 @@ function graphFile(path: string, name: string, serialSettings: Partial<typeof de
 
 function workspaceFileWithoutGraph() {
   return JSON.stringify({
-    kind: 'mocktrue.workspace.v1',
+    kind: 'portweave.workspace.v1',
     settings: { serial: defaultSerialSettings },
     serial: {
       activePortId: '',

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.mocktrue.app'
+    namespace 'com.portweave.app'
     compileSdk 34
 
     buildFeatures {
@@ -11,7 +11,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.mocktrue.app"
+        applicationId "com.portweave.app"
         minSdk 21
         targetSdk 34
         versionCode 1

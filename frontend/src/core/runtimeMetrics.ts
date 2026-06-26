@@ -1,5 +1,5 @@
-import { Snapshot } from '../../bindings/github.com/littepointR/mocktrue/internal/core/runtime/service.js'
-import type { Metrics } from '../../bindings/github.com/littepointR/mocktrue/internal/core/runtime/models.js'
+import { Snapshot } from '../../bindings/github.com/littepointR/portweave/internal/core/runtime/service.js'
+import type { Metrics } from '../../bindings/github.com/littepointR/portweave/internal/core/runtime/models.js'
 
 export type RuntimeMetrics = Metrics
 

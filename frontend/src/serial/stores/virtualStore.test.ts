@@ -12,7 +12,7 @@ const bindings = vi.hoisted(() => ({
   CleanupVirtual: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => bindings)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => bindings)
 
 describe('virtual store', () => {
   beforeEach(() => {

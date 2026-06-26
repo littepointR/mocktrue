@@ -3,7 +3,7 @@ package templates
 import (
 	"testing"
 
-	"github.com/littepointR/mocktrue/internal/modules/serial/protocol"
+	"github.com/littepointR/portweave/internal/modules/serial/protocol"
 )
 
 func TestGetTemplateModbus(t *testing.T) {

@@ -10,7 +10,7 @@ import {
   SaveWorkspace,
   SelectWorkspaceOpenPath,
   SelectWorkspaceSavePath,
-} from '../../../bindings/github.com/littepointR/mocktrue/internal/core/workspace/service.js'
+} from '../../../bindings/github.com/littepointR/portweave/internal/core/workspace/service.js'
 import {
   buildGraphTabSnapshot,
   graphTabSnapshotsFromUnknown,
@@ -37,7 +37,7 @@ interface GraphFileState {
   title?: string
 }
 
-const recentFilesStorageKey = 'mocktrue.open-config-files.v1'
+const recentFilesStorageKey = 'portweave.open-config-files.v1'
 
 export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
   const demos = listDemoWorkspaces()
@@ -253,7 +253,7 @@ export const useWorkspaceFileStore = defineStore('workspaceFile', () => {
             path: index === 0 ? file.Path : '',
             savedSnapshot: stableStringify(cleanSnapshot),
             currentSnapshot: stableStringify(cleanSnapshot),
-            sourceKind: originalKind === 'mocktrue.graph.v1' ? 'file' : 'legacy',
+            sourceKind: originalKind === 'portweave.graph.v1' ? 'file' : 'legacy',
             readOnly: false,
           })
           opened.push(graphId)

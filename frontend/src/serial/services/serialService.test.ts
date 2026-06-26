@@ -35,7 +35,7 @@ const bindings = vi.hoisted(() => ({
   UpdateModbusSlaveUnitData: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => bindings)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => bindings)
 
 import { SerialService } from './serialService'
 

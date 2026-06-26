@@ -3,7 +3,7 @@ package virtualserial
 import (
 	"sync"
 
-	"github.com/littepointR/mocktrue/internal/core/errors"
+	"github.com/littepointR/portweave/internal/core/errors"
 	"go.bug.st/serial"
 )
 

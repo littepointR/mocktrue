@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-const storageKey = 'mocktrue.settings.v1'
+const storageKey = 'portweave.settings.v1'
 
 export interface GlobalSettings {
   Theme: 'dark' | 'light' | 'system'

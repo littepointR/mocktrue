@@ -16,10 +16,10 @@ import (
 
 	goserial "go.bug.st/serial"
 
-	"github.com/littepointR/mocktrue/internal/modules/serial"
-	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
-	"github.com/littepointR/mocktrue/tests/automation/helpers"
+	"github.com/littepointR/portweave/internal/modules/serial"
+	"github.com/littepointR/portweave/internal/modules/serial/manager"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
+	"github.com/littepointR/portweave/tests/automation/helpers"
 )
 
 // TestSerialPortLifecycle 测试串口完整生命周期

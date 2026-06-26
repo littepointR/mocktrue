@@ -1,6 +1,6 @@
 # PortWeave
 
-[![CI](https://github.com/littepointR/mocktrue/actions/workflows/ci.yml/badge.svg)](https://github.com/littepointR/mocktrue/actions/workflows/ci.yml)
+[![CI](https://github.com/littepointR/portweave/actions/workflows/ci.yml/badge.svg)](https://github.com/littepointR/portweave/actions/workflows/ci.yml)
 
 PortWeave 是一个跨平台高性能嵌入式调试工具，面向串口、协议调试、虚拟设备模拟和自动化验证场景。
 

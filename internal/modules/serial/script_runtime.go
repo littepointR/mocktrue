@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
-	mb "github.com/littepointR/mocktrue/internal/modules/serial/modbus"
+	mb "github.com/littepointR/portweave/internal/modules/serial/modbus"
 )
 
 const (

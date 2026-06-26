@@ -17,9 +17,9 @@ import {
   slaveGridToDataModel,
   useModbusStore,
 } from './modbusStore'
-import { DataType, WordOrder } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
-import type { SessionInfo, SlaveUnitInfo } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
-import { FrameMode } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
+import { DataType, WordOrder } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/modbus/models.js'
+import type { SessionInfo, SlaveUnitInfo } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/modbus/models.js'
+import { FrameMode } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/modbus/models.js'
 
 const serialServiceMock = vi.hoisted(() => ({
   listModbusSessions: vi.fn(async (): Promise<SessionInfo[]> => []),

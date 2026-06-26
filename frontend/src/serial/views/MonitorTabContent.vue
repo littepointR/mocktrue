@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NInput, NSelect } from 'naive-ui'
 import { useMonitorStore, type MonitorDisplayMode } from '../stores/monitorStore'
 import ResizableTable, { type ResizableTableColumn } from '../components/ResizableTable.vue'
-import type { Frame } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/monitor/models.js'
+import type { Frame } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/monitor/models.js'
 
 const props = defineProps<{
   monitorId: string

@@ -8,7 +8,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
+	mterrors "github.com/littepointR/portweave/internal/core/errors"
 )
 
 // ModuleRegistry manages module registration and the ordered Init/Start/Stop

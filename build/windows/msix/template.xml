@@ -25,7 +25,7 @@
         </Capabilities>
         <Applications>
             <Application
-                Id="com.mocktrue.app"
+                Id="com.portweave.app"
                 Description="Cross-platform embedded debugging toolkit"
                 DisplayName="PortWeave"
                 ExecutableName="portweave"

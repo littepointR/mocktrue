@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/littepointR/mocktrue/internal/core/eventbus"
-	fb "github.com/littepointR/mocktrue/internal/modules/serial/fecbus"
-	mb "github.com/littepointR/mocktrue/internal/modules/serial/modbus"
+	"github.com/littepointR/portweave/internal/core/eventbus"
+	fb "github.com/littepointR/portweave/internal/modules/serial/fecbus"
+	mb "github.com/littepointR/portweave/internal/modules/serial/modbus"
 )
 
 func TestServiceProtocolFacadeEmptyState(t *testing.T) {

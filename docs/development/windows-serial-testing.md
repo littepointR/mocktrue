@@ -29,8 +29,8 @@ Install and configure a linked virtual COM pair with com0com, for example `COM7`
 Then run:
 
 ```powershell
-$env:MOCKTRUE_TEST_COM_A = "COM7"
-$env:MOCKTRUE_TEST_COM_B = "COM8"
+$env:PORTWEAVE_TEST_COM_A = "COM7"
+$env:PORTWEAVE_TEST_COM_B = "COM8"
 go test -tags integration ./tests/go/integration -run TestWindowsVirtualCOMPairRoundTrip -count=1 -v
 ```
 

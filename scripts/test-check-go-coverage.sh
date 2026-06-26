@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 gate="${script_dir}/check-go-coverage.sh"
-tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/mocktrue-go-coverage.XXXXXX")"
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/portweave-go-coverage.XXXXXX")"
 trap 'rm -R "${tmpdir}"' EXIT
 
 below_profile="${tmpdir}/below-threshold.out"
@@ -25,16 +25,16 @@ duplicate_profile = Path(sys.argv[3])
 # the rounded `go tool cover -func` total and could treat this as 90.0%.
 below_profile.write_text(
     "mode: set\n"
-    "github.com/littepointR/mocktrue/internal/core/app/app.go:1.1,2.1 2249 1\n"
-    "github.com/littepointR/mocktrue/internal/core/app/app.go:2.1,3.1 251 0\n",
+    "github.com/littepointR/portweave/internal/core/app/app.go:1.1,2.1 2249 1\n"
+    "github.com/littepointR/portweave/internal/core/app/app.go:2.1,3.1 251 0\n",
     encoding="utf-8",
 )
 
 # 2250 covered statements out of 2500 is exactly 90.0% and must pass.
 at_threshold_profile.write_text(
     "mode: set\n"
-    "github.com/littepointR/mocktrue/internal/core/app/app.go:1.1,2.1 2250 1\n"
-    "github.com/littepointR/mocktrue/internal/core/app/app.go:2.1,3.1 250 0\n",
+    "github.com/littepointR/portweave/internal/core/app/app.go:1.1,2.1 2250 1\n"
+    "github.com/littepointR/portweave/internal/core/app/app.go:2.1,3.1 250 0\n",
     encoding="utf-8",
 )
 
@@ -42,9 +42,9 @@ at_threshold_profile.write_text(
 # package's tests should count covered once, not uncovered/covered duplicates.
 duplicate_profile.write_text(
     "mode: set\n"
-    "github.com/littepointR/mocktrue/internal/core/app/app.go:1.1,2.1 1 0\n"
-    "github.com/littepointR/mocktrue/internal/core/app/app.go:1.1,2.1 1 1\n"
-    "github.com/littepointR/mocktrue/internal/core/app/app.go:2.1,3.1 1 0\n",
+    "github.com/littepointR/portweave/internal/core/app/app.go:1.1,2.1 1 0\n"
+    "github.com/littepointR/portweave/internal/core/app/app.go:1.1,2.1 1 1\n"
+    "github.com/littepointR/portweave/internal/core/app/app.go:2.1,3.1 1 0\n",
     encoding="utf-8",
 )
 PY

@@ -16,8 +16,8 @@ import type {
   Transaction,
   UnitScanRequest,
   UnitScanResult,
-} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
-import { AddressMode, DataType, FrameMode, SessionRole, WordOrder } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/modbus/models.js'
+} from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/modbus/models.js'
+import { AddressMode, DataType, FrameMode, SessionRole, WordOrder } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/modbus/models.js'
 
 export type ModbusFrameMode = 'rtu' | 'ascii'
 export type ModbusAddressMode = 'zero-based' | 'plc'

@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/littepointR/mocktrue/internal/core/platform"
+	"github.com/littepointR/portweave/internal/core/platform"
 )
 
 func TestServiceSaveReadAndRememberLastWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(&platform.Paths{ConfigDir: dir, DataDir: dir})
 	path := filepath.Join(dir, "session.portweave.json")
-	content := `{"kind":"mocktrue.workspace.v1","settings":{"global":{"Theme":"dark"}}}`
+	content := `{"kind":"portweave.workspace.v1","settings":{"global":{"Theme":"dark"}}}`
 
 	if err := svc.SaveWorkspace(context.Background(), path, content); err != nil {
 		t.Fatalf("SaveWorkspace: %v", err)

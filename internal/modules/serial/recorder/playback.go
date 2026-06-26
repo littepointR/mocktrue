@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/google/gopacket/pcapgo"
-	"github.com/littepointR/mocktrue/internal/core/errors"
+	"github.com/littepointR/portweave/internal/core/errors"
 )
 
 // Playback reads frames from a pcap-ng file.

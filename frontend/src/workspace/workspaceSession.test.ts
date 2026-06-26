@@ -57,7 +57,7 @@ vi.mock('../serial/services/serialService', () => ({
   serialService: serialServiceMock,
 }))
 
-vi.mock('../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => serialBindingsMock)
+vi.mock('../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => serialBindingsMock)
 
 describe('workspace session snapshot', () => {
   beforeEach(() => {
@@ -95,7 +95,7 @@ describe('workspace session snapshot', () => {
     const snapshot = buildWorkspaceSnapshot()
     const graph = activeGraph(snapshot.serial.graph)
 
-    expect(snapshot.kind).toBe('mocktrue.workspace.v1')
+    expect(snapshot.kind).toBe('portweave.workspace.v1')
     expect((snapshot.settings as any).global).toBeUndefined()
     expect(snapshot.settings.serial.TerminalFontSize).toBe(17)
     expect(snapshot.serial.handles[0].id).toBe('port-1')
@@ -135,7 +135,7 @@ describe('workspace session snapshot', () => {
   it('restores a snapshot with a legacy single graph and remaps old handle ids to newly opened handles', async () => {
     useSettingsStore().updateGlobal({ Theme: 'dark' })
     const result = await restoreWorkspaceSnapshot({
-      kind: 'mocktrue.workspace.v1',
+      kind: 'portweave.workspace.v1',
       settings: {
         ...useSettingsStore().snapshot(),
         global: { Theme: 'light' },
@@ -253,7 +253,7 @@ describe('workspace session snapshot', () => {
     settings.updateSerial({ TerminalFontSize: 11, TextEncoding: 'utf-8' })
 
     await restoreGraphTabSnapshot({
-      kind: 'mocktrue.graph.v1',
+      kind: 'portweave.graph.v1',
       settings: {
         serial: {
           ...settings.snapshot().serial,
@@ -330,7 +330,7 @@ describe('workspace session snapshot', () => {
 
     const snapshot = buildGraphTabSnapshot('graph-1')
 
-    expect(snapshot.kind).toBe('mocktrue.graph.v1')
+    expect(snapshot.kind).toBe('portweave.graph.v1')
     expect(snapshot.runtime.nodeBuffers[sender.id].map(chunk => Array.from(base64ToBytes(chunk.data)))).toEqual([[65], [66, 67], [68]])
     expect(snapshot.runtime.nodeBuffers[sender.id][2].timestamp).toBe(0)
     expect(Array.from(base64ToBytes(snapshot.runtime.nodeBuffers['empty-node'][0].data))).toEqual([])
@@ -346,7 +346,7 @@ describe('workspace session snapshot', () => {
     expect(runtime.nodeFrames[sender.id]).toEqual([expect.objectContaining({ Seq: 1, DisplayHex: '41' })])
 
     const fallback = await restoreGraphTabSnapshot({
-      kind: 'mocktrue.workspace.v1',
+      kind: 'portweave.workspace.v1',
       settings: { serial: useSettingsStore().snapshot().serial },
       serial: {
         activePortId: null,
@@ -369,7 +369,7 @@ describe('workspace session snapshot', () => {
   it('normalizes sparse graph tab snapshots and workspace graph state fallbacks', async () => {
     const graphStore = useSerialGraphStore()
     const sparse = await restoreGraphTabSnapshot({
-      kind: 'mocktrue.graph.v1',
+      kind: 'portweave.graph.v1',
       graph: {
         id: 'sparse-graph',
         name: '',
@@ -411,7 +411,7 @@ describe('workspace session snapshot', () => {
     serialServiceMock.openPort.mockRejectedValueOnce(new Error('port denied'))
 
     const result = await restoreWorkspaceSnapshot({
-      kind: 'mocktrue.workspace.v1',
+      kind: 'portweave.workspace.v1',
       settings: { serial: useSettingsStore().snapshot().serial },
       serial: {
         activePortId: 'bad-port',
@@ -438,7 +438,7 @@ describe('workspace session snapshot', () => {
     serialBindingsMock.CreateVirtualPort.mockRejectedValueOnce('virtual string denied')
 
     const result = await restoreWorkspaceSnapshot({
-      kind: 'mocktrue.workspace.v1',
+      kind: 'portweave.workspace.v1',
       settings: { serial: useSettingsStore().snapshot().serial },
       serial: {
         activePortId: null,
@@ -459,7 +459,7 @@ describe('workspace session snapshot', () => {
 
   it('handles empty graph-tab workspaces and closed workspace handles without reopening ports', async () => {
     const restoredGraphs = await restoreGraphTabSnapshot({
-      kind: 'mocktrue.workspace.v1',
+      kind: 'portweave.workspace.v1',
       settings: { serial: useSettingsStore().snapshot().serial },
       serial: {
         activePortId: null,
@@ -479,7 +479,7 @@ describe('workspace session snapshot', () => {
     expect(restoredGraphs.activeGraphId).toBe(restoredGraphs.graphIds[0])
 
     const restoredWorkspace = await restoreWorkspaceSnapshot({
-      kind: 'mocktrue.workspace.v1',
+      kind: 'portweave.workspace.v1',
       settings: { serial: useSettingsStore().snapshot().serial },
       serial: {
         activePortId: 'closed-port',

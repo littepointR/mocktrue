@@ -9,10 +9,10 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/littepointR/mocktrue/internal/core/config"
-	"github.com/littepointR/mocktrue/internal/core/eventbus"
-	"github.com/littepointR/mocktrue/internal/core/logging"
-	"github.com/littepointR/mocktrue/internal/core/module"
+	"github.com/littepointR/portweave/internal/core/config"
+	"github.com/littepointR/portweave/internal/core/eventbus"
+	"github.com/littepointR/portweave/internal/core/logging"
+	"github.com/littepointR/portweave/internal/core/module"
 )
 
 // Status is emitted to the frontend when the MCP server state changes.

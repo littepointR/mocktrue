@@ -19,7 +19,7 @@ func TestResolvePathsCreatesAllDirsAbsoluteUnderIsolatedHome(t *testing.T) {
 	// Not parallel: mutates process environment via t.Setenv.
 	tmp := isolateUserDirs(t)
 
-	paths, err := ResolvePaths("mocktrue-test")
+	paths, err := ResolvePaths("portweave-test")
 	if err != nil {
 		t.Fatalf("ResolvePaths failed: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestResolvePathsCreatesAllDirsAbsoluteUnderIsolatedHome(t *testing.T) {
 		if !filepath.IsAbs(dir) {
 			t.Fatalf("%s must be absolute, got %q", name, dir)
 		}
-		if !strings.Contains(dir, "mocktrue-test") {
+		if !strings.Contains(dir, "portweave-test") {
 			t.Fatalf("%s must contain app name, got %q", name, dir)
 		}
 		if !strings.HasPrefix(dir, tmp) {

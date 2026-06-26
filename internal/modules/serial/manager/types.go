@@ -1,7 +1,7 @@
 package manager
 
 import (
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
 )
 
 // OpenRequest bundles the parameters for opening a serial port.
@@ -20,9 +20,9 @@ type DataEvent struct {
 // HandleStatus is a snapshot of a port handle's current state.
 // Immutable once created.
 type HandleStatus struct {
-	ID       string
-	Config   port.SerialConfig
-	IsOpen   bool
-	RxBytes  int64
-	TxBytes  int64
+	ID      string
+	Config  port.SerialConfig
+	IsOpen  bool
+	RxBytes int64
+	TxBytes int64
 }

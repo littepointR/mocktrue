@@ -8,12 +8,12 @@ import {
   StartAutoVirtualMonitor,
   StartMonitor,
   StopMonitor,
-} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
+} from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js'
 import type {
   Frame,
   QueryRequest,
   SessionInfo,
-} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/monitor/models.js'
+} from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/monitor/models.js'
 
 export type MonitorDisplayMode = 'text' | 'hex' | 'dec' | 'oct' | 'bin'
 

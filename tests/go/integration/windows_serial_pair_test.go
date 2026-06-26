@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
 )
 
 func TestWindowsVirtualCOMPairRoundTrip(t *testing.T) {
-	portA := os.Getenv("MOCKTRUE_TEST_COM_A")
-	portB := os.Getenv("MOCKTRUE_TEST_COM_B")
+	portA := os.Getenv("PORTWEAVE_TEST_COM_A")
+	portB := os.Getenv("PORTWEAVE_TEST_COM_B")
 	if portA == "" || portB == "" {
-		t.Skip("set MOCKTRUE_TEST_COM_A and MOCKTRUE_TEST_COM_B to a linked com0com pair")
+		t.Skip("set PORTWEAVE_TEST_COM_A and PORTWEAVE_TEST_COM_B to a linked com0com pair")
 	}
 
 	backend := port.RealBackend{}

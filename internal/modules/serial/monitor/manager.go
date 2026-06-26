@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/littepointR/mocktrue/internal/core/errors"
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/core/errors"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
 )
 
 const defaultFrameLimit = 100000

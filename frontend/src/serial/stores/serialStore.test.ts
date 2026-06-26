@@ -1,8 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSerialStore } from './serialStore'
-import type { HandleStatus } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/manager/models.js'
-import type { PortInfo, SerialConfig } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/port/models.js'
+import type { HandleStatus } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/manager/models.js'
+import type { PortInfo, SerialConfig } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/port/models.js'
 
 const serialServiceMock = vi.hoisted(() => ({
   enumeratePorts: vi.fn(),

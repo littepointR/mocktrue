@@ -8,5 +8,5 @@
 }
 
 # Keep Wails bridge classes
--keep class com.mocktrue.app.WailsBridge { *; }
--keep class com.mocktrue.app.WailsJSBridge { *; }
+-keep class com.portweave.app.WailsBridge { *; }
+-keep class com.portweave.app.WailsJSBridge { *; }

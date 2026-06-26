@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SerialSettingsPanel from './SerialSettingsPanel.vue'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { ListSystemFonts } from '../../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js'
+import { ListSystemFonts } from '../../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js'
 
 vi.mock('naive-ui', () => ({
   NForm: { template: '<form><slot /></form>' },
@@ -30,7 +30,7 @@ vi.mock('naive-ui', () => ({
   NButton: { template: '<button type="button"><slot /></button>' },
 }))
 
-vi.mock('../../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => ({
+vi.mock('../../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => ({
   ListSystemFonts: vi.fn(async () => ['System Mono', 'PingFang SC']),
 }))
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const snapshotMock = vi.hoisted(() => vi.fn())
 
-vi.mock('../../bindings/github.com/littepointR/mocktrue/internal/core/runtime/service.js', () => ({
+vi.mock('../../bindings/github.com/littepointR/portweave/internal/core/runtime/service.js', () => ({
   Snapshot: snapshotMock,
 }))
 

@@ -6,15 +6,15 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	coreapp "github.com/littepointR/mocktrue/internal/core/app"
-	"github.com/littepointR/mocktrue/internal/core/config"
-	"github.com/littepointR/mocktrue/internal/core/logging"
-	"github.com/littepointR/mocktrue/internal/core/module"
-	"github.com/littepointR/mocktrue/internal/core/platform"
-	runtimemetrics "github.com/littepointR/mocktrue/internal/core/runtime"
-	"github.com/littepointR/mocktrue/internal/core/workspace"
-	"github.com/littepointR/mocktrue/internal/modules/mcpserver"
-	"github.com/littepointR/mocktrue/internal/modules/serial"
+	coreapp "github.com/littepointR/portweave/internal/core/app"
+	"github.com/littepointR/portweave/internal/core/config"
+	"github.com/littepointR/portweave/internal/core/logging"
+	"github.com/littepointR/portweave/internal/core/module"
+	"github.com/littepointR/portweave/internal/core/platform"
+	runtimemetrics "github.com/littepointR/portweave/internal/core/runtime"
+	"github.com/littepointR/portweave/internal/core/workspace"
+	"github.com/littepointR/portweave/internal/modules/mcpserver"
+	"github.com/littepointR/portweave/internal/modules/serial"
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the
@@ -29,7 +29,7 @@ const assetsDir = "frontend/dist"
 func main() {
 	logger := logging.Default()
 
-	paths, err := platform.ResolvePaths("mocktrue")
+	paths, err := platform.ResolvePaths("portweave")
 	if err != nil {
 		log.Fatalf("resolve paths: %v", err)
 	}

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
 )
 
 const (

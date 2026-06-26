@@ -1,5 +1,5 @@
 import type { SerialModuleSettings } from '../settings/stores/settingsStore'
-import type { SerialConfig } from '../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/port/models.js'
+import type { SerialConfig } from '../../bindings/github.com/littepointR/portweave/internal/modules/serial/port/models.js'
 import type { Bridge, VirtualPort } from '../serial/stores/virtualStore'
 import type { SerialWorkspaceState } from '../serial/stores/workspaceStore'
 import type { MonitorWorkspaceState } from '../serial/stores/monitorStore'
@@ -7,10 +7,10 @@ import type { ModbusWorkspaceState } from '../serial/stores/modbusStore'
 import type { FecbusWorkspaceState } from '../serial/stores/fecbusStore'
 import type { SerialGraphWorkspaceState } from '../serial/stores/graphStore'
 import type { SerialGraphDocument } from '../serial/graph/serialGraph'
-import type { Frame } from '../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/monitor/models.js'
+import type { Frame } from '../../bindings/github.com/littepointR/portweave/internal/modules/serial/monitor/models.js'
 
-export const workspaceKind = 'mocktrue.workspace.v1'
-export const graphTabKind = 'mocktrue.graph.v1'
+export const workspaceKind = 'portweave.workspace.v1'
+export const graphTabKind = 'portweave.graph.v1'
 
 export type JsonRecord = Record<string, unknown>
 

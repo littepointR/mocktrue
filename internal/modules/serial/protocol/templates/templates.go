@@ -1,7 +1,7 @@
 package templates
 
 import (
-	"github.com/littepointR/mocktrue/internal/modules/serial/protocol"
+	"github.com/littepointR/portweave/internal/modules/serial/protocol"
 )
 
 // Template represents a predefined protocol template.

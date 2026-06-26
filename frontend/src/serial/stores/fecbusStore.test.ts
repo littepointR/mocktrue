@@ -12,7 +12,7 @@ import {
   FunctionCode,
   SessionRole,
   StatusCode,
-} from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/fecbus/models.js'
+} from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/fecbus/models.js'
 
 const serialServiceMock = vi.hoisted(() => ({
   listFecbusSessions: vi.fn(async (): Promise<any[]> => []),

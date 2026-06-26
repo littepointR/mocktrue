@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	mterrors "github.com/littepointR/mocktrue/internal/core/errors"
+	mterrors "github.com/littepointR/portweave/internal/core/errors"
 	"github.com/pelletier/go-toml/v2"
 )
 

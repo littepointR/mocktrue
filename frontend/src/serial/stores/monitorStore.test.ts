@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMonitorStore } from './monitorStore'
-import type { Frame, SessionInfo } from '../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/monitor/models.js'
+import type { Frame, SessionInfo } from '../../../bindings/github.com/littepointR/portweave/internal/modules/serial/monitor/models.js'
 
 const bindings = vi.hoisted(() => ({
   StartMonitor: vi.fn(),
@@ -13,7 +13,7 @@ const bindings = vi.hoisted(() => ({
   ClearMonitorFrames: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/littepointR/mocktrue/internal/modules/serial/service.js', () => bindings)
+vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => bindings)
 
 describe('monitor store', () => {
   beforeEach(() => {

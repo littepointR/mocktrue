@@ -41,7 +41,7 @@ describe('settingsStore', () => {
   })
 
   it('fills new serial display settings when restoring old settings', () => {
-    localStorage.setItem('mocktrue.settings.v1', JSON.stringify({
+    localStorage.setItem('portweave.settings.v1', JSON.stringify({
       global: { Theme: 'dark' },
       serial: {
         BaudRate: 9600,
@@ -60,7 +60,7 @@ describe('settingsStore', () => {
   })
 
   it('drops stale global keys that are not effective settings', () => {
-    localStorage.setItem('mocktrue.settings.v1', JSON.stringify({
+    localStorage.setItem('portweave.settings.v1', JSON.stringify({
       global: {
         Theme: 'light',
         MCPEnabled: false,

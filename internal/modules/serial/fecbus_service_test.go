@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/littepointR/mocktrue/internal/core/errors"
-	"github.com/littepointR/mocktrue/internal/core/eventbus"
-	fb "github.com/littepointR/mocktrue/internal/modules/serial/fecbus"
-	"github.com/littepointR/mocktrue/internal/modules/serial/manager"
-	mb "github.com/littepointR/mocktrue/internal/modules/serial/modbus"
-	"github.com/littepointR/mocktrue/internal/modules/serial/port"
-	"github.com/littepointR/mocktrue/internal/modules/serial/porttest"
+	"github.com/littepointR/portweave/internal/core/errors"
+	"github.com/littepointR/portweave/internal/core/eventbus"
+	fb "github.com/littepointR/portweave/internal/modules/serial/fecbus"
+	"github.com/littepointR/portweave/internal/modules/serial/manager"
+	mb "github.com/littepointR/portweave/internal/modules/serial/modbus"
+	"github.com/littepointR/portweave/internal/modules/serial/port"
+	"github.com/littepointR/portweave/internal/modules/serial/porttest"
 )
 
 func TestServiceFecbusConflictsAndCleanup(t *testing.T) {

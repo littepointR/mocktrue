@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-const isWailsMode = process.env.MOCKTRUE_E2E_MODE === 'wails';
+const isWailsMode = process.env.PORTWEAVE_E2E_MODE === 'wails';
 const vitePort = Number(process.env.WAILS_VITE_PORT) || 9245;
 const baseURL = isWailsMode ? `http://localhost:${vitePort}` : 'http://localhost:4173';
 

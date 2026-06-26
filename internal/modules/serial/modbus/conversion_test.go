@@ -219,7 +219,7 @@ func TestRegisterValueConversionEdges(t *testing.T) {
 	}
 
 	originalLocal := time.Local
-	localZone := time.FixedZone("mocktrue-localtime-test", 90*60)
+	localZone := time.FixedZone("portweave-localtime-test", 90*60)
 	time.Local = localZone
 	t.Cleanup(func() { time.Local = originalLocal })
 

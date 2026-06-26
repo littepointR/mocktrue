@@ -1,4 +1,4 @@
-.PHONY: build build-all test test-race vet lint clean
+.PHONY: build build-all build-darwin build-linux build-windows test test-race vet lint coverage clean bindings frontend full
 
 APP_NAME := portweave
 BUILD_DIR := bin

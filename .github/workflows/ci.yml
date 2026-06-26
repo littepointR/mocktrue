@@ -81,6 +81,9 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
+      - name: Test backend coverage gate
+        run: ./scripts/test-check-go-coverage.sh
+
       - name: Run backend coverage floor
         run: ./scripts/check-go-coverage.sh
 

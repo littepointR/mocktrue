@@ -1,7 +1,9 @@
-.PHONY: build build-all build-darwin build-linux build-windows test test-race vet lint coverage clean bindings frontend full
+.PHONY: build build-all build-darwin build-linux build-windows test test-race vet lint coverage coverage-gate-test clean bindings frontend full
 
 APP_NAME := portweave
 BUILD_DIR := bin
+GO_COVERAGE_PROFILE ?= coverage.out
+GO_COVERAGE_HTML ?= coverage.html
 
 # Default: build for current platform
 build:
@@ -38,10 +40,14 @@ vet:
 lint:
 	golangci-lint run ./...
 
+# Run the coverage gate regression checks.
+coverage-gate-test:
+	./scripts/test-check-go-coverage.sh
+
 # Run backend/internal tests with coverage and enforce the 90% coverage floor.
-coverage:
-	./scripts/check-go-coverage.sh
-	go tool cover -html=coverage.out -o coverage.html
+coverage: coverage-gate-test
+	GO_COVERAGE_PROFILE="$(GO_COVERAGE_PROFILE)" ./scripts/check-go-coverage.sh
+	go tool cover -html="$(GO_COVERAGE_PROFILE)" -o "$(GO_COVERAGE_HTML)"
 
 # Clean build artifacts
 clean:

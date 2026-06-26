@@ -32,12 +32,13 @@ export default defineConfig({
       ],
       reporter: ["text", "json-summary", "lcov"],
       thresholds: {
-        // Baseline ratchet for the current all-source Vitest coverage report.
-        // Raise these values as tests are added; target is 90%+.
-        statements: coverageThreshold("VITEST_COVERAGE_STATEMENTS", 67),
-        branches: coverageThreshold("VITEST_COVERAGE_BRANCHES", 59),
-        functions: coverageThreshold("VITEST_COVERAGE_FUNCTIONS", 67),
-        lines: coverageThreshold("VITEST_COVERAGE_LINES", 70),
+        // Enforce the project coverage floor for the all-source Vitest report.
+        // Environment overrides are intentionally available for local experiments,
+        // but CI uses these 90% defaults.
+        statements: coverageThreshold("VITEST_COVERAGE_STATEMENTS", 90),
+        branches: coverageThreshold("VITEST_COVERAGE_BRANCHES", 90),
+        functions: coverageThreshold("VITEST_COVERAGE_FUNCTIONS", 90),
+        lines: coverageThreshold("VITEST_COVERAGE_LINES", 90),
       },
     },
   },

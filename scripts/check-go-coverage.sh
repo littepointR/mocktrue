@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-threshold="${GO_COVERAGE_THRESHOLD:-70}"
+threshold="${GO_COVERAGE_THRESHOLD:-90}"
 profile="${GO_COVERAGE_PROFILE:-coverage.out}"
 
 # Keep this focused on checked-in backend/internal packages. The repository root

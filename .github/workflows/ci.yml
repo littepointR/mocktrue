@@ -80,8 +80,8 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
-      - name: Run backend coverage ratchet
-        run: GO_COVERAGE_THRESHOLD=70 ./scripts/check-go-coverage.sh
+      - name: Run backend coverage floor
+        run: ./scripts/check-go-coverage.sh
 
   backend-matrix:
     name: backend (${{ matrix.os }})

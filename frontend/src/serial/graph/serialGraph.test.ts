@@ -338,11 +338,32 @@ describe('serial graph model', () => {
     })
 
     expect(validateGraph(graph([validRemote('remote')])).errors).toEqual([])
+    expect(validateGraph(graph([node('remote-with-missing-numeric-defaults', 'serial.remote', {
+      protocol: 'raw-tcp',
+      role: 'client',
+      host: '127.0.0.1',
+    })])).errors).toEqual([])
+    expect(validateGraph(graph([validRemote('remote-with-undefined-numeric-defaults', {
+      port: undefined,
+      connectTimeoutMs: undefined,
+      writeTimeoutMs: undefined,
+      reconnectIntervalMs: undefined,
+      readBufKB: undefined,
+    })])).errors).toEqual([])
     expect(validateGraph(graph([validRemote('missing-host', { host: ' ' })])).errors.join('\n')).toContain('host required')
     expect(validateGraph(graph([validRemote('url-host', { host: 'tcp://127.0.0.1' })])).errors.join('\n')).toContain('host must not include URL scheme')
     expect(validateGraph(graph([validRemote('bad-port', { port: 70000 })])).errors.join('\n')).toContain('port out of range')
     expect(validateGraph(graph([validRemote('fractional-port', { port: 3.14 })])).errors.join('\n')).toContain('port must be an integer')
     expect(validateGraph(graph([validRemote('string-port', { port: '3001x' })])).errors.join('\n')).toContain('port must be an integer')
+    for (const [key, message] of [
+      ['port', 'remote port must be an integer'],
+      ['connectTimeoutMs', 'connectTimeoutMs must be an integer'],
+      ['writeTimeoutMs', 'writeTimeoutMs must be an integer'],
+      ['reconnectIntervalMs', 'reconnectIntervalMs must be an integer'],
+      ['readBufKB', 'readBufKB must be an integer'],
+    ]) {
+      expect(validateGraph(graph([validRemote(`empty-${key}`, { [key]: '' })])).errors.join('\n')).toContain(message)
+    }
     expect(validateGraph(graph([validRemote('null-timeout', { connectTimeoutMs: null })])).errors.join('\n')).toContain('connectTimeoutMs must be an integer')
     expect(validateGraph(graph([validRemote('short-connect-timeout', { connectTimeoutMs: 99 })])).errors.join('\n')).toContain('connectTimeoutMs out of range')
     expect(validateGraph(graph([validRemote('long-connect-timeout', { connectTimeoutMs: 60001 })])).errors.join('\n')).toContain('connectTimeoutMs out of range')

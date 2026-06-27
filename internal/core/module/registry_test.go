@@ -18,15 +18,15 @@ type fakeModule struct {
 	frontend FrontendContribution
 	services []application.Service
 
-	mu        sync.Mutex
-	calls     []string
-	initErr   error
-	startErr  error
-	stopErr   error
-	disposed  bool
+	mu       sync.Mutex
+	calls    []string
+	initErr  error
+	startErr error
+	stopErr  error
+	disposed bool
 }
 
-func (m *fakeModule) ID() string         { return m.id }
+func (m *fakeModule) ID() string { return m.id }
 func (m *fakeModule) Manifest() Manifest {
 	return Manifest{ID: m.id, Dependencies: m.deps, Frontend: m.frontend}
 }
@@ -150,7 +150,9 @@ func TestInitAllRollsBackOnFailure(t *testing.T) {
 	b := newFake("b", "c")
 	b.initErr = errors.New("boom")
 	a := newFake("a", "b")
-	_ = r.Register(a); r.Register(b); r.Register(c)
+	_ = r.Register(a)
+	_ = r.Register(b)
+	_ = r.Register(c)
 
 	err := r.InitAll(context.Background(), Deps{})
 	if err == nil {
@@ -169,7 +171,9 @@ func TestStartAllRollsBackOnFailure(t *testing.T) {
 	b := newFake("b", "c")
 	b.startErr = errors.New("boom")
 	a := newFake("a", "b")
-	_ = r.Register(a); r.Register(b); r.Register(c)
+	_ = r.Register(a)
+	_ = r.Register(b)
+	_ = r.Register(c)
 
 	if err := r.InitAll(context.Background(), Deps{}); err != nil {
 		t.Fatalf("InitAll failed: %v", err)
@@ -190,7 +194,9 @@ func TestStopAllContinuesOnPartialFailure(t *testing.T) {
 	b := newFake("b", "c")
 	b.stopErr = errors.New("boom")
 	a := newFake("a", "b")
-	_ = r.Register(a); r.Register(b); r.Register(c)
+	_ = r.Register(a)
+	_ = r.Register(b)
+	_ = r.Register(c)
 
 	_ = r.InitAll(context.Background(), Deps{})
 	_ = r.StartAll(context.Background())

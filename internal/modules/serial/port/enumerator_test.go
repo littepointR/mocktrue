@@ -27,11 +27,10 @@ func TestPortInfoFieldsPopulated(t *testing.T) {
 		if p.Name == "" {
 			t.Fatalf("PortInfo.Name must not be empty: %+v", p)
 		}
-		// USB ports should have IsUSB=true; non-USB ports may have empty VID/PID.
-		if p.IsUSB {
-			// USB ports typically have Vendor/Product, but some drivers omit them.
-			// Just verify IsUSB is consistent (not both true and empty VID with
-			// non-empty Product, which would be a bug).
+		// USB ports typically have Vendor/Product, but some drivers omit them.
+		// Just verify IsUSB is consistent: a product without a vendor would be suspect.
+		if p.IsUSB && p.VID == "" && p.PID != "" {
+			t.Fatalf("USB PortInfo has PID without VID: %+v", p)
 		}
 	}
 }

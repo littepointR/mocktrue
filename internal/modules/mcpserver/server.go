@@ -1145,6 +1145,26 @@ func serialGraphProviders() []serialGraphProvider {
 		"flowMode":  "none",
 		"readBufKB": 32,
 	}
+	remoteDefaults := map[string]any{
+		"protocol":               "raw-tcp",
+		"role":                   "client",
+		"host":                   "",
+		"port":                   3001,
+		"connectTimeoutMs":       3000,
+		"writeTimeoutMs":         3000,
+		"reconnect":              true,
+		"reconnectIntervalMs":    1000,
+		"allowStartDisconnected": false,
+		"readBufKB":              32,
+		"baudRate":               115200,
+		"dataBits":               8,
+		"stopBits":               "1",
+		"parity":                 "none",
+		"flowMode":               "none",
+		"viewMode":               "ascii",
+		"autoScroll":             true,
+		"showTimestamp":          false,
+	}
 	bytesIn := serialGraphPortSpec{ID: "in", Label: "接收", Kind: "bytes", Direction: "input"}
 	bytesOut := serialGraphPortSpec{ID: "out", Label: "发送", Kind: "bytes", Direction: "output"}
 	loggingDefaults := map[string]any{
@@ -1186,6 +1206,16 @@ func serialGraphProviders() []serialGraphProvider {
 			DefaultConfig: withConfig(serialDefaults, map[string]any{"portName": "portweave-vport"}),
 			ResourceOwner: true,
 			ResourceKeys:  []string{"portName"},
+		},
+		{
+			Type:          "serial.remote",
+			Title:         "远端串口",
+			Category:      "串口",
+			Description:   "通过 raw TCP client 连接远端串口服务器并在拓扑中收发字节流。",
+			Inputs:        []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "input"}},
+			Outputs:       []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "output"}},
+			DefaultConfig: remoteDefaults,
+			ResourceOwner: true,
 		},
 		{
 			Type:        "serial.bridge",
@@ -1416,6 +1446,9 @@ func validateSerialGraph(graph serialGraphValidateArgs) []string {
 		if _, ok := providers[node.Type]; !ok {
 			errs = append(errs, "provider not found: "+node.Type)
 		}
+		if node.Type == "serial.remote" {
+			errs = append(errs, validateSerialGraphRemoteConfig(node.ID, node.Config)...)
+		}
 		nodes[node.ID] = node
 	}
 
@@ -1541,7 +1574,7 @@ func validateSerialGraphConnection(
 		}
 	}
 
-	if serialGraphCreatesCycle(draft, otherEdges) {
+	if !serialGraphEdgeTargetsTerminalProtocolInput(nodes, draft) && serialGraphCreatesCycle(draft, otherEdges, nodes) {
 		errs = append(errs, "directed cycle not allowed")
 	}
 	return errs
@@ -1553,6 +1586,19 @@ func validateSerialGraphResourceOwners(nodes []serialGraphNodeArg, providers map
 	for _, node := range nodes {
 		provider, ok := providers[node.Type]
 		if !ok || !provider.ResourceOwner {
+			continue
+		}
+		if node.Type == "serial.remote" {
+			endpoint, ok := serialGraphRemoteEndpoint(node.Config)
+			if !ok {
+				continue
+			}
+			resourceKey := "remote:" + endpoint
+			if previous, exists := used[resourceKey]; exists {
+				errs = append(errs, fmt.Sprintf("resource remote endpoint duplicated: %s (%s, %s)", endpoint, previous, node.ID))
+			} else {
+				used[resourceKey] = node.ID
+			}
 			continue
 		}
 		for _, key := range provider.ResourceKeys {
@@ -1569,6 +1615,115 @@ func validateSerialGraphResourceOwners(nodes []serialGraphNodeArg, providers map
 		}
 	}
 	return errs
+}
+
+func validateSerialGraphRemoteConfig(nodeID string, config map[string]any) []string {
+	var errs []string
+	protocol := serialGraphStringConfig(config, "protocol", "raw-tcp")
+	role := serialGraphStringConfig(config, "role", "client")
+	host := serialGraphStringConfig(config, "host", "")
+	port, portOK := serialGraphStrictIntConfig(config, "port", 3001)
+	connectTimeoutMs, connectTimeoutOK := serialGraphStrictIntConfig(config, "connectTimeoutMs", 3000)
+	writeTimeoutMs, writeTimeoutOK := serialGraphStrictIntConfig(config, "writeTimeoutMs", 3000)
+	reconnectIntervalMs, reconnectIntervalOK := serialGraphStrictIntConfig(config, "reconnectIntervalMs", 1000)
+	readBufKB, readBufOK := serialGraphStrictIntConfig(config, "readBufKB", 32)
+	prefix := nodeID + ": "
+	if protocol != "raw-tcp" {
+		errs = append(errs, prefix+"unsupported protocol: "+protocol)
+	}
+	if role != "client" {
+		errs = append(errs, prefix+"unsupported role: "+role)
+	}
+	if host == "" {
+		errs = append(errs, prefix+"remote host required")
+	}
+	if strings.Contains(host, "://") {
+		errs = append(errs, prefix+"remote host must not include URL scheme")
+	}
+	if !portOK {
+		errs = append(errs, prefix+"remote port must be an integer")
+	} else if port < 1 || port > 65535 {
+		errs = append(errs, fmt.Sprintf("%sremote port out of range: %d", prefix, port))
+	}
+	if !connectTimeoutOK {
+		errs = append(errs, prefix+"connectTimeoutMs must be an integer")
+	} else if connectTimeoutMs <= 0 {
+		errs = append(errs, prefix+"connectTimeoutMs must be positive")
+	} else if connectTimeoutMs < 100 || connectTimeoutMs > 60000 {
+		errs = append(errs, prefix+"connectTimeoutMs out of range")
+	}
+	if !writeTimeoutOK {
+		errs = append(errs, prefix+"writeTimeoutMs must be an integer")
+	} else if writeTimeoutMs <= 0 {
+		errs = append(errs, prefix+"writeTimeoutMs must be positive")
+	} else if writeTimeoutMs < 100 || writeTimeoutMs > 60000 {
+		errs = append(errs, prefix+"writeTimeoutMs out of range")
+	}
+	if !reconnectIntervalOK {
+		errs = append(errs, prefix+"reconnectIntervalMs must be an integer")
+	} else if reconnectIntervalMs <= 0 {
+		errs = append(errs, prefix+"reconnectIntervalMs must be positive")
+	} else if reconnectIntervalMs < 100 || reconnectIntervalMs > 60000 {
+		errs = append(errs, prefix+"reconnectIntervalMs out of range")
+	}
+	if !readBufOK {
+		errs = append(errs, prefix+"readBufKB must be an integer")
+	} else if readBufKB <= 0 {
+		errs = append(errs, prefix+"readBufKB must be positive")
+	} else if readBufKB > 1024 {
+		errs = append(errs, prefix+"readBufKB out of range")
+	}
+	return errs
+}
+
+func serialGraphRemoteEndpoint(config map[string]any) (string, bool) {
+	host := serialGraphStringConfig(config, "host", "")
+	port, portOK := serialGraphStrictIntConfig(config, "port", 3001)
+	if host == "" || strings.Contains(host, "://") || !portOK || port < 1 || port > 65535 {
+		return "", false
+	}
+	return net.JoinHostPort(strings.ToLower(host), strconv.Itoa(port)), true
+}
+
+func serialGraphStringConfig(config map[string]any, key string, fallback string) string {
+	if config == nil {
+		return fallback
+	}
+	value, ok := config[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func serialGraphStrictIntConfig(config map[string]any, key string, fallback int) (int, bool) {
+	if config == nil {
+		return fallback, true
+	}
+	value, ok := config[key]
+	if !ok {
+		return fallback, true
+	}
+	if value == nil {
+		return 0, false
+	}
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		parsed := int(typed)
+		return parsed, float64(parsed) == typed
+	case float32:
+		parsed := int(typed)
+		return parsed, float32(parsed) == typed
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func serialGraphProviderMap() map[string]serialGraphProvider {
@@ -1619,7 +1774,7 @@ func normalizeSerialGraphEdge(edge serialGraphEdgeArg) serialGraphEdgeArg {
 	return edge
 }
 
-func serialGraphCreatesCycle(draft serialGraphEdgeArg, edges []serialGraphEdgeArg) bool {
+func serialGraphCreatesCycle(draft serialGraphEdgeArg, edges []serialGraphEdgeArg, nodes map[string]serialGraphNodeArg) bool {
 	visited := map[string]bool{}
 	stack := []string{draft.Target}
 	for len(stack) > 0 {
@@ -1633,12 +1788,26 @@ func serialGraphCreatesCycle(draft serialGraphEdgeArg, edges []serialGraphEdgeAr
 		}
 		visited[nodeID] = true
 		for _, edge := range edges {
+			if serialGraphEdgeTargetsTerminalProtocolInput(nodes, edge) {
+				continue
+			}
 			if edge.Source == nodeID {
 				stack = append(stack, edge.Target)
 			}
 		}
 	}
 	return false
+}
+
+func serialGraphEdgeTargetsTerminalProtocolInput(nodes map[string]serialGraphNodeArg, edge serialGraphEdgeArg) bool {
+	if edge.TargetHandle != "rx" {
+		return false
+	}
+	target, ok := nodes[edge.Target]
+	if !ok {
+		return false
+	}
+	return target.Type == "serial.modbus.master" || target.Type == "serial.fecbus.master"
 }
 
 func withConfig(base map[string]any, patch map[string]any) map[string]any {

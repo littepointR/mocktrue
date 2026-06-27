@@ -1,6 +1,6 @@
 export type SerialGraphPortKind = 'bytes' | 'frame' | 'registers' | 'status' | 'control'
 export type SerialGraphPortDirection = 'input' | 'output'
-export type SerialGraphNodeStatus = 'idle' | 'running' | 'error'
+export type SerialGraphNodeStatus = 'idle' | 'running' | 'reconnecting' | 'error'
 
 export interface SerialGraphPosition {
   x: number
@@ -93,6 +93,27 @@ const serialDefaults = {
   showTimestamp: false,
 }
 
+const remoteSerialDefaults = {
+  protocol: 'raw-tcp',
+  role: 'client',
+  host: '',
+  port: 3001,
+  connectTimeoutMs: 3000,
+  writeTimeoutMs: 3000,
+  reconnect: true,
+  reconnectIntervalMs: 1000,
+  allowStartDisconnected: false,
+  readBufKB: 32,
+  baudRate: 115200,
+  dataBits: 8,
+  stopBits: '1',
+  parity: 'none',
+  flowMode: 'none',
+  viewMode: 'ascii',
+  autoScroll: true,
+  showTimestamp: false,
+}
+
 const serialGraphLoggingDefaults = {
   enableLogging: false,
   logLevel: 'info',
@@ -135,6 +156,16 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     defaultConfig: { ...serialDefaults, portName: 'portweave-vport' },
     resourceOwner: true,
     resourceKeys: ['portName'],
+  },
+  {
+    type: 'serial.remote',
+    title: '远端串口',
+    category: '串口',
+    description: '通过 raw TCP client 连接远端串口服务器并在拓扑中收发字节流。',
+    inputs: [{ id: 'tx', label: '发送', kind: 'bytes', direction: 'input' }],
+    outputs: [{ id: 'rx', label: '接收', kind: 'bytes', direction: 'output' }],
+    defaultConfig: { ...remoteSerialDefaults },
+    resourceOwner: true,
   },
   {
     type: 'serial.bridge',
@@ -441,6 +472,9 @@ export function validateGraph(state: SerialGraphTopologyState): SerialGraphValid
     if (!providerByType(node.type)) {
       errors.push(`provider not found: ${node.type}`)
     }
+    if (node.type === 'serial.remote') {
+      errors.push(...validateRemoteSerialNode(node))
+    }
   }
 
   errors.push(...validateResourceOwners(state))
@@ -466,6 +500,19 @@ function validateResourceOwners(state: SerialGraphTopologyState): string[] {
     const provider = providerByType(node.type)
     if (!provider?.resourceOwner) continue
 
+    if (node.type === 'serial.remote') {
+      const endpoint = remoteEndpointKey(node.config)
+      if (!endpoint) continue
+      const resourceKey = `remote:${endpoint}`
+      const previous = used.get(resourceKey)
+      if (previous) {
+        errors.push(`resource remote endpoint duplicated: ${endpoint} (${previous.id}, ${node.id})`)
+      } else {
+        used.set(resourceKey, node)
+      }
+      continue
+    }
+
     for (const key of provider.resourceKeys ?? []) {
       const value = String(node.config[key] ?? '').trim()
       if (!value) continue
@@ -482,6 +529,61 @@ function validateResourceOwners(state: SerialGraphTopologyState): string[] {
   return errors
 }
 
+function validateRemoteSerialNode(node: SerialGraphNode): string[] {
+  const errors: string[] = []
+  const protocol = remoteConfigString(node.config, 'protocol', 'raw-tcp')
+  const role = remoteConfigString(node.config, 'role', 'client')
+  const host = remoteConfigString(node.config, 'host')
+  const port = remoteConfigNumber(node.config, 'port', 3001)
+  const connectTimeoutMs = remoteConfigNumber(node.config, 'connectTimeoutMs', 3000)
+  const writeTimeoutMs = remoteConfigNumber(node.config, 'writeTimeoutMs', 3000)
+  const reconnectIntervalMs = remoteConfigNumber(node.config, 'reconnectIntervalMs', 1000)
+  const readBufKB = remoteConfigNumber(node.config, 'readBufKB', 32)
+
+  if (protocol !== 'raw-tcp') errors.push(`${node.id}: unsupported protocol: ${protocol}`)
+  if (role !== 'client') errors.push(`${node.id}: unsupported role: ${role}`)
+  if (!host) errors.push(`${node.id}: remote host required`)
+  if (host.includes('://')) errors.push(`${node.id}: remote host must not include URL scheme`)
+  if (!Number.isInteger(port)) errors.push(`${node.id}: remote port must be an integer`)
+  else if (port < 1 || port > 65535) errors.push(`${node.id}: remote port out of range: ${port}`)
+  if (!Number.isInteger(connectTimeoutMs)) errors.push(`${node.id}: connectTimeoutMs must be an integer`)
+  else if (connectTimeoutMs <= 0) errors.push(`${node.id}: connectTimeoutMs must be positive`)
+  else if (connectTimeoutMs < 100 || connectTimeoutMs > 60000) errors.push(`${node.id}: connectTimeoutMs out of range`)
+  if (!Number.isInteger(writeTimeoutMs)) errors.push(`${node.id}: writeTimeoutMs must be an integer`)
+  else if (writeTimeoutMs <= 0) errors.push(`${node.id}: writeTimeoutMs must be positive`)
+  else if (writeTimeoutMs < 100 || writeTimeoutMs > 60000) errors.push(`${node.id}: writeTimeoutMs out of range`)
+  if (!Number.isInteger(reconnectIntervalMs)) errors.push(`${node.id}: reconnectIntervalMs must be an integer`)
+  else if (reconnectIntervalMs <= 0) errors.push(`${node.id}: reconnectIntervalMs must be positive`)
+  else if (reconnectIntervalMs < 100 || reconnectIntervalMs > 60000) errors.push(`${node.id}: reconnectIntervalMs out of range`)
+  if (!Number.isInteger(readBufKB)) errors.push(`${node.id}: readBufKB must be an integer`)
+  else if (readBufKB <= 0) errors.push(`${node.id}: readBufKB must be positive`)
+  else if (readBufKB > 1024) errors.push(`${node.id}: readBufKB out of range`)
+
+  return errors
+}
+
+function remoteEndpointKey(config: Record<string, unknown>): string | null {
+  const host = remoteConfigString(config, 'host')
+  const port = remoteConfigNumber(config, 'port', 3001)
+  if (!host || host.includes('://') || !Number.isInteger(port) || port < 1 || port > 65535) return null
+  return `${host.toLowerCase()}:${port}`
+}
+
+function remoteConfigString(config: Record<string, unknown>, key: string, fallback = ''): string {
+  const value = config[key]
+  if (value === undefined || value === null) return fallback
+  return String(value).trim()
+}
+
+function remoteConfigNumber(config: Record<string, unknown>, key: string, fallback: number): number {
+  if (!(key in config) || config[key] === undefined || config[key] === '') return fallback
+  const value = config[key]
+  if (value === null) return Number.NaN
+  if (typeof value === 'number') return value
+  if (typeof value === 'string' && /^[-+]?\d+$/.test(value.trim())) return Number(value)
+  return Number.NaN
+}
+
 function compatibleKinds(source: SerialGraphPortKind, target: SerialGraphPortKind): boolean {
   return source === target
 }
@@ -496,6 +598,9 @@ function sanitizeNodeConfig(type: string, config: Record<string, unknown> = {}):
   }
   if (type === 'serial.modbus.slave') {
     delete next.addressMode
+  }
+  if (type === 'serial.remote') {
+    delete next.mode
   }
   return next
 }

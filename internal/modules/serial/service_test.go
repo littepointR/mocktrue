@@ -326,14 +326,14 @@ func TestServiceBridgeConnectsUserFacingVirtualPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() { _ = sender.Close() }()
 
 	receiver, err := goserial.Open(portB.Port, &goserial.Mode{BaudRate: 115200})
 	if err != nil {
 		t.Fatalf("Open receiver: %v", err)
 	}
-	defer receiver.Close()
-	receiver.SetReadTimeout(2 * time.Second)
+	defer func() { _ = receiver.Close() }()
+	_ = receiver.SetReadTimeout(2 * time.Second)
 
 	payload := []byte("visible bridge")
 	if _, err := sender.Write(payload); err != nil {
@@ -405,15 +405,15 @@ func TestServiceAutoVirtualMonitorExposesSingleVirtualPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open hardware peer: %v", err)
 	}
-	defer hardware.Close()
-	hardware.SetReadTimeout(2 * time.Second)
+	defer func() { _ = hardware.Close() }()
+	_ = hardware.SetReadTimeout(2 * time.Second)
 
 	external, err := goserial.Open(session.ExternalPort, &goserial.Mode{BaudRate: 115200})
 	if err != nil {
 		t.Fatalf("Open external virtual port: %v", err)
 	}
-	defer external.Close()
-	external.SetReadTimeout(2 * time.Second)
+	defer func() { _ = external.Close() }()
+	_ = external.SetReadTimeout(2 * time.Second)
 
 	if _, err := external.Write([]byte("to-device")); err != nil {
 		t.Fatalf("Write external: %v", err)

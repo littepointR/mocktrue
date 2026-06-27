@@ -90,7 +90,7 @@ type VirtualPair struct {
 // paths. Caller must call Stop() when done.
 func StartVirtualPair(ctx context.Context) (*VirtualPair, error) {
 	// Remove old symlinks if they exist
-	exec.Command("rm", "-f", "/tmp/ttyV0", "/tmp/ttyV1").Run()
+	_ = exec.Command("rm", "-f", "/tmp/ttyV0", "/tmp/ttyV1").Run()
 
 	cmd := exec.CommandContext(ctx, "socat", "-d", "-d",
 		"pty,raw,echo=0,link=/tmp/ttyV0",
@@ -114,15 +114,15 @@ func StartVirtualPair(ctx context.Context) (*VirtualPair, error) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	cmd.Process.Kill()
+	_ = cmd.Process.Kill()
 	return nil, fmt.Errorf("timeout waiting for socat symlinks to appear")
 }
 
 // Stop kills the socat process and cleans up.
 func (vp *VirtualPair) Stop() {
 	if vp.cmd != nil && vp.cmd.Process != nil {
-		vp.cmd.Process.Kill()
-		vp.cmd.Wait()
+		_ = vp.cmd.Process.Kill()
+		_ = vp.cmd.Wait()
 	}
 }
 

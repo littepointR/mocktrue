@@ -519,6 +519,39 @@ describe('serial graph store', () => {
     expect(store.nodes.find(node => node.id === receiver.id)?.status).toBe('running')
   })
 
+  it('preserves remote serial reconnecting node status and start payload config', async () => {
+    const store = useSerialGraphStore()
+    const remote = store.addNode('serial.remote', { x: 120, y: 18 })
+    store.updateNodeConfig(remote.id, { host: '127.0.0.1', allowStartDisconnected: true })
+    bindings.StartSerialGraph.mockResolvedValueOnce({
+      ID: 'graph-1',
+      Status: 'running',
+      Error: '',
+      Nodes: [
+        { ID: remote.id, Type: 'serial.remote', Status: 'reconnecting', RxBytes: 0, TxBytes: 0, FrameCount: 0, ResourceID: 'raw-tcp://127.0.0.1:3001', Error: 'connection refused' },
+      ],
+    })
+
+    await store.startRuntime()
+
+    expect(bindings.StartSerialGraph).toHaveBeenCalledWith(expect.objectContaining({
+      Nodes: [expect.objectContaining({
+        ID: remote.id,
+        Type: 'serial.remote',
+        Config: expect.objectContaining({
+          protocol: 'raw-tcp',
+          role: 'client',
+          host: '127.0.0.1',
+          port: 3001,
+          allowStartDisconnected: true,
+        }),
+      })],
+    }))
+    expect(store.nodeStatuses.get(remote.id)?.Status).toBe('reconnecting')
+    expect(store.nodes.find(node => node.id === remote.id)?.status).toBe('reconnecting')
+    expect(store.nodes.find(node => node.id === remote.id)?.error).toBe('connection refused')
+  })
+
   it('keeps runtime state isolated per topology graph', async () => {
     const store = useSerialGraphStore()
     const sender = store.addNode('serial.sender')

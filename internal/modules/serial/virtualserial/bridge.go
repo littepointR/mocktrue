@@ -63,7 +63,7 @@ func (b *Bridge) Start() error {
 
 	port2, err := serial.Open(b.endpoint2, mode)
 	if err != nil {
-		port1.Close()
+		_ = port1.Close()
 		return errors.Wrap(errors.CodeIO, "open port2", err)
 	}
 	b.port2Handle = port2
@@ -120,10 +120,10 @@ func (b *Bridge) Stop() {
 	b.mu.Unlock()
 
 	if port1 != nil {
-		port1.Close()
+		_ = port1.Close()
 	}
 	if port2 != nil {
-		port2.Close()
+		_ = port2.Close()
 	}
 
 	// Now wait for goroutines to exit (they will after Read returns error)

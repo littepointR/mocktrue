@@ -29,7 +29,7 @@ func NewPlayback(filePath string) (*Playback, error) {
 
 	r, err := pcapgo.NewNgReader(f, pcapgo.DefaultNgReaderOptions)
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, errors.Wrap(errors.CodeIO, "create pcap-ng reader", err)
 	}
 

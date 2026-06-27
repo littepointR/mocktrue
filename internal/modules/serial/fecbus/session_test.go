@@ -303,7 +303,7 @@ func TestManagerSlaveRespondsWithStatusAnswer(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartSlave() error = %v", err)
 	}
-	defer mgr.StopSlave("slave")
+	defer func() { _ = mgr.StopSlave("slave") }()
 
 	request, err := EncodeFrame(Frame{
 		Type:          FrameTypeRequest,
@@ -352,7 +352,7 @@ func TestManagerSlaveRoutesRequestsToMultipleUnits(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartSlave() error = %v", err)
 	}
-	defer mgr.StopSlave("slave")
+	defer func() { _ = mgr.StopSlave("slave") }()
 
 	pushRequest := func(target byte, message byte) Frame {
 		t.Helper()

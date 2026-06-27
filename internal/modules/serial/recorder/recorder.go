@@ -53,7 +53,7 @@ func NewRecorder(portID, filePath string) (*Recorder, error) {
 
 	w, err := pcapgo.NewNgWriter(f, layers.LinkType(DLT_USER0))
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, errors.Wrap(errors.CodeIO, "create pcap-ng writer", err)
 	}
 
@@ -105,7 +105,7 @@ func (r *Recorder) Close() error {
 
 	r.isOpen = false
 	if err := r.writer.Flush(); err != nil {
-		r.file.Close()
+		_ = r.file.Close()
 		return errors.Wrap(errors.CodeIO, "flush pcap", err)
 	}
 	return r.file.Close()

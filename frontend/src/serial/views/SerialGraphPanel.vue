@@ -439,6 +439,14 @@ function nodeRuntimeSummary(node: SerialGraphNode): string {
   return [status.Status, ...counters.map(counter => `${counter.label} ${counter.value}`)].join(' ')
 }
 
+function nodeStatusClass(node: SerialGraphNode): string {
+  const status = panelRuntime.value.nodeStatuses.get(node.id)?.Status ?? node.status ?? ''
+  if (status === 'running' || status === 'reconnecting' || status === 'error') {
+    return `serial-graph__node--${status}`
+  }
+  return ''
+}
+
 function selectedRuntimeCounterItems(): Array<{ label: string; value: number }> {
   if (!selectedNode.value) return []
   return runtimeCounterItems(
@@ -476,6 +484,7 @@ function supportsBuffer(node: SerialGraphNode): boolean {
     'serial.receiver',
     'serial.physical',
     'serial.virtual',
+    'serial.remote',
     'serial.fecbus.master',
     'serial.fecbus.slave',
   ].includes(node.type)
@@ -1278,7 +1287,10 @@ onUnmounted(() => {
           v-for="node in panelNodes"
           :key="node.id"
           class="serial-graph__node"
-          :class="{ 'serial-graph__node--selected': panelGraph?.selectedNodeId === node.id }"
+          :class="[
+            { 'serial-graph__node--selected': panelGraph?.selectedNodeId === node.id },
+            nodeStatusClass(node),
+          ]"
           :data-testid="`serial-graph-node-${node.id}`"
           :style="{ transform: `translate(${node.position.x}px, ${node.position.y}px)` }"
           @click.stop="selectNode(node.id)"
@@ -1544,6 +1556,14 @@ onUnmounted(() => {
               <span>{{ counter.label }}</span>
               <strong>{{ counter.value }}</strong>
             </template>
+            <template v-if="selectedStatus?.ResourceID">
+              <span>资源</span>
+              <strong data-testid="serial-graph-content-resource-id">{{ selectedStatus.ResourceID }}</strong>
+            </template>
+            <template v-if="selectedStatus?.Error">
+              <span>错误</span>
+              <strong data-testid="serial-graph-content-error">{{ selectedStatus.Error }}</strong>
+            </template>
           </div>
           <section
             v-if="supportsScriptEditor(selectedNode)"
@@ -1746,6 +1766,22 @@ onUnmounted(() => {
                   <option value="dec">dec</option>
                   <option value="oct">oct</option>
                   <option value="bin">bin</option>
+                </select>
+                <select
+                  v-else-if="key === 'protocol'"
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="raw-tcp">raw TCP</option>
+                </select>
+                <select
+                  v-else-if="key === 'role'"
+                  :value="String(value)"
+                  :data-testid="`serial-graph-config-${key}`"
+                  @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="client">client</option>
                 </select>
                 <select
                   v-else-if="key === 'mode'"
@@ -2222,6 +2258,19 @@ onUnmounted(() => {
 }
 .serial-graph__node--selected {
   border-color: var(--app-accent, #007acc);
+}
+.serial-graph__node--reconnecting {
+  border-color: var(--app-warning, #d29922);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(210, 153, 34, 0.35);
+}
+.serial-graph__node--reconnecting .serial-graph__node-status {
+  color: var(--app-warning, #d29922);
+}
+.serial-graph__node--error {
+  border-color: var(--app-danger, #f85149);
+}
+.serial-graph__node--error .serial-graph__node-status {
+  color: var(--app-danger, #f85149);
 }
 .serial-graph__node-header {
   display: flex;

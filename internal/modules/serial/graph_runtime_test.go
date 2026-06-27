@@ -3,8 +3,11 @@ package serial
 import (
 	"context"
 	"fmt"
+	"net"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,6 +65,553 @@ func TestSerialGraphRuntimeSenderReceiver(t *testing.T) {
 	receiver := graphNodeStatus(info, "receiver")
 	if receiver.RxBytes != 5 {
 		t.Fatalf("receiver rx = %d, want 5", receiver.RxBytes)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteRawTCPValidation(t *testing.T) {
+	remote := func(id string, config map[string]any) SerialGraphNodeSpec {
+		return SerialGraphNodeSpec{ID: id, Type: "serial.remote", Config: config}
+	}
+
+	valid := SerialGraphStartRequest{
+		ID: "graph-remote-valid",
+		Nodes: []SerialGraphNodeSpec{
+			remote("remote", graphRemoteConfig("127.0.0.1", 3001)),
+			{ID: "receiver", Type: "serial.receiver"},
+		},
+		Edges: []SerialGraphEdgeSpec{{ID: "edge-remote-receiver", Source: "remote", SourceHandle: "rx", Target: "receiver", TargetHandle: "in"}},
+	}
+	if errs := validateSerialGraphRuntimeRequest(valid); len(errs) != 0 {
+		t.Fatalf("valid remote graph errors = %#v", errs)
+	}
+
+	cases := []struct {
+		name      string
+		config    map[string]any
+		wantError string
+	}{
+		{name: "missing host", config: graphRemoteConfig("", 3001), wantError: "host required"},
+		{name: "url host", config: graphRemoteConfig("tcp://127.0.0.1", 3001), wantError: "host must not include URL scheme"},
+		{name: "bad port", config: graphRemoteConfig("127.0.0.1", 70000), wantError: "port out of range"},
+		{name: "fractional port", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"port": 3.14}), wantError: "port must be an integer"},
+		{name: "bad string port", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"port": "3001x"}), wantError: "port must be an integer"},
+		{name: "null timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"connectTimeoutMs": nil}), wantError: "connectTimeoutMs must be an integer"},
+		{name: "zero connect timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"connectTimeoutMs": 0}), wantError: "connectTimeoutMs must be positive"},
+		{name: "short connect timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"connectTimeoutMs": 99}), wantError: "connectTimeoutMs out of range"},
+		{name: "long connect timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"connectTimeoutMs": 60001}), wantError: "connectTimeoutMs out of range"},
+		{name: "bad write timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"writeTimeoutMs": "slow"}), wantError: "writeTimeoutMs must be an integer"},
+		{name: "zero write timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"writeTimeoutMs": 0}), wantError: "writeTimeoutMs must be positive"},
+		{name: "short write timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"writeTimeoutMs": 99}), wantError: "writeTimeoutMs out of range"},
+		{name: "long write timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"writeTimeoutMs": 60001}), wantError: "writeTimeoutMs out of range"},
+		{name: "bad reconnect interval", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"reconnectIntervalMs": nil}), wantError: "reconnectIntervalMs must be an integer"},
+		{name: "zero reconnect interval", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"reconnectIntervalMs": 0}), wantError: "reconnectIntervalMs must be positive"},
+		{name: "short reconnect interval", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"reconnectIntervalMs": 99}), wantError: "reconnectIntervalMs out of range"},
+		{name: "long reconnect interval", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"reconnectIntervalMs": 60001}), wantError: "reconnectIntervalMs out of range"},
+		{name: "bad read buffer", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"readBufKB": "big"}), wantError: "readBufKB must be an integer"},
+		{name: "zero read buffer", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"readBufKB": 0}), wantError: "readBufKB must be positive"},
+		{name: "large read buffer", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"readBufKB": 2048}), wantError: "readBufKB out of range"},
+		{name: "unsupported protocol", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"protocol": "rfc2217"}), wantError: "unsupported protocol"},
+		{name: "unsupported role", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"role": "server"}), wantError: "unsupported role"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateSerialGraphRuntimeRequest(SerialGraphStartRequest{ID: "graph-remote-invalid", Nodes: []SerialGraphNodeSpec{remote("remote", tc.config)}})
+			if !strings.Contains(strings.Join(errs, "\n"), tc.wantError) {
+				t.Fatalf("errors = %#v, want %q", errs, tc.wantError)
+			}
+		})
+	}
+
+	duplicate := validateSerialGraphRuntimeRequest(SerialGraphStartRequest{
+		ID: "graph-remote-duplicate",
+		Nodes: []SerialGraphNodeSpec{
+			remote("remote-a", graphRemoteConfig("127.0.0.1", 3001)),
+			remote("remote-b", graphRemoteConfig("127.0.0.1", 3001)),
+		},
+	})
+	if !strings.Contains(strings.Join(duplicate, "\n"), "resource remote endpoint duplicated") {
+		t.Fatalf("duplicate remote endpoint errors = %#v", duplicate)
+	}
+
+	disjoint := validateSerialGraphRuntimeRequest(SerialGraphStartRequest{
+		ID: "graph-remote-disjoint",
+		Nodes: []SerialGraphNodeSpec{
+			remote("remote-a", graphRemoteConfig("127.0.0.1", 3001)),
+			remote("remote-b", graphRemoteConfig("127.0.0.1", 3002)),
+			remote("remote-c", graphRemoteConfig("localhost", 3001)),
+		},
+	})
+	if len(disjoint) != 0 {
+		t.Fatalf("disjoint remote endpoints errors = %#v", disjoint)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteRawTCPReadWrite(t *testing.T) {
+	tcpServer := newGraphTCPTestServer(t)
+	host, port := tcpServer.hostPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-raw-tcp",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: graphSenderConfig()},
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port)},
+			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-sender-remote", Source: "sender", SourceHandle: "out", Target: "remote", TargetHandle: "tx"},
+			{ID: "edge-remote-receiver", Source: "remote", SourceHandle: "rx", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+	defer func() { _ = svc.StopSerialGraph(graph.ID) }()
+
+	conn := tcpServer.waitConn(t)
+	inbound := []byte("device->graph")
+	_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Write(inbound); err != nil {
+		t.Fatalf("server write returned error: %v", err)
+	}
+	page := waitGraphBuffer(t, svc, graph.ID, "receiver", len(inbound))
+	if string(page.Data) != string(inbound) {
+		t.Fatalf("receiver data = %q, want %q", string(page.Data), string(inbound))
+	}
+
+	outbound := "graph->device"
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: outbound, Mode: "ascii"}); err != nil {
+		t.Fatalf("SendSerialGraphNode returned error: %v", err)
+	}
+	if got := string(tcpServer.waitReceived(t)); got != outbound {
+		t.Fatalf("server received = %q, want %q", got, outbound)
+	}
+
+	info, err := svc.GetSerialGraphStatus(graph.ID)
+	if err != nil {
+		t.Fatalf("GetSerialGraphStatus returned error: %v", err)
+	}
+	remote := graphNodeStatus(info, "remote")
+	if remote.Status != SerialGraphStatusRunning || remote.RxBytes != int64(len(inbound)) || remote.TxBytes != int64(len(outbound)) {
+		t.Fatalf("remote status = %+v, want running rx/tx counters", remote)
+	}
+	if remote.ResourceID != "raw-tcp://"+net.JoinHostPort(host, strconv.Itoa(port)) {
+		t.Fatalf("remote resource = %q", remote.ResourceID)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteSenderWriteFailureReturnsError(t *testing.T) {
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-disconnected-write",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: graphSenderConfig()},
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig("127.0.0.1", 1, map[string]any{"allowStartDisconnected": true, "reconnect": false})},
+		},
+		Edges: []SerialGraphEdgeSpec{{ID: "edge-sender-remote", Source: "sender", SourceHandle: "out", Target: "remote", TargetHandle: "tx"}},
+	})
+	defer func() { _ = svc.StopSerialGraph(graph.ID) }()
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: "fails", Mode: "ascii"}); err == nil {
+		t.Fatalf("SendSerialGraphNode(sender -> disconnected remote) must return a write error")
+	}
+	remote := waitGraphNodeStatus(t, svc, graph.ID, "remote", SerialGraphStatusError)
+	if remote.Error == "" {
+		t.Fatalf("remote error message is empty after disconnected write")
+	}
+}
+
+func TestSerialGraphRuntimeRemoteReadFailureWithoutReconnectMarksError(t *testing.T) {
+	tcpServer := newGraphTCPTestServer(t)
+	host, port := tcpServer.hostPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-read-failure-no-reconnect",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port, map[string]any{"reconnect": false})},
+		},
+	})
+	defer func() { _ = svc.StopSerialGraph(graph.ID) }()
+
+	conn := tcpServer.waitConn(t)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("server close returned error: %v", err)
+	}
+
+	remote := waitGraphNodeStatus(t, svc, graph.ID, "remote", SerialGraphStatusError)
+	if remote.Error == "" {
+		t.Fatalf("remote error message is empty after read failure")
+	}
+	select {
+	case extra := <-tcpServer.accepted:
+		_ = extra.Close()
+		t.Fatalf("remote reconnected despite reconnect=false")
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestSerialGraphRuntimeRemoteReconnectsAfterInitialDialFailure(t *testing.T) {
+	host, port := reserveGraphTCPPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-reconnect-after-start",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: graphSenderConfig()},
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port, map[string]any{
+				"allowStartDisconnected": true,
+				"reconnect":              true,
+				"connectTimeoutMs":       100,
+				"reconnectIntervalMs":    100,
+			})},
+			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-sender-remote", Source: "sender", SourceHandle: "out", Target: "remote", TargetHandle: "tx"},
+			{ID: "edge-remote-receiver", Source: "remote", SourceHandle: "rx", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+	defer func() { _ = svc.StopSerialGraph(graph.ID) }()
+
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		t.Fatalf("net.Listen after disconnected start returned error: %v", err)
+	}
+	server := newGraphTCPTestServerOnListener(t, listener)
+	conn := server.waitConn(t)
+
+	inbound := []byte("after-reconnect")
+	if _, err := conn.Write(inbound); err != nil {
+		t.Fatalf("server write after reconnect returned error: %v", err)
+	}
+	page := waitGraphBuffer(t, svc, graph.ID, "receiver", len(inbound))
+	if string(page.Data) != string(inbound) {
+		t.Fatalf("receiver data after reconnect = %q, want %q", string(page.Data), string(inbound))
+	}
+
+	outbound := "client-write-after-reconnect"
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: outbound, Mode: "ascii"}); err != nil {
+		t.Fatalf("SendSerialGraphNode after reconnect returned error: %v", err)
+	}
+	if got := string(server.waitReceived(t)); got != outbound {
+		t.Fatalf("server received after reconnect = %q, want %q", got, outbound)
+	}
+
+	info, err := svc.GetSerialGraphStatus(graph.ID)
+	if err != nil {
+		t.Fatalf("GetSerialGraphStatus returned error: %v", err)
+	}
+	remote := graphNodeStatus(info, "remote")
+	if remote.Status != SerialGraphStatusRunning || remote.RxBytes != int64(len(inbound)) || remote.TxBytes != int64(len(outbound)) {
+		t.Fatalf("remote status after reconnect = %+v, want running rx/tx counters", remote)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteStartFailsWhenInitialDialUnavailable(t *testing.T) {
+	host, port := reserveGraphTCPPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	_, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
+		ID: "graph-remote-start-fails",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port, map[string]any{"connectTimeoutMs": 100})},
+		},
+	})
+	if err == nil {
+		t.Fatalf("StartSerialGraph with unavailable remote endpoint returned nil error")
+	}
+	if !strings.Contains(err.Error(), "start graph remote node remote") {
+		t.Fatalf("StartSerialGraph error = %v, want remote start context", err)
+	}
+	if graphs := svc.ListSerialGraphs(); len(graphs) != 0 {
+		t.Fatalf("running graphs after failed remote start = %#v, want none", graphs)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteDirectSendWritesTCP(t *testing.T) {
+	tcpServer := newGraphTCPTestServer(t)
+	host, port := tcpServer.hostPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-direct-send",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port)},
+		},
+	})
+	defer func() { _ = svc.StopSerialGraph(graph.ID) }()
+	tcpServer.waitConn(t)
+
+	payload := "direct->device"
+	if written, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "remote", Content: payload, Mode: "ascii"}); err != nil || written != len(payload) {
+		t.Fatalf("SendSerialGraphNode(remote direct) = %d, %v; want %d, nil", written, err, len(payload))
+	}
+	if got := string(tcpServer.waitReceived(t)); got != payload {
+		t.Fatalf("server received direct send = %q, want %q", got, payload)
+	}
+
+	info, err := svc.GetSerialGraphStatus(graph.ID)
+	if err != nil {
+		t.Fatalf("GetSerialGraphStatus returned error: %v", err)
+	}
+	remote := graphNodeStatus(info, "remote")
+	if remote.Status != SerialGraphStatusRunning || remote.TxBytes != int64(len(payload)) {
+		t.Fatalf("remote status after direct send = %+v, want running tx counter", remote)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteReconnectsAfterConnectedDrop(t *testing.T) {
+	tcpServer := newGraphTCPTestServer(t)
+	host, port := tcpServer.hostPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-reconnect-after-drop",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: graphSenderConfig()},
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port, map[string]any{
+				"reconnect":           true,
+				"connectTimeoutMs":    100,
+				"reconnectIntervalMs": 100,
+			})},
+			{ID: "receiver", Type: "serial.receiver", Config: graphReceiverConfig()},
+		},
+		Edges: []SerialGraphEdgeSpec{
+			{ID: "edge-sender-remote", Source: "sender", SourceHandle: "out", Target: "remote", TargetHandle: "tx"},
+			{ID: "edge-remote-receiver", Source: "remote", SourceHandle: "rx", Target: "receiver", TargetHandle: "in"},
+		},
+	})
+	defer func() { _ = svc.StopSerialGraph(graph.ID) }()
+
+	first := tcpServer.waitConn(t)
+	if err := first.Close(); err != nil {
+		t.Fatalf("first server conn close returned error: %v", err)
+	}
+	second := tcpServer.waitConn(t)
+
+	inbound := []byte("after-connected-drop")
+	if _, err := second.Write(inbound); err != nil {
+		t.Fatalf("server write after connected reconnect returned error: %v", err)
+	}
+	page := waitGraphBuffer(t, svc, graph.ID, "receiver", len(inbound))
+	if string(page.Data) != string(inbound) {
+		t.Fatalf("receiver data after connected reconnect = %q, want %q", string(page.Data), string(inbound))
+	}
+
+	outbound := "client-write-after-drop"
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: outbound, Mode: "ascii"}); err != nil {
+		t.Fatalf("SendSerialGraphNode after connected reconnect returned error: %v", err)
+	}
+	if got := string(tcpServer.waitReceived(t)); got != outbound {
+		t.Fatalf("server received after connected reconnect = %q, want %q", got, outbound)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteConnectedDropClearsConnBeforeReconnect(t *testing.T) {
+	tcpServer := newGraphTCPTestServer(t)
+	host, port := tcpServer.hostPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-clears-conn-before-reconnect",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "sender", Type: "serial.sender", Config: graphSenderConfig()},
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port, map[string]any{
+				"reconnect":           true,
+				"connectTimeoutMs":    100,
+				"reconnectIntervalMs": 100,
+			})},
+		},
+		Edges: []SerialGraphEdgeSpec{{ID: "edge-sender-remote", Source: "sender", SourceHandle: "out", Target: "remote", TargetHandle: "tx"}},
+	})
+	defer func() { _ = svc.StopSerialGraph(graph.ID) }()
+
+	first := tcpServer.waitConn(t)
+	if err := tcpServer.listener.Close(); err != nil {
+		t.Fatalf("close remote listener before reconnect returned error: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("first server conn close returned error: %v", err)
+	}
+	waitGraphNodeStatus(t, svc, graph.ID, "remote", SerialGraphStatusReconnecting)
+
+	runtime, err := svc.serialGraphRuntime(graph.ID)
+	if err != nil {
+		t.Fatalf("serialGraphRuntime returned error: %v", err)
+	}
+	node := runtime.node("remote")
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for node.remoteConnection() != nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if conn := node.remoteConnection(); conn != nil {
+		t.Fatalf("remoteConnection() remained set while reconnecting after connected drop: %T", conn)
+	}
+
+	if written, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "sender", Content: "during-reconnect", Mode: "ascii"}); err == nil || written != 0 || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("SendSerialGraphNode sender during reconnect = %d, %v; want disconnected error", written, err)
+	}
+	if written, err := svc.SendSerialGraphNode(SerialGraphSendRequest{GraphID: graph.ID, NodeID: "remote", Content: "direct-during-reconnect", Mode: "ascii"}); err == nil || written != 0 || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("SendSerialGraphNode direct remote during reconnect = %d, %v; want disconnected error", written, err)
+	}
+	info, err := svc.GetSerialGraphStatus(graph.ID)
+	if err != nil {
+		t.Fatalf("GetSerialGraphStatus returned error: %v", err)
+	}
+	if remote := graphNodeStatus(info, "remote"); remote.TxBytes != 0 {
+		t.Fatalf("remote TxBytes after disconnected write = %d, want 0", remote.TxBytes)
+	}
+}
+
+func TestSerialGraphRuntimeRemoteWriteFailureDoesNotCloseReplacementConn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runtime := &serialGraphRuntime{remoteCtx: ctx}
+	node := &serialGraphRuntimeNode{
+		spec: SerialGraphNodeSpec{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig("127.0.0.1", 1, map[string]any{
+			"reconnect":           true,
+			"connectTimeoutMs":    100,
+			"reconnectIntervalMs": 100,
+		})},
+		status: SerialGraphStatusRunning,
+	}
+	stale := &graphFailingConn{}
+	replacement := &graphFailingConn{}
+	stale.onWrite = func() {
+		node.setRemoteConn(replacement)
+		node.setStatus(SerialGraphStatusRunning, "")
+	}
+	node.setRemoteConn(stale)
+
+	n, err := runtime.writeRemoteNode(node, []byte("stale-write"))
+	if err == nil {
+		t.Fatalf("writeRemoteNode with stale failing conn returned nil error")
+	}
+	if n != 0 {
+		t.Fatalf("writeRemoteNode wrote %d bytes, want 0", n)
+	}
+	if got := node.remoteConnection(); got != replacement {
+		t.Fatalf("remoteConnection() = %p, want replacement %p", got, replacement)
+	}
+	if replacement.isClosed() {
+		t.Fatalf("replacement conn was closed by stale write failure cleanup")
+	}
+}
+
+func TestSerialGraphRuntimeRemoteReconnectAllowsImmediateReplacementFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runtime := &serialGraphRuntime{remoteCtx: ctx}
+	node := &serialGraphRuntimeNode{
+		spec: SerialGraphNodeSpec{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig("127.0.0.1", 1, map[string]any{
+			"reconnect":           true,
+			"connectTimeoutMs":    100,
+			"reconnectIntervalMs": 10,
+		})},
+		status: SerialGraphStatusReconnecting,
+	}
+	if !node.tryBeginRemoteReconnect() {
+		t.Fatalf("tryBeginRemoteReconnect returned false for idle node")
+	}
+	replacement := newGraphBlockingFailingConn()
+	defer func() { _ = replacement.Close() }()
+	runtime.completeRemoteReconnect(ctx, node, replacement)
+	if got := node.remoteConnection(); got != replacement {
+		t.Fatalf("remoteConnection() = %p, want replacement %p", got, replacement)
+	}
+
+	if written, err := runtime.writeRemoteNode(node, []byte("immediate-failure")); err == nil || written != 0 || !strings.Contains(err.Error(), "graph blocking failing conn write") {
+		t.Fatalf("writeRemoteNode immediate replacement failure = %d, %v; want replacement write error", written, err)
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var lastErr string
+	for time.Now().Before(deadline) {
+		node.mu.RLock()
+		lastErr = node.err
+		node.mu.RUnlock()
+		if lastErr != "" && !strings.Contains(lastErr, "graph blocking failing conn write") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("remote reconnect did not retry after immediate replacement failure; last error = %q", lastErr)
+}
+
+func TestSerialGraphRuntimeRemoteStopCancelsDisconnectedReconnect(t *testing.T) {
+	host, port := reserveGraphTCPPort(t)
+	svc := NewService(nil)
+	defer svc.cleanup()
+
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "graph-remote-stop-disconnected-reconnect",
+		Nodes: []SerialGraphNodeSpec{
+			{ID: "remote", Type: "serial.remote", Config: graphRemoteConfig(host, port, map[string]any{
+				"allowStartDisconnected": true,
+				"reconnect":              true,
+				"connectTimeoutMs":       100,
+				"reconnectIntervalMs":    100,
+			})},
+		},
+	})
+	waitGraphNodeStatus(t, svc, graph.ID, "remote", SerialGraphStatusReconnecting)
+	if err := svc.StopSerialGraph(graph.ID); err != nil {
+		t.Fatalf("StopSerialGraph returned error: %v", err)
+	}
+
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		t.Fatalf("net.Listen after stop returned error: %v", err)
+	}
+	server := newGraphTCPTestServerOnListener(t, listener)
+	select {
+	case conn := <-server.accepted:
+		_ = conn.Close()
+		t.Fatalf("remote reconnected after StopSerialGraph")
+	case <-time.After(250 * time.Millisecond):
+	}
+}
+
+func TestSerialGraphRuntimeRemoteConfigNumericCoercion(t *testing.T) {
+	validConfig := graphRemoteConfig("LOCALHOST", 3001, map[string]any{
+		"port":                int64(3001),
+		"connectTimeoutMs":    float32(250),
+		"writeTimeoutMs":      float64(250),
+		"reconnectIntervalMs": "250",
+		"readBufKB":           "16",
+	})
+	if errs := validateSerialGraphRuntimeRequest(SerialGraphStartRequest{ID: "graph-remote-numeric", Nodes: []SerialGraphNodeSpec{{ID: "remote", Type: "serial.remote", Config: validConfig}}}); len(errs) != 0 {
+		t.Fatalf("numeric coercion config errors = %#v", errs)
+	}
+	_, _, endpoint, resourceID, err := graphRemoteEndpoint(validConfig)
+	if err != nil {
+		t.Fatalf("graphRemoteEndpoint returned error: %v", err)
+	}
+	if endpoint != "localhost:3001" || resourceID != "raw-tcp://localhost:3001" {
+		t.Fatalf("endpoint=%q resourceID=%q", endpoint, resourceID)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		config map[string]any
+	}{
+		{name: "nil port", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"port": nil})},
+		{name: "boolean port", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"port": true})},
+		{name: "fractional connect timeout", config: graphRemoteConfig("127.0.0.1", 3001, map[string]any{"connectTimeoutMs": 1.5})},
+		{name: "missing host", config: graphRemoteConfig("", 3001)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, _, _, err := graphRemoteEndpoint(tc.config); err == nil {
+				t.Fatalf("graphRemoteEndpoint(%s) returned nil error", tc.name)
+			}
+		})
 	}
 }
 
@@ -826,9 +1376,9 @@ func TestSerialGraphRuntimeDirectSendReceiveAndFrameBranches(t *testing.T) {
 		t.Fatalf("send must reject unbound physical nodes")
 	}
 
-	runtime.receive(serialGraphPortRef{nodeID: "missing", handle: "in"}, []byte("ignored"))
-	runtime.receive(serialGraphPortRef{nodeID: "receiver", handle: "in"}, nil)
-	runtime.receive(serialGraphPortRef{nodeID: "bridge", handle: "b-in"}, []byte("left"))
+	_ = runtime.receive(serialGraphPortRef{nodeID: "missing", handle: "in"}, []byte("ignored"))
+	_ = runtime.receive(serialGraphPortRef{nodeID: "receiver", handle: "in"}, nil)
+	_ = runtime.receive(serialGraphPortRef{nodeID: "bridge", handle: "b-in"}, []byte("left"))
 	leftPage, err := runtime.queryBuffer("left", 0, 16)
 	if err != nil {
 		t.Fatalf("query left buffer returned error: %v", err)
@@ -836,13 +1386,13 @@ func TestSerialGraphRuntimeDirectSendReceiveAndFrameBranches(t *testing.T) {
 	if string(leftPage.Data) != "left" {
 		t.Fatalf("bridge b-in routed %q, want left", string(leftPage.Data))
 	}
-	runtime.receive(serialGraphPortRef{nodeID: "physical", handle: "tx"}, []byte("no-handle"))
+	_ = runtime.receive(serialGraphPortRef{nodeID: "physical", handle: "tx"}, []byte("no-handle"))
 
 	modbusFrame, err := mb.EncodeFrame(mb.FrameModeRTU, 9, mb.PDU{Function: mb.FunctionReadHoldingRegisters, Data: []byte{0, 0, 0, 1}})
 	if err != nil {
 		t.Fatalf("EncodeFrame(modbus): %v", err)
 	}
-	runtime.receive(serialGraphPortRef{nodeID: "modbus-slave", handle: "rx"}, modbusFrame)
+	_ = runtime.receive(serialGraphPortRef{nodeID: "modbus-slave", handle: "rx"}, modbusFrame)
 	info := runtime.info()
 	if got := graphNodeStatus(&info, "modbus-slave").TxBytes; got != 0 {
 		t.Fatalf("modbus slave tx for disallowed unit = %d, want 0", got)
@@ -852,7 +1402,7 @@ func TestSerialGraphRuntimeDirectSendReceiveAndFrameBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("graphFecbusFrame mismatch: %v", err)
 	}
-	runtime.receive(serialGraphPortRef{nodeID: "fecbus-mismatch", handle: "rx"}, fecMismatch)
+	_ = runtime.receive(serialGraphPortRef{nodeID: "fecbus-mismatch", handle: "rx"}, fecMismatch)
 	info = runtime.info()
 	if got := graphNodeStatus(&info, "fecbus-mismatch").TxBytes; got != 0 {
 		t.Fatalf("fecbus mismatched address tx = %d, want 0", got)
@@ -861,7 +1411,7 @@ func TestSerialGraphRuntimeDirectSendReceiveAndFrameBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("graphFecbusFrame no-auto: %v", err)
 	}
-	runtime.receive(serialGraphPortRef{nodeID: "fecbus-off", handle: "rx"}, fecNoAuto)
+	_ = runtime.receive(serialGraphPortRef{nodeID: "fecbus-off", handle: "rx"}, fecNoAuto)
 	info = runtime.info()
 	if got := graphNodeStatus(&info, "fecbus-off").TxBytes; got != 0 {
 		t.Fatalf("fecbus autoStatusAnswer=false tx = %d, want 0", got)
@@ -1521,7 +2071,7 @@ func TestSerialGraphRuntimePhysicalPortRoutesReceivedBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenForTest: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Write([]byte("from-external")); err != nil {
 		t.Fatalf("external Write: %v", err)
 	}
@@ -1563,7 +2113,7 @@ func TestSerialGraphRuntimeVirtualPortExposesExternalEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenForTest virtual public port: %v", err)
 	}
-	defer external.Close()
+	defer func() { _ = external.Close() }()
 	if err := external.SetReadTimeout(2 * time.Second); err != nil {
 		t.Fatalf("SetReadTimeout: %v", err)
 	}
@@ -2179,6 +2729,256 @@ func distributeBytes(total int, parts int) []int {
 	return out
 }
 
+type graphTCPTestServer struct {
+	listener net.Listener
+	accepted chan net.Conn
+	received chan []byte
+	mu       sync.Mutex
+	conns    []net.Conn
+}
+
+func newGraphTCPTestServer(t *testing.T) *graphTCPTestServer {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen returned error: %v", err)
+	}
+	return newGraphTCPTestServerOnListener(t, listener)
+}
+
+func newGraphTCPTestServerOnListener(t *testing.T, listener net.Listener) *graphTCPTestServer {
+	t.Helper()
+	server := &graphTCPTestServer{
+		listener: listener,
+		accepted: make(chan net.Conn, 4),
+		received: make(chan []byte, 16),
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		server.mu.Lock()
+		defer server.mu.Unlock()
+		for _, conn := range server.conns {
+			_ = conn.Close()
+		}
+	})
+	go server.acceptLoop()
+	return server
+}
+
+func reserveGraphTCPPort(t *testing.T) (string, int) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen reserve port returned error: %v", err)
+	}
+	host, portString, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("SplitHostPort returned error: %v", err)
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("Atoi(%q) returned error: %v", portString, err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close reserved listener returned error: %v", err)
+	}
+	return host, port
+}
+
+func (s *graphTCPTestServer) acceptLoop() {
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			return
+		}
+		s.mu.Lock()
+		s.conns = append(s.conns, conn)
+		s.mu.Unlock()
+		s.accepted <- conn
+		go s.readLoop(conn)
+	}
+}
+
+func (s *graphTCPTestServer) readLoop(conn net.Conn) {
+	buf := make([]byte, 1024)
+	for {
+		n, err := conn.Read(buf)
+		if n > 0 {
+			data := append([]byte(nil), buf[:n]...)
+			s.received <- data
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+type graphFailingConn struct {
+	mu      sync.Mutex
+	closed  bool
+	onWrite func()
+}
+
+func (c *graphFailingConn) Read([]byte) (int, error) {
+	return 0, fmt.Errorf("graph failing conn read")
+}
+
+func (c *graphFailingConn) Write([]byte) (int, error) {
+	if c.onWrite != nil {
+		c.onWrite()
+	}
+	return 0, fmt.Errorf("graph failing conn write")
+}
+
+func (c *graphFailingConn) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *graphFailingConn) LocalAddr() net.Addr {
+	return graphTestAddr("local")
+}
+
+func (c *graphFailingConn) RemoteAddr() net.Addr {
+	return graphTestAddr("remote")
+}
+
+func (c *graphFailingConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *graphFailingConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *graphFailingConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+func (c *graphFailingConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
+type graphBlockingFailingConn struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newGraphBlockingFailingConn() *graphBlockingFailingConn {
+	return &graphBlockingFailingConn{closed: make(chan struct{})}
+}
+
+func (c *graphBlockingFailingConn) Read([]byte) (int, error) {
+	<-c.closed
+	return 0, fmt.Errorf("graph blocking failing conn read")
+}
+
+func (c *graphBlockingFailingConn) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("graph blocking failing conn write")
+}
+
+func (c *graphBlockingFailingConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return nil
+}
+
+func (c *graphBlockingFailingConn) LocalAddr() net.Addr {
+	return graphTestAddr("local")
+}
+
+func (c *graphBlockingFailingConn) RemoteAddr() net.Addr {
+	return graphTestAddr("remote")
+}
+
+func (c *graphBlockingFailingConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *graphBlockingFailingConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *graphBlockingFailingConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type graphTestAddr string
+
+func (a graphTestAddr) Network() string {
+	return "tcp"
+}
+
+func (a graphTestAddr) String() string {
+	return string(a)
+}
+
+func (s *graphTCPTestServer) hostPort(t *testing.T) (string, int) {
+	t.Helper()
+	host, portString, err := net.SplitHostPort(s.listener.Addr().String())
+	if err != nil {
+		t.Fatalf("SplitHostPort returned error: %v", err)
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		t.Fatalf("Atoi(%q) returned error: %v", portString, err)
+	}
+	return host, port
+}
+
+func (s *graphTCPTestServer) waitConn(t *testing.T) net.Conn {
+	t.Helper()
+	select {
+	case conn := <-s.accepted:
+		return conn
+	case <-time.After(2 * time.Second):
+		t.Fatalf("remote TCP client did not connect")
+		return nil
+	}
+}
+
+func (s *graphTCPTestServer) waitReceived(t *testing.T) []byte {
+	t.Helper()
+	select {
+	case data := <-s.received:
+		return data
+	case <-time.After(2 * time.Second):
+		t.Fatalf("server did not receive remote TCP write")
+		return nil
+	}
+}
+
+func graphRemoteConfig(host string, port int, overrides ...map[string]any) map[string]any {
+	config := map[string]any{
+		"protocol":               "raw-tcp",
+		"role":                   "client",
+		"host":                   host,
+		"port":                   port,
+		"connectTimeoutMs":       1000,
+		"writeTimeoutMs":         1000,
+		"reconnect":              true,
+		"reconnectIntervalMs":    100,
+		"allowStartDisconnected": false,
+		"readBufKB":              32,
+		"baudRate":               115200,
+		"dataBits":               8,
+		"stopBits":               "1",
+		"parity":                 "none",
+		"flowMode":               "none",
+	}
+	for _, override := range overrides {
+		for key, value := range override {
+			config[key] = value
+		}
+	}
+	return config
+}
+
 func graphSenderConfig() map[string]any {
 	return map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "load", "autoSend": false, "intervalMs": 0}
 }
@@ -2270,6 +3070,24 @@ func graphNodeStatus(info *SerialGraphRuntimeInfo, id string) SerialGraphNodeSta
 		}
 	}
 	return SerialGraphNodeStatus{}
+}
+
+func waitGraphNodeStatus(t *testing.T, svc *Service, graphID string, nodeID string, want string) SerialGraphNodeStatus {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var last SerialGraphNodeStatus
+	for time.Now().Before(deadline) {
+		info, err := svc.GetSerialGraphStatus(graphID)
+		if err == nil {
+			last = graphNodeStatus(info, nodeID)
+			if last.Status == want {
+				return last
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("%s status = %q, want %q (last status: %+v)", nodeID, last.Status, want, last)
+	return last
 }
 
 func waitGraphBuffer(t *testing.T, svc *Service, graphID string, nodeID string, wantBytes int) *buffer.Snapshot {

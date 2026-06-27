@@ -3,6 +3,7 @@ package serial
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,10 +21,11 @@ import (
 )
 
 const (
-	SerialGraphStatusIdle    = "idle"
-	SerialGraphStatusRunning = "running"
-	SerialGraphStatusStopped = "stopped"
-	SerialGraphStatusError   = "error"
+	SerialGraphStatusIdle         = "idle"
+	SerialGraphStatusRunning      = "running"
+	SerialGraphStatusReconnecting = "reconnecting"
+	SerialGraphStatusStopped      = "stopped"
+	SerialGraphStatusError        = "error"
 
 	serialGraphFrameLimit      = 100000
 	serialGraphFrameBytesLimit = 16 * 1024 * 1024
@@ -132,20 +134,22 @@ type serialGraphPortSpec struct {
 }
 
 type serialGraphRuntime struct {
-	mu          sync.RWMutex
-	svc         *Service
-	id          string
-	status      string
-	startedAt   time.Time
-	stoppedAt   time.Time
-	err         string
-	nodes       map[string]*serialGraphRuntimeNode
-	edges       []SerialGraphEdgeSpec
-	routes      map[serialGraphPortRef][]serialGraphPortRef
-	cancelData  func()
-	cancelAuto  func()
-	ownedPorts  []string
-	ownedVPorts []string
+	mu           sync.RWMutex
+	svc          *Service
+	id           string
+	status       string
+	startedAt    time.Time
+	stoppedAt    time.Time
+	err          string
+	nodes        map[string]*serialGraphRuntimeNode
+	edges        []SerialGraphEdgeSpec
+	routes       map[serialGraphPortRef][]serialGraphPortRef
+	cancelData   func()
+	cancelAuto   func()
+	remoteCtx    context.Context
+	cancelRemote func()
+	ownedPorts   []string
+	ownedVPorts  []string
 }
 
 type serialGraphRuntimeNode struct {
@@ -161,6 +165,8 @@ type serialGraphRuntimeNode struct {
 	frameBytes            int64
 	resourceID            string
 	handleID              string
+	remoteConn            net.Conn
+	remoteReconnectActive atomic.Bool
 	script                *serialScriptRuntime
 	externalWriteInFlight atomic.Bool
 }
@@ -425,6 +431,10 @@ func (r *serialGraphRuntime) startResourceNodes(ctx context.Context) error {
 			if err := r.startVirtualNode(ctx, node); err != nil {
 				return err
 			}
+		case "serial.remote":
+			if err := r.startRemoteNode(ctx, node); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -483,6 +493,177 @@ func (r *serialGraphRuntime) startVirtualNode(ctx context.Context, node *serialG
 	return nil
 }
 
+func (r *serialGraphRuntime) startRemoteNode(ctx context.Context, node *serialGraphRuntimeNode) error {
+	_, _, endpoint, resourceID, err := graphRemoteEndpoint(node.spec.Config)
+	if err != nil {
+		node.setStatus(SerialGraphStatusError, err.Error())
+		return err
+	}
+	node.setResourceID(resourceID)
+	remoteCtx := r.ensureRemoteContext()
+	conn, err := dialGraphRemote(ctx, node.spec.Config, endpoint)
+	if err != nil {
+		if graphBoolConfig(node.spec.Config, "allowStartDisconnected", false) {
+			node.setStatus(SerialGraphStatusReconnecting, err.Error())
+			go r.runRemoteReconnect(remoteCtx, node)
+			return nil
+		}
+		node.setStatus(SerialGraphStatusError, err.Error())
+		return errors.Wrap(errors.CodeIO, "start graph remote node "+node.spec.ID, err)
+	}
+	node.setRemoteConn(conn)
+	node.setStatus(SerialGraphStatusRunning, "")
+	go r.runRemoteReader(remoteCtx, node, conn)
+	return nil
+}
+
+func (r *serialGraphRuntime) ensureRemoteContext() context.Context {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.remoteCtx == nil {
+		r.remoteCtx, r.cancelRemote = context.WithCancel(context.Background())
+	}
+	return r.remoteCtx
+}
+
+func dialGraphRemote(ctx context.Context, config map[string]any, endpoint string) (net.Conn, error) {
+	timeout := time.Duration(graphIntConfig(config, "connectTimeoutMs", 3000)) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 3000 * time.Millisecond
+	}
+	dialer := &net.Dialer{Timeout: timeout}
+	return dialer.DialContext(ctx, "tcp", endpoint)
+}
+
+func (r *serialGraphRuntime) runRemoteReader(ctx context.Context, node *serialGraphRuntimeNode, conn net.Conn) {
+	defer func() {
+		if conn != nil {
+			_ = node.closeRemoteConnIfCurrent(conn)
+		}
+	}()
+	readSize := graphIntConfig(node.spec.Config, "readBufKB", 32) * 1024
+	if readSize < 1024 {
+		readSize = 1024
+	}
+	if readSize > 1024*1024 {
+		readSize = 1024 * 1024
+	}
+	buf := make([]byte, readSize)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		n, err := conn.Read(buf)
+		if n > 0 {
+			data := append([]byte(nil), buf[:n]...)
+			node.addRx(len(data))
+			node.appendBuffer(data)
+			_ = r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "rx"}, data)
+		}
+		if err != nil {
+			if r.isStopped() || ctx.Err() != nil {
+				return
+			}
+			detached := node.closeRemoteConnIfCurrent(conn)
+			conn = nil
+			if graphBoolConfig(node.spec.Config, "reconnect", true) {
+				if detached {
+					node.setStatus(SerialGraphStatusReconnecting, err.Error())
+					r.runRemoteReconnect(ctx, node)
+				}
+			} else if detached {
+				node.setStatus(SerialGraphStatusError, err.Error())
+			}
+			return
+		}
+	}
+}
+
+func (r *serialGraphRuntime) runRemoteReconnect(ctx context.Context, node *serialGraphRuntimeNode) {
+	if !graphBoolConfig(node.spec.Config, "reconnect", true) {
+		return
+	}
+	if !node.tryBeginRemoteReconnect() {
+		return
+	}
+	releaseOnReturn := true
+	defer func() {
+		if releaseOnReturn {
+			node.endRemoteReconnect()
+		}
+	}()
+	_, _, endpoint, _, err := graphRemoteEndpoint(node.spec.Config)
+	if err != nil {
+		node.setStatus(SerialGraphStatusError, err.Error())
+		return
+	}
+	interval := time.Duration(graphIntConfig(node.spec.Config, "reconnectIntervalMs", 1000)) * time.Millisecond
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		conn, err := dialGraphRemote(ctx, node.spec.Config, endpoint)
+		if err == nil {
+			// Once the replacement connection is visible, its read/write failures
+			// must be able to claim the reconnect guard for the next loop.
+			releaseOnReturn = false
+			r.completeRemoteReconnect(ctx, node, conn)
+			return
+		}
+		node.setStatus(SerialGraphStatusReconnecting, err.Error())
+		timer.Reset(interval)
+	}
+}
+
+func (r *serialGraphRuntime) completeRemoteReconnect(ctx context.Context, node *serialGraphRuntimeNode, conn net.Conn) {
+	node.endRemoteReconnect()
+	node.setRemoteConn(conn)
+	node.setStatus(SerialGraphStatusRunning, "")
+	go r.runRemoteReader(ctx, node, conn)
+}
+
+func (r *serialGraphRuntime) writeRemoteNode(node *serialGraphRuntimeNode, data []byte) (int, error) {
+	conn := node.remoteConnection()
+	if conn == nil {
+		err := errors.New(errors.CodeInvalid, "remote node is not connected: "+node.spec.ID)
+		if graphBoolConfig(node.spec.Config, "reconnect", true) {
+			node.setStatus(SerialGraphStatusReconnecting, err.Error())
+		} else {
+			node.setStatus(SerialGraphStatusError, err.Error())
+		}
+		return 0, err
+	}
+	writeTimeout := time.Duration(graphIntConfig(node.spec.Config, "writeTimeoutMs", 3000)) * time.Millisecond
+	if writeTimeout > 0 {
+		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	}
+	n, err := conn.Write(data)
+	if n > 0 {
+		node.addTx(n)
+	}
+	if err != nil {
+		if node.closeRemoteConnIfCurrent(conn) {
+			if graphBoolConfig(node.spec.Config, "reconnect", true) {
+				node.setStatus(SerialGraphStatusReconnecting, err.Error())
+				go r.runRemoteReconnect(r.ensureRemoteContext(), node)
+			} else {
+				node.setStatus(SerialGraphStatusError, err.Error())
+			}
+		}
+		return n, err
+	}
+	return n, nil
+}
+
 func (r *serialGraphRuntime) subscribeSerialData() {
 	if r.svc.bus == nil {
 		return
@@ -503,7 +684,7 @@ func (r *serialGraphRuntime) subscribeSerialData() {
 		}
 		node.addRx(len(evt.Data))
 		node.appendBuffer(evt.Data)
-		r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "rx"}, evt.Data)
+		_ = r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "rx"}, evt.Data)
 	})
 	r.mu.Unlock()
 }
@@ -662,7 +843,7 @@ func (r *serialGraphRuntime) runScriptGeneratorOnce(nodeID string) error {
 		return nil
 	}
 	node.addTx(len(result.Output))
-	r.emit(serialGraphPortRef{nodeID: nodeID, handle: "out"}, result.Output)
+	_ = r.emit(serialGraphPortRef{nodeID: nodeID, handle: "out"}, result.Output)
 	return nil
 }
 
@@ -678,12 +859,19 @@ func (r *serialGraphRuntime) stop() {
 	r.cancelData = nil
 	cancelAuto := r.cancelAuto
 	r.cancelAuto = nil
+	cancelRemote := r.cancelRemote
+	r.cancelRemote = nil
+	r.remoteCtx = nil
 	ownedPorts := append([]string(nil), r.ownedPorts...)
 	ownedVPorts := append([]string(nil), r.ownedVPorts...)
 	r.ownedPorts = nil
 	r.ownedVPorts = nil
+	remoteNodes := make([]*serialGraphRuntimeNode, 0)
 	for _, node := range r.nodes {
 		node.setStatus(SerialGraphStatusStopped, "")
+		if node.spec.Type == "serial.remote" {
+			remoteNodes = append(remoteNodes, node)
+		}
 	}
 	r.mu.Unlock()
 
@@ -692,6 +880,12 @@ func (r *serialGraphRuntime) stop() {
 	}
 	if cancelAuto != nil {
 		cancelAuto()
+	}
+	if cancelRemote != nil {
+		cancelRemote()
+	}
+	for _, node := range remoteNodes {
+		_ = node.closeRemoteConn()
 	}
 	for _, portID := range ownedVPorts {
 		_ = r.svc.DeleteVirtualPort(portID)
@@ -728,12 +922,10 @@ func (r *serialGraphRuntime) send(nodeID string, data []byte) error {
 	case "serial.modbus.master", "serial.modbus.slave":
 		node.addTx(len(data))
 		node.appendModbusFrame(data, "发送")
-		r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
-		return nil
+		return r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
 	case "serial.sender", "serial.fecbus.master", "serial.fecbus.slave":
 		node.addTx(len(data))
-		r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
-		return nil
+		return r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
 	case "serial.physical":
 		handleID := node.handle()
 		if handleID == "" {
@@ -746,17 +938,22 @@ func (r *serialGraphRuntime) send(nodeID string, data []byte) error {
 		}
 		node.addTx(n)
 		return nil
+	case "serial.remote":
+		_, err := r.writeRemoteNode(node, data)
+		return err
 	default:
 		return errors.New(errors.CodeInvalid, "node does not support direct send: "+nodeID)
 	}
 }
 
-func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
+func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) error {
 	node := r.node(ref.nodeID)
 	if node == nil || len(data) == 0 {
-		return
+		return nil
 	}
-	node.addRx(len(data))
+	if node.spec.Type != "serial.remote" {
+		node.addRx(len(data))
+	}
 	switch node.spec.Type {
 	case "serial.receiver":
 		node.appendBuffer(data)
@@ -770,15 +967,15 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 		r.handleScriptAnalyzer(node, data)
 	case "serial.tap", "serial.tee":
 		node.addTx(len(data))
-		r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "out"}, data)
+		return r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "out"}, data)
 	case "serial.bridge":
 		switch ref.handle {
 		case "a-in":
 			node.addTx(len(data))
-			r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "b-out"}, data)
+			return r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "b-out"}, data)
 		case "b-in":
 			node.addTx(len(data))
-			r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "a-out"}, data)
+			return r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "a-out"}, data)
 		}
 	case "serial.physical":
 		handleID := node.handle()
@@ -787,14 +984,19 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 				node.addTx(n)
 			} else {
 				node.setStatus(SerialGraphStatusError, err.Error())
+				return err
 			}
 		}
 	case "serial.virtual":
 		loopback := append([]byte(nil), data...)
 		node.addTx(len(loopback))
 		node.appendBuffer(loopback)
-		r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "rx"}, loopback)
+		_ = r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "rx"}, loopback)
 		r.writeVirtualExternal(node, loopback)
+	case "serial.remote":
+		if _, err := r.writeRemoteNode(node, data); err != nil {
+			return err
+		}
 	case "serial.modbus.slave":
 		node.appendBuffer(data)
 		node.appendModbusFrame(data, "接收")
@@ -808,6 +1010,7 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) {
 	case "serial.fecbus.master":
 		node.appendBuffer(data)
 	}
+	return nil
 }
 
 func (r *serialGraphRuntime) handleFilter(node *serialGraphRuntimeNode, data []byte) {
@@ -845,7 +1048,7 @@ func (r *serialGraphRuntime) handleFilter(node *serialGraphRuntimeNode, data []b
 		return
 	}
 	node.addTx(len(data))
-	r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, data)
+	_ = r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, data)
 }
 
 func (r *serialGraphRuntime) handleScriptTransform(node *serialGraphRuntimeNode, data []byte) {
@@ -858,7 +1061,7 @@ func (r *serialGraphRuntime) handleScriptTransform(node *serialGraphRuntimeNode,
 		node.setStatus(SerialGraphStatusError, err.Error())
 		if graphScriptOnErrorPassesInput(node.spec.Config) {
 			node.addTx(len(data))
-			r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, data)
+			_ = r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, data)
 		}
 		return
 	}
@@ -870,7 +1073,7 @@ func (r *serialGraphRuntime) handleScriptTransform(node *serialGraphRuntimeNode,
 		return
 	}
 	node.addTx(len(result.Output))
-	r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, result.Output)
+	_ = r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "out"}, result.Output)
 }
 
 func (r *serialGraphRuntime) handleScriptAnalyzer(node *serialGraphRuntimeNode, data []byte) {
@@ -934,7 +1137,7 @@ func (r *serialGraphRuntime) handleModbusSlave(node *serialGraphRuntimeNode, dat
 	}
 	node.addTx(len(encoded))
 	node.appendModbusFrame(encoded, "发送")
-	r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "tx"}, encoded)
+	_ = r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "tx"}, encoded)
 }
 
 func (r *serialGraphRuntime) handleFecbusSlave(node *serialGraphRuntimeNode, data []byte) {
@@ -961,15 +1164,19 @@ func (r *serialGraphRuntime) handleFecbusSlave(node *serialGraphRuntimeNode, dat
 		return
 	}
 	node.addTx(len(encoded))
-	r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "tx"}, encoded)
+	_ = r.emit(serialGraphPortRef{nodeID: node.spec.ID, handle: "tx"}, encoded)
 }
 
-func (r *serialGraphRuntime) emit(source serialGraphPortRef, data []byte) {
+func (r *serialGraphRuntime) emit(source serialGraphPortRef, data []byte) error {
 	targets := r.targets(source)
+	var firstErr error
 	for _, target := range targets {
 		next := append([]byte(nil), data...)
-		r.receive(target, next)
+		if err := r.receive(target, next); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
+	return firstErr
 }
 
 func (r *serialGraphRuntime) targets(source serialGraphPortRef) []serialGraphPortRef {
@@ -1118,6 +1325,56 @@ func (n *serialGraphRuntimeNode) handle() string {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.handleID
+}
+
+func (n *serialGraphRuntimeNode) setRemoteConn(conn net.Conn) {
+	n.mu.Lock()
+	previous := n.remoteConn
+	n.remoteConn = conn
+	n.mu.Unlock()
+	if previous != nil && previous != conn {
+		_ = previous.Close()
+	}
+}
+
+func (n *serialGraphRuntimeNode) remoteConnection() net.Conn {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.remoteConn
+}
+
+func (n *serialGraphRuntimeNode) closeRemoteConnIfCurrent(conn net.Conn) bool {
+	if conn == nil {
+		return false
+	}
+	n.mu.Lock()
+	cleared := false
+	if n.remoteConn == conn {
+		n.remoteConn = nil
+		cleared = true
+	}
+	n.mu.Unlock()
+	_ = conn.Close()
+	return cleared
+}
+
+func (n *serialGraphRuntimeNode) closeRemoteConn() error {
+	n.mu.Lock()
+	conn := n.remoteConn
+	n.remoteConn = nil
+	n.mu.Unlock()
+	if conn == nil {
+		return nil
+	}
+	return conn.Close()
+}
+
+func (n *serialGraphRuntimeNode) tryBeginRemoteReconnect() bool {
+	return n.remoteReconnectActive.CompareAndSwap(false, true)
+}
+
+func (n *serialGraphRuntimeNode) endRemoteReconnect() {
+	n.remoteReconnectActive.Store(false)
 }
 
 func (n *serialGraphRuntimeNode) tryBeginExternalWrite() bool {
@@ -1879,6 +2136,75 @@ func graphUnitIDAllowed(config map[string]any, unitID byte) bool {
 	return false
 }
 
+func validateGraphRemoteConfig(nodeID string, config map[string]any) []string {
+	var errs []string
+	protocol := graphStringConfigWithDefault(config, "protocol", "raw-tcp")
+	role := graphStringConfigWithDefault(config, "role", "client")
+	host := graphStringConfig(config, "host")
+	port, portOK := graphStrictIntConfig(config, "port", 3001)
+	connectTimeoutMs, connectTimeoutOK := graphStrictIntConfig(config, "connectTimeoutMs", 3000)
+	writeTimeoutMs, writeTimeoutOK := graphStrictIntConfig(config, "writeTimeoutMs", 3000)
+	reconnectIntervalMs, reconnectIntervalOK := graphStrictIntConfig(config, "reconnectIntervalMs", 1000)
+	readBufKB, readBufOK := graphStrictIntConfig(config, "readBufKB", 32)
+	prefix := nodeID + ": "
+	if protocol != "raw-tcp" {
+		errs = append(errs, prefix+"unsupported protocol: "+protocol)
+	}
+	if role != "client" {
+		errs = append(errs, prefix+"unsupported role: "+role)
+	}
+	if host == "" {
+		errs = append(errs, prefix+"remote host required")
+	}
+	if strings.Contains(host, "://") {
+		errs = append(errs, prefix+"remote host must not include URL scheme")
+	}
+	if !portOK {
+		errs = append(errs, prefix+"remote port must be an integer")
+	} else if port < 1 || port > 65535 {
+		errs = append(errs, fmt.Sprintf("%sremote port out of range: %d", prefix, port))
+	}
+	if !connectTimeoutOK {
+		errs = append(errs, prefix+"connectTimeoutMs must be an integer")
+	} else if connectTimeoutMs <= 0 {
+		errs = append(errs, prefix+"connectTimeoutMs must be positive")
+	} else if connectTimeoutMs < 100 || connectTimeoutMs > 60000 {
+		errs = append(errs, prefix+"connectTimeoutMs out of range")
+	}
+	if !writeTimeoutOK {
+		errs = append(errs, prefix+"writeTimeoutMs must be an integer")
+	} else if writeTimeoutMs <= 0 {
+		errs = append(errs, prefix+"writeTimeoutMs must be positive")
+	} else if writeTimeoutMs < 100 || writeTimeoutMs > 60000 {
+		errs = append(errs, prefix+"writeTimeoutMs out of range")
+	}
+	if !reconnectIntervalOK {
+		errs = append(errs, prefix+"reconnectIntervalMs must be an integer")
+	} else if reconnectIntervalMs <= 0 {
+		errs = append(errs, prefix+"reconnectIntervalMs must be positive")
+	} else if reconnectIntervalMs < 100 || reconnectIntervalMs > 60000 {
+		errs = append(errs, prefix+"reconnectIntervalMs out of range")
+	}
+	if !readBufOK {
+		errs = append(errs, prefix+"readBufKB must be an integer")
+	} else if readBufKB <= 0 {
+		errs = append(errs, prefix+"readBufKB must be positive")
+	} else if readBufKB > 1024 {
+		errs = append(errs, prefix+"readBufKB out of range")
+	}
+	return errs
+}
+
+func graphRemoteEndpoint(config map[string]any) (string, int, string, string, error) {
+	if errs := validateGraphRemoteConfig("remote", config); len(errs) > 0 {
+		return "", 0, "", "", errors.New(errors.CodeInvalid, strings.Join(errs, "; "))
+	}
+	host := strings.ToLower(graphStringConfig(config, "host"))
+	port, _ := graphStrictIntConfig(config, "port", 3001)
+	endpoint := net.JoinHostPort(host, strconv.Itoa(port))
+	return host, port, endpoint, "raw-tcp://" + endpoint, nil
+}
+
 func defaultGraphOutputHandle(nodeType string) string {
 	switch nodeType {
 	case "serial.modbus.master", "serial.modbus.slave", "serial.fecbus.master", "serial.fecbus.slave":
@@ -1903,6 +2229,9 @@ func validateSerialGraphRuntimeRequest(req SerialGraphStartRequest) []string {
 		}
 		if _, ok := providers[node.Type]; !ok {
 			errs = append(errs, "provider not found: "+node.Type)
+		}
+		if node.Type == "serial.remote" {
+			errs = append(errs, validateGraphRemoteConfig(node.ID, node.Config)...)
 		}
 		nodes[node.ID] = node
 	}
@@ -1929,6 +2258,19 @@ func validateGraphRuntimeResources(nodes []SerialGraphNodeSpec, providers map[st
 	for _, node := range nodes {
 		provider, ok := providers[node.Type]
 		if !ok || !provider.ResourceOwner {
+			continue
+		}
+		if node.Type == "serial.remote" {
+			_, _, endpoint, _, err := graphRemoteEndpoint(node.Config)
+			if err != nil {
+				continue
+			}
+			resourceKey := "remote:" + endpoint
+			if previous, exists := used[resourceKey]; exists {
+				errs = append(errs, fmt.Sprintf("resource remote endpoint duplicated: %s (%s, %s)", endpoint, previous, node.ID))
+			} else {
+				used[resourceKey] = node.ID
+			}
 			continue
 		}
 		for _, key := range provider.ResourceKeys {
@@ -2017,6 +2359,7 @@ func serialGraphRuntimeProviders() []serialGraphProviderSpec {
 	return []serialGraphProviderSpec{
 		{Type: "serial.physical", Inputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "output"}}, ResourceOwner: true, ResourceKeys: []string{"portName"}},
 		{Type: "serial.virtual", Inputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "output"}}, ResourceOwner: true, ResourceKeys: []string{"portName"}},
+		{Type: "serial.remote", Inputs: []serialGraphPortSpec{{ID: "tx", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "rx", Kind: "bytes", Direction: "output"}}, ResourceOwner: true},
 		{Type: "serial.bridge", Inputs: []serialGraphPortSpec{{ID: "a-in", Kind: "bytes", Direction: "input"}, {ID: "b-in", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "a-out", Kind: "bytes", Direction: "output"}, {ID: "b-out", Kind: "bytes", Direction: "output"}}},
 		{Type: "serial.monitor", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{}},
 		{Type: "serial.filter", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{bytesOut}},
@@ -2140,6 +2483,36 @@ func graphStringConfigRaw(config map[string]any, key string) string {
 		return ""
 	}
 	return fmt.Sprint(value)
+}
+
+func graphStrictIntConfig(config map[string]any, key string, fallback int) (int, bool) {
+	if config == nil {
+		return fallback, true
+	}
+	value, ok := config[key]
+	if !ok {
+		return fallback, true
+	}
+	if value == nil {
+		return 0, false
+	}
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		parsed := int(typed)
+		return parsed, float64(parsed) == typed
+	case float32:
+		parsed := int(typed)
+		return parsed, float32(parsed) == typed
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func graphIntConfig(config map[string]any, key string, fallback int) int {

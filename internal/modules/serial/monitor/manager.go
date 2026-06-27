@@ -282,9 +282,10 @@ func (s *Session) appendFrame(direction string, publicPort string, data []byte, 
 		Port:      publicPort,
 		Data:      append([]byte(nil), data...),
 	}, s.req.Encoding)
-	if direction == DirectionAToB {
+	switch direction {
+	case DirectionAToB:
 		s.txBytes += int64(len(data))
-	} else if direction == DirectionBToA {
+	case DirectionBToA:
 		s.rxBytes += int64(len(data))
 	}
 	s.frames = append(s.frames, frame)

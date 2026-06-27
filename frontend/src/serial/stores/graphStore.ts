@@ -1226,8 +1226,8 @@ function normalizeRuntimeStatus(status: string): RuntimeStatus {
   return 'idle'
 }
 
-function normalizeNodeStatus(status: string): 'idle' | 'running' | 'error' {
-  if (status === 'running' || status === 'error') return status
+function normalizeNodeStatus(status: string): NonNullable<SerialGraphNode['status']> {
+  if (status === 'running' || status === 'reconnecting' || status === 'error') return status
   return 'idle'
 }
 

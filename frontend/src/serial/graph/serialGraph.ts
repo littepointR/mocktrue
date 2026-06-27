@@ -576,7 +576,7 @@ function remoteConfigString(config: Record<string, unknown>, key: string, fallba
 }
 
 function remoteConfigNumber(config: Record<string, unknown>, key: string, fallback: number): number {
-  if (!(key in config) || config[key] === undefined || config[key] === '') return fallback
+  if (!(key in config) || config[key] === undefined) return fallback
   const value = config[key]
   if (value === null) return Number.NaN
   if (typeof value === 'number') return value

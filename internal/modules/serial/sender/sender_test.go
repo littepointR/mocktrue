@@ -20,7 +20,7 @@ func TestTimedSenderStartStop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go ts.Start(ctx)
+	go func() { _ = ts.Start(ctx) }()
 	time.Sleep(250 * time.Millisecond)
 
 	if ts.Count() < 3 {
@@ -37,7 +37,7 @@ func TestTimedSenderStop(t *testing.T) {
 	ts := NewTimedSender("test", 50*time.Millisecond, []byte("hello"), sendFunc)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go ts.Start(ctx)
+	go func() { _ = ts.Start(ctx) }()
 
 	time.Sleep(100 * time.Millisecond)
 	cancel()

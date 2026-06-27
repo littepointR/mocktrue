@@ -251,12 +251,12 @@ func TestManagerBridgeMonitorCapturesBothDirections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenForTest peerA: %v", err)
 	}
-	defer peerA.Close()
+	defer func() { _ = peerA.Close() }()
 	peerB, err := port.OpenForTest(pairB.Port2, 115200)
 	if err != nil {
 		t.Fatalf("OpenForTest peerB: %v", err)
 	}
-	defer peerB.Close()
+	defer func() { _ = peerB.Close() }()
 
 	if _, err := peerA.Write([]byte("hello-b")); err != nil {
 		t.Fatalf("Write A: %v", err)

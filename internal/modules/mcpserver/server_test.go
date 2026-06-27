@@ -1097,6 +1097,150 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 	}
 }
 
+func TestSerialGraphToolsExposeAndValidateRemoteProvider(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	catalog := callMCPTool(t, handler, 460, "serial_graph_provider_catalog", map[string]any{})
+	providers := catalog["structuredContent"].(map[string]any)["providers"].([]any)
+	var remote map[string]any
+	for _, raw := range providers {
+		provider := raw.(map[string]any)
+		if provider["type"] == "serial.remote" {
+			remote = provider
+			break
+		}
+	}
+	if remote == nil {
+		t.Fatalf("catalog missing serial.remote in %#v", providers)
+	}
+	if remote["title"] != "远端串口" || remote["category"] != "串口" || remote["resource_owner"] != true {
+		t.Fatalf("remote provider metadata = %#v", remote)
+	}
+	inputs := remote["inputs"].([]any)
+	outputs := remote["outputs"].([]any)
+	if len(inputs) != 1 || inputs[0].(map[string]any)["id"] != "tx" || len(outputs) != 1 || outputs[0].(map[string]any)["id"] != "rx" {
+		t.Fatalf("remote ports inputs=%#v outputs=%#v", inputs, outputs)
+	}
+	defaults := remote["default_config"].(map[string]any)
+	if defaults["protocol"] != "raw-tcp" || defaults["role"] != "client" || defaults["mode"] != nil || defaults["port"] != float64(3001) {
+		t.Fatalf("remote default_config = %#v", defaults)
+	}
+
+	validNodes := []map[string]any{
+		{"id": "sender", "type": "serial.sender", "position": map[string]any{"x": 0, "y": 0}, "config": map[string]any{}},
+		{"id": "remote", "type": "serial.remote", "position": map[string]any{"x": 240, "y": 0}, "config": map[string]any{"protocol": "raw-tcp", "role": "client", "host": "127.0.0.1", "port": 3001}},
+		{"id": "receiver", "type": "serial.receiver", "position": map[string]any{"x": 480, "y": 0}, "config": map[string]any{}},
+	}
+	validEdges := []map[string]any{
+		{"id": "edge-sender-remote", "source": "sender", "sourceHandle": "out", "target": "remote", "targetHandle": "tx"},
+		{"id": "edge-remote-receiver", "source": "remote", "sourceHandle": "rx", "target": "receiver", "targetHandle": "in"},
+	}
+	valid := callMCPTool(t, handler, 461, "serial_graph_validate", map[string]any{"nodes": validNodes, "edges": validEdges})
+	if valid["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("remote validate result = %#v", valid["structuredContent"])
+	}
+
+	invalid := callMCPTool(t, handler, 462, "serial_graph_validate", map[string]any{
+		"nodes": []map[string]any{
+			{"id": "remote-a", "type": "serial.remote", "position": map[string]any{"x": 0, "y": 0}, "config": map[string]any{"host": "127.0.0.1", "port": 3001}},
+			{"id": "remote-b", "type": "serial.remote", "position": map[string]any{"x": 240, "y": 0}, "config": map[string]any{"host": "127.0.0.1", "port": 3001}},
+			{"id": "remote-c", "type": "serial.remote", "position": map[string]any{"x": 480, "y": 0}, "config": map[string]any{"host": "tcp://127.0.0.1", "port": 70000, "protocol": "rfc2217", "role": "server"}},
+			{"id": "remote-d", "type": "serial.remote", "position": map[string]any{"x": 720, "y": 0}, "config": map[string]any{"host": "127.0.0.1", "port": "3001x"}},
+		},
+		"edges": []map[string]any{},
+	})
+	content := invalid["structuredContent"].(map[string]any)
+	if content["valid"] != false {
+		t.Fatalf("invalid remote validate result = %#v", content)
+	}
+	var joined string
+	for _, raw := range content["errors"].([]any) {
+		joined += raw.(string) + "\n"
+	}
+	for _, want := range []string{"resource remote endpoint duplicated", "host must not include URL scheme", "port out of range", "port must be an integer", "unsupported protocol", "unsupported role"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("remote errors = %q, want %q", joined, want)
+		}
+	}
+}
+
+func TestSerialGraphRemoteConfigValidationCoversNumericRanges(t *testing.T) {
+	t.Parallel()
+
+	valid := map[string]any{
+		"protocol":            "raw-tcp",
+		"role":                "client",
+		"host":                "LOCALHOST",
+		"port":                int64(3001),
+		"connectTimeoutMs":    float32(100),
+		"writeTimeoutMs":      float64(60000),
+		"reconnectIntervalMs": "250",
+		"readBufKB":           "1024",
+	}
+	if errs := validateSerialGraphRemoteConfig("remote", valid); len(errs) != 0 {
+		t.Fatalf("valid remote config errors = %#v", errs)
+	}
+	if endpoint, ok := serialGraphRemoteEndpoint(valid); !ok || endpoint != "localhost:3001" {
+		t.Fatalf("serialGraphRemoteEndpoint = %q, %v; want localhost:3001, true", endpoint, ok)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		config map[string]any
+		want   string
+	}{
+		{name: "missing host", config: map[string]any{"port": 3001}, want: "remote host required"},
+		{name: "schemed host", config: map[string]any{"host": "tcp://127.0.0.1", "port": 3001}, want: "remote host must not include URL scheme"},
+		{name: "nil port", config: map[string]any{"host": "127.0.0.1", "port": nil}, want: "remote port must be an integer"},
+		{name: "fractional port", config: map[string]any{"host": "127.0.0.1", "port": 3.14}, want: "remote port must be an integer"},
+		{name: "low port", config: map[string]any{"host": "127.0.0.1", "port": 0}, want: "remote port out of range"},
+		{name: "high port", config: map[string]any{"host": "127.0.0.1", "port": 70000}, want: "remote port out of range"},
+		{name: "nil connect timeout", config: map[string]any{"host": "127.0.0.1", "connectTimeoutMs": nil}, want: "connectTimeoutMs must be an integer"},
+		{name: "zero connect timeout", config: map[string]any{"host": "127.0.0.1", "connectTimeoutMs": 0}, want: "connectTimeoutMs must be positive"},
+		{name: "short connect timeout", config: map[string]any{"host": "127.0.0.1", "connectTimeoutMs": 99}, want: "connectTimeoutMs out of range"},
+		{name: "long connect timeout", config: map[string]any{"host": "127.0.0.1", "connectTimeoutMs": 60001}, want: "connectTimeoutMs out of range"},
+		{name: "nil write timeout", config: map[string]any{"host": "127.0.0.1", "writeTimeoutMs": nil}, want: "writeTimeoutMs must be an integer"},
+		{name: "zero write timeout", config: map[string]any{"host": "127.0.0.1", "writeTimeoutMs": 0}, want: "writeTimeoutMs must be positive"},
+		{name: "short write timeout", config: map[string]any{"host": "127.0.0.1", "writeTimeoutMs": 99}, want: "writeTimeoutMs out of range"},
+		{name: "long write timeout", config: map[string]any{"host": "127.0.0.1", "writeTimeoutMs": 60001}, want: "writeTimeoutMs out of range"},
+		{name: "nil reconnect interval", config: map[string]any{"host": "127.0.0.1", "reconnectIntervalMs": nil}, want: "reconnectIntervalMs must be an integer"},
+		{name: "zero reconnect interval", config: map[string]any{"host": "127.0.0.1", "reconnectIntervalMs": 0}, want: "reconnectIntervalMs must be positive"},
+		{name: "short reconnect interval", config: map[string]any{"host": "127.0.0.1", "reconnectIntervalMs": 99}, want: "reconnectIntervalMs out of range"},
+		{name: "long reconnect interval", config: map[string]any{"host": "127.0.0.1", "reconnectIntervalMs": 60001}, want: "reconnectIntervalMs out of range"},
+		{name: "nil read buffer", config: map[string]any{"host": "127.0.0.1", "readBufKB": nil}, want: "readBufKB must be an integer"},
+		{name: "zero read buffer", config: map[string]any{"host": "127.0.0.1", "readBufKB": 0}, want: "readBufKB must be positive"},
+		{name: "large read buffer", config: map[string]any{"host": "127.0.0.1", "readBufKB": 2048}, want: "readBufKB out of range"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateSerialGraphRemoteConfig("remote", tc.config)
+			if !strings.Contains(strings.Join(errs, "\n"), tc.want) {
+				t.Fatalf("errors = %#v, want %q", errs, tc.want)
+			}
+		})
+	}
+}
+
+func TestSerialGraphValidateAllowsRemoteProtocolResponseCycle(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	result := callMCPTool(t, handler, 463, "serial_graph_validate", map[string]any{
+		"nodes": []map[string]any{
+			{"id": "master", "type": "serial.modbus.master", "position": map[string]any{"x": 0, "y": 0}, "config": map[string]any{"mode": "rtu", "unitIds": "1"}},
+			{"id": "remote", "type": "serial.remote", "position": map[string]any{"x": 240, "y": 0}, "config": map[string]any{"protocol": "raw-tcp", "role": "client", "host": "127.0.0.1", "port": 3001}},
+		},
+		"edges": []map[string]any{
+			{"id": "edge-master-remote", "source": "master", "sourceHandle": "tx", "target": "remote", "targetHandle": "tx"},
+			{"id": "edge-remote-master", "source": "remote", "sourceHandle": "rx", "target": "master", "targetHandle": "rx"},
+		},
+	})
+	content := result["structuredContent"].(map[string]any)
+	if content["valid"] != true {
+		t.Fatalf("remote protocol response cycle validate = %#v", content)
+	}
+}
+
 func TestSerialGraphRuntimeToolsCallSerialService(t *testing.T) {
 	t.Parallel()
 	svc := &fakeSerialService{}
@@ -1910,7 +2054,7 @@ func freeTCPPort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("listen free port: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	return listener.Addr().(*net.TCPAddr).Port
 }
 

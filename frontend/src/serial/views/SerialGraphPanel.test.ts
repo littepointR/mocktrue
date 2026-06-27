@@ -76,6 +76,58 @@ describe('SerialGraphPanel', () => {
     expect(wrapper.find(`[data-testid="serial-graph-node-${store.nodes[0].id}"]`).exists()).toBe(true)
   })
 
+  it('renders remote serial provider config without mode collision and exposes buffer controls', async () => {
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find('[data-testid="serial-graph-provider-serial.remote"]').text()).toContain('远端串口')
+    await wrapper.find('[data-testid="serial-graph-provider-serial.remote"]').trigger('click')
+
+    const store = useSerialGraphStore()
+    const remote = store.nodes[0]
+    expect(remote.type).toBe('serial.remote')
+    expect(wrapper.find(`[data-testid="serial-graph-input-${remote.id}-tx"]`).exists()).toBe(true)
+    expect(wrapper.find(`[data-testid="serial-graph-output-${remote.id}-rx"]`).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-config-mode"]').exists()).toBe(false)
+
+    const protocol = wrapper.find<HTMLSelectElement>('[data-testid="serial-graph-config-protocol"]')
+    const role = wrapper.find<HTMLSelectElement>('[data-testid="serial-graph-config-role"]')
+    expect(protocol.exists()).toBe(true)
+    expect(role.exists()).toBe(true)
+    expect(protocol.findAll('option').map(option => option.attributes('value'))).toEqual(['raw-tcp'])
+    expect(role.findAll('option').map(option => option.attributes('value'))).toEqual(['client'])
+
+    await wrapper.find('[data-testid="serial-graph-config-host"]').setValue('127.0.0.1')
+    const remoteRuntimeInfo = {
+      ID: 'graph-1',
+      Status: 'running',
+      Error: '',
+      Nodes: [
+        { ID: remote.id, Type: 'serial.remote', Status: 'reconnecting', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: 'raw-tcp://127.0.0.1:3001', Error: 'connection refused' },
+      ],
+    }
+    bindings.StartSerialGraph.mockResolvedValueOnce(remoteRuntimeInfo)
+    bindings.GetSerialGraphStatus.mockResolvedValueOnce(remoteRuntimeInfo)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-content-refresh-buffer"]').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(bindings.QuerySerialGraphNodeBuffer).toHaveBeenCalledWith(expect.objectContaining({
+      GraphID: 'graph-1',
+      NodeID: remote.id,
+    }))
+    expect(wrapper.find('[data-testid="serial-graph-content-node-buffer"]').text()).toContain('hello')
+    expect(wrapper.find('[data-testid="serial-graph-content-resource-id"]').text()).toBe('raw-tcp://127.0.0.1:3001')
+    expect(wrapper.find('[data-testid="serial-graph-content-error"]').text()).toBe('connection refused')
+    expect(wrapper.find(`[data-testid="serial-graph-node-${remote.id}"]`).classes()).toContain('serial-graph__node--reconnecting')
+    expect(wrapper.find('[data-testid="serial-graph-content-clear-buffer"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="serial-graph-content-reset-counters"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
   it('manages graphs from the workbench toolbar', async () => {
     const wrapper = mount(SerialGraphPanel)
     const store = useSerialGraphStore()

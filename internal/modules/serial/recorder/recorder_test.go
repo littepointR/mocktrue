@@ -41,7 +41,7 @@ func TestRecorderWriteAndPlayback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPlayback failed: %v", err)
 	}
-	defer pb.Close()
+	defer func() { _ = pb.Close() }()
 
 	frames, err := pb.ReadAll()
 	if err != nil {

@@ -69,5 +69,5 @@ func TestManagerPairSurvivesRequestContextCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("created port should remain openable after request context cancellation: %v", err)
 	}
-	port.Close()
+	_ = port.Close()
 }

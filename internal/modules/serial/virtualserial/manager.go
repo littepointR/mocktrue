@@ -40,7 +40,7 @@ func (m *Manager) CreatePair(ctx context.Context, pairID, port1Name, port2Name s
 	port2Path := fmt.Sprintf("/tmp/%s", port2Name)
 
 	// Remove old symlinks if they exist
-	exec.Command("rm", "-f", port1Path, port2Path).Run()
+	_ = exec.Command("rm", "-f", port1Path, port2Path).Run()
 
 	cmd := exec.Command("socat", "-d", "-d",
 		fmt.Sprintf("pty,raw,echo=0,link=%s", port1Path),
@@ -66,7 +66,7 @@ func (m *Manager) CreatePair(ctx context.Context, pairID, port1Name, port2Name s
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	cmd.Process.Kill()
+	_ = cmd.Process.Kill()
 	return nil, errors.New(errors.CodeIO, "timeout waiting for socat symlinks")
 }
 

@@ -36,14 +36,14 @@ func NewEngine() *Engine {
 func (e *Engine) injectAPI() {
 	vm := e.runtime
 
-	vm.Set("byte", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("byte", func(call goja.FunctionCall) goja.Value {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		offset := int(call.Argument(0).ToInteger())
 		return vm.ToValue(e.getByte(offset))
 	})
 
-	vm.Set("bytes", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("bytes", func(call goja.FunctionCall) goja.Value {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		offset := int(call.Argument(0).ToInteger())
@@ -51,7 +51,7 @@ func (e *Engine) injectAPI() {
 		return vm.ToValue(e.getBytes(offset, length))
 	})
 
-	vm.Set("u16", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("u16", func(call goja.FunctionCall) goja.Value {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		offset := int(call.Argument(0).ToInteger())
@@ -62,7 +62,7 @@ func (e *Engine) injectAPI() {
 		return vm.ToValue(e.readU16(offset, le))
 	})
 
-	vm.Set("u32", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("u32", func(call goja.FunctionCall) goja.Value {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		offset := int(call.Argument(0).ToInteger())
@@ -73,7 +73,7 @@ func (e *Engine) injectAPI() {
 		return vm.ToValue(e.readU32(offset, le))
 	})
 
-	vm.Set("field", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("field", func(call goja.FunctionCall) goja.Value {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		name := call.Argument(0).String()
@@ -90,7 +90,7 @@ func (e *Engine) injectAPI() {
 		return goja.Undefined()
 	})
 
-	vm.Set("error", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("error", func(call goja.FunctionCall) goja.Value {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		msg := call.Argument(0).String()
@@ -98,13 +98,13 @@ func (e *Engine) injectAPI() {
 		return goja.Undefined()
 	})
 
-	vm.Set("len", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("len", func(call goja.FunctionCall) goja.Value {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		return vm.ToValue(len(e.data))
 	})
 
-	vm.Set("now", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("now", func(call goja.FunctionCall) goja.Value {
 		return vm.ToValue(time.Now().UnixNano())
 	})
 }

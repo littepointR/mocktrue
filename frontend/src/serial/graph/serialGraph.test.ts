@@ -272,6 +272,103 @@ describe('serial graph model', () => {
     expect(result.valid).toBe(false)
     expect(result.errors.some(error => error.includes('cycle'))).toBe(true)
   })
+
+  it('registers a remote serial provider with raw TCP client defaults and byte ports', () => {
+    const provider = serialGraphProviders.find(item => item.type === 'serial.remote')
+
+    expect(provider).toEqual(expect.objectContaining({
+      title: '远端串口',
+      category: '串口',
+      resourceOwner: true,
+    }))
+    expect(provider?.inputs).toEqual([{ id: 'tx', label: '发送', kind: 'bytes', direction: 'input' }])
+    expect(provider?.outputs).toEqual([{ id: 'rx', label: '接收', kind: 'bytes', direction: 'output' }])
+    expect(provider?.defaultConfig).toEqual({
+      protocol: 'raw-tcp',
+      role: 'client',
+      host: '',
+      port: 3001,
+      connectTimeoutMs: 3000,
+      writeTimeoutMs: 3000,
+      reconnect: true,
+      reconnectIntervalMs: 1000,
+      allowStartDisconnected: false,
+      readBufKB: 32,
+      baudRate: 115200,
+      dataBits: 8,
+      stopBits: '1',
+      parity: 'none',
+      flowMode: 'none',
+      viewMode: 'ascii',
+      autoScroll: true,
+      showTimestamp: false,
+    })
+    expect(provider?.defaultConfig).not.toHaveProperty('mode')
+
+    const sender = node('sender', 'serial.sender')
+    const remote = createSerialGraphNode('remote', 'serial.remote', { x: 120, y: 40 }, { host: '127.0.0.1' })
+    const receiver = node('receiver', 'serial.receiver')
+    const state = graph([sender, remote, receiver])
+
+    expect(canConnect(state, {
+      source: sender.id,
+      sourceHandle: 'out',
+      target: remote.id,
+      targetHandle: 'tx',
+    }).valid).toBe(true)
+    expect(canConnect(state, {
+      source: remote.id,
+      sourceHandle: 'rx',
+      target: receiver.id,
+      targetHandle: 'in',
+    }).valid).toBe(true)
+  })
+
+  it('validates remote serial config and duplicate raw TCP endpoints', () => {
+    const validRemote = (id: string, config: Record<string, unknown> = {}) => node(id, 'serial.remote', {
+      protocol: 'raw-tcp',
+      role: 'client',
+      host: '127.0.0.1',
+      port: 3001,
+      connectTimeoutMs: 3000,
+      writeTimeoutMs: 3000,
+      reconnectIntervalMs: 1000,
+      readBufKB: 32,
+      ...config,
+    })
+
+    expect(validateGraph(graph([validRemote('remote')])).errors).toEqual([])
+    expect(validateGraph(graph([validRemote('missing-host', { host: ' ' })])).errors.join('\n')).toContain('host required')
+    expect(validateGraph(graph([validRemote('url-host', { host: 'tcp://127.0.0.1' })])).errors.join('\n')).toContain('host must not include URL scheme')
+    expect(validateGraph(graph([validRemote('bad-port', { port: 70000 })])).errors.join('\n')).toContain('port out of range')
+    expect(validateGraph(graph([validRemote('fractional-port', { port: 3.14 })])).errors.join('\n')).toContain('port must be an integer')
+    expect(validateGraph(graph([validRemote('string-port', { port: '3001x' })])).errors.join('\n')).toContain('port must be an integer')
+    expect(validateGraph(graph([validRemote('null-timeout', { connectTimeoutMs: null })])).errors.join('\n')).toContain('connectTimeoutMs must be an integer')
+    expect(validateGraph(graph([validRemote('short-connect-timeout', { connectTimeoutMs: 99 })])).errors.join('\n')).toContain('connectTimeoutMs out of range')
+    expect(validateGraph(graph([validRemote('long-connect-timeout', { connectTimeoutMs: 60001 })])).errors.join('\n')).toContain('connectTimeoutMs out of range')
+    expect(validateGraph(graph([validRemote('short-write-timeout', { writeTimeoutMs: 99 })])).errors.join('\n')).toContain('writeTimeoutMs out of range')
+    expect(validateGraph(graph([validRemote('long-write-timeout', { writeTimeoutMs: 60001 })])).errors.join('\n')).toContain('writeTimeoutMs out of range')
+    expect(validateGraph(graph([validRemote('short-reconnect-interval', { reconnectIntervalMs: 99 })])).errors.join('\n')).toContain('reconnectIntervalMs out of range')
+    expect(validateGraph(graph([validRemote('long-reconnect-interval', { reconnectIntervalMs: 60001 })])).errors.join('\n')).toContain('reconnectIntervalMs out of range')
+    expect(validateGraph(graph([validRemote('large-read-buffer', { readBufKB: 2048 })])).errors.join('\n')).toContain('readBufKB out of range')
+    expect(validateGraph(graph([validRemote('bad-protocol', { protocol: 'rfc2217' })])).errors.join('\n')).toContain('unsupported protocol')
+    expect(validateGraph(graph([validRemote('bad-role', { role: 'server' })])).errors.join('\n')).toContain('unsupported role')
+
+    const duplicate = validateGraph(graph([
+      validRemote('remote-a'),
+      validRemote('remote-b'),
+    ]))
+    expect(duplicate.valid).toBe(false)
+    expect(duplicate.errors.join('\n')).toContain('resource remote endpoint duplicated')
+    expect(duplicate.errors.join('\n')).toContain('127.0.0.1:3001')
+
+    expect(validateGraph(graph([
+      validRemote('remote-a'),
+      validRemote('remote-b', { port: 3002 }),
+      validRemote('remote-c', { host: 'localhost' }),
+    ])).errors).toEqual([])
+  })
+
 })
 
 function graph(nodes: SerialGraphNode[], edges: SerialGraphEdge[] = []) {

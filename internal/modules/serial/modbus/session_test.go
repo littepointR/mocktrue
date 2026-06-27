@@ -88,7 +88,7 @@ func TestManagerSlaveResponds(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartSlave() error = %v", err)
 	}
-	defer mgr.StopSlave("slave")
+	defer func() { _ = mgr.StopSlave("slave") }()
 
 	requestFrame, err := EncodeFrame(FrameModeRTU, 2, MustBuildReadRequest(FunctionReadHoldingRegisters, 0, 2))
 	if err != nil {
@@ -141,7 +141,7 @@ func TestManagerSlaveRoutesMultipleUnitIDs(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartSlave() error = %v", err)
 	}
-	defer mgr.StopSlave("slave")
+	defer func() { _ = mgr.StopSlave("slave") }()
 
 	assertSlaveReadValue(t, fake, 1, 24)
 	assertSlaveReadValue(t, fake, 2, 42)

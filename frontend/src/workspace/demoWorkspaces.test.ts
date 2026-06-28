@@ -28,6 +28,7 @@ const expectedDemoNodeTypes: Record<string, string[]> = {
   'fecbus-demo': ['serial.virtual', 'serial.fecbus.master', 'serial.fecbus.slave', 'serial.tap', 'serial.receiver', 'serial.monitor'],
   'serial-graph-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.receiver', 'serial.modbus.master', 'serial.monitor'],
   'serial-observability-demo': ['serial.sender', 'serial.virtual', 'serial.tap', 'serial.filter', 'serial.receiver'],
+  'remote-serial-demo': ['serial.sender', 'serial.remote', 'serial.tap', 'serial.receiver', 'serial.monitor'],
   'full-workspace-demo': [
     'serial.sender',
     'serial.virtual',
@@ -63,6 +64,7 @@ describe('demoWorkspaces', () => {
       'fecbus-demo',
       'serial-graph-demo',
       'serial-observability-demo',
+      'remote-serial-demo',
       'full-workspace-demo',
     ])
     expect(demos.every(demo => !('readonly' in demo))).toBe(true)
@@ -264,6 +266,43 @@ describe('demoWorkspaces', () => {
     expect(graph.activeNodeTabId).toBe(graph.selectedNodeId)
   })
 
+  it('opens the remote serial example with raw TCP config and receiver/monitor fan-out', () => {
+    const demo = getDemoWorkspace('remote-serial-demo')
+    const snapshot = createDemoWorkspaceSnapshot('remote-serial-demo')
+    const graph = activeGraph(snapshot?.serial.graph)
+    const remote = graph.nodes.find(node => node.type === 'serial.remote')
+    const sender = graph.nodes.find(node => node.type === 'serial.sender')
+    const tap = graph.nodes.find(node => node.type === 'serial.tap')
+    const receiver = graph.nodes.find(node => node.type === 'serial.receiver')
+    const monitor = graph.nodes.find(node => node.type === 'serial.monitor')
+
+    expect(demo?.title).toBe('远端串口演示')
+    expect(demo?.description).toContain('raw TCP')
+    expect(remote?.config).toEqual(expect.objectContaining({
+      protocol: 'raw-tcp',
+      role: 'client',
+      host: '127.0.0.1',
+      port: 3001,
+      allowStartDisconnected: true,
+      reconnect: true,
+      readBufKB: 32,
+      viewMode: 'ascii',
+      autoScroll: true,
+      showTimestamp: true,
+    }))
+    expect(remote?.config).toEqual(expect.not.objectContaining({ mode: expect.anything() }))
+    expect(sender?.config).toEqual(expect.objectContaining({ autoSend: true, payload: expect.stringContaining('remote demo') }))
+    expect(validateGraph(graph).errors).toEqual([])
+
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: sender?.id, sourceHandle: 'out', target: remote?.id, targetHandle: 'tx' }),
+      expect.objectContaining({ source: remote?.id, sourceHandle: 'rx', target: tap?.id, targetHandle: 'in' }),
+      expect.objectContaining({ source: tap?.id, sourceHandle: 'out', target: receiver?.id, targetHandle: 'in' }),
+      expect.objectContaining({ source: tap?.id, sourceHandle: 'out', target: monitor?.id, targetHandle: 'in' }),
+    ]))
+    expect(graph.selectedNodeId).toBe(remote?.id)
+  })
+
   it('opens protocol examples as normal topology nodes', () => {
     for (const id of ['modbus-demo', 'full-workspace-demo']) {
       const snapshot = createDemoWorkspaceSnapshot(id)
@@ -353,7 +392,7 @@ describe('demoWorkspaces', () => {
   })
 
   it('gives every demo a looping virtual serial data path on startup', () => {
-    for (const demo of listDemoWorkspaces()) {
+    for (const demo of listDemoWorkspaces().filter(item => item.id !== 'remote-serial-demo')) {
       const snapshot = createDemoWorkspaceSnapshot(demo.id)
       const graph = activeGraph(snapshot?.serial.graph)
       const autoNodes = graph.nodes.filter(node => (
@@ -389,6 +428,23 @@ describe('demoWorkspaces', () => {
       expect(receivers.length, `${demo.id} receivers`).toBeGreaterThan(0)
       expect(hasLoopingVirtualPath, `${demo.id} auto node -> virtual -> receiver path`).toBe(true)
     }
+  })
+
+  it('gives the remote serial demo an auto sender into a remote endpoint', () => {
+    const snapshot = createDemoWorkspaceSnapshot('remote-serial-demo')
+    const graph = activeGraph(snapshot?.serial.graph)
+    const sender = graph.nodes.find(node => node.type === 'serial.sender' && node.config.autoSend === true)
+    const remote = graph.nodes.find(node => node.type === 'serial.remote')
+
+    expect(sender).toBeTruthy()
+    expect(remote).toBeTruthy()
+    expect(graph.edges.some(edge => (
+      edge.source === sender?.id
+      && edge.sourceHandle === 'out'
+      && edge.target === remote?.id
+      && edge.targetHandle === 'tx'
+    ))).toBe(true)
+    expect(reachesReceiverFromOutput(graph, remote!.id, 'rx')).toBe(true)
   })
 
   it('does not add isolated protocol loop branches to make demos look active', () => {
@@ -540,6 +596,9 @@ function outputsAfterInput(nodeType: string, inputHandle: string): string[] {
   }
   if ((nodeType === 'serial.tap' || nodeType === 'serial.tee') && inputHandle === 'in') {
     return ['out']
+  }
+  if (nodeType === 'serial.remote' && inputHandle === 'tx') {
+    return ['rx']
   }
   if (nodeType === 'serial.script.transform' && inputHandle === 'in') {
     return ['out']

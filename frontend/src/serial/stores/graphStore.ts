@@ -1259,9 +1259,7 @@ const serialGraphLogTemplateFields = new Set<keyof SerialGraphLogTemplateContext
   'hex',
 ])
 
-function nodeLoggingEnabled(node: SerialGraphNode, action: 'send' | 'receive'): boolean {
-  if (action === 'send' && node.type !== 'serial.sender') return false
-  if (action === 'receive' && node.type !== 'serial.receiver') return false
+function nodeLoggingEnabled(node: SerialGraphNode, _action: 'send' | 'receive'): boolean {
   return node.config.enableLogging === true
 }
 

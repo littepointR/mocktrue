@@ -4,9 +4,10 @@ PortWeave serial graphs support a `serial.remote` node for connecting a topology
 
 ## Scope
 
-Phase 1 implements a raw TCP **client** only:
+The current graph runtime implements raw TCP **client** and **server** roles:
 
-- Connects to `host:port` with `protocol: raw-tcp` and `role: client`.
+- Client nodes connect to `host:port` with `protocol: raw-tcp` and `role: client`.
+- Server nodes listen on `host:port` with `protocol: raw-tcp` and `role: server`.
 - Exposes a byte input port `tx`; bytes received on this graph input are written to the TCP connection.
 - Exposes a byte output port `rx`; bytes read from TCP are emitted downstream and stored in the node buffer.
 - Reports runtime status, resource ID, error text, RX/TX counters, and the inbound buffer through the same graph runtime APIs as physical/virtual serial nodes.
@@ -44,11 +45,12 @@ With the tunnel above, set `host = 127.0.0.1` and `port = 3001` in PortWeave.
 PortWeave includes a frontend demo workspace named `remote-serial-demo` / `远端串口演示`. It builds a safe example topology without pre-opening runtime resources:
 
 ```text
-serial.sender -> serial.remote -> serial.tap -> serial.receiver
-                                          \-> serial.monitor
+serial.script.generator -> serial.remote(client)
+serial.remote(server).rx -> serial.tap -> serial.monitor
+serial.remote(client).rx -> serial.tap -> serial.monitor
 ```
 
-The demo uses `host = 127.0.0.1`, `port = 3001`, `protocol = raw-tcp`, `role = client`, and `allowStartDisconnected = true` so it can be opened even before a local ser2net endpoint or SSH tunnel is running.
+The demo starts a graph-owned raw TCP server and client on `host = 127.0.0.1`, `port = 3001`, `protocol = raw-tcp`. It does not require an external ser2net endpoint or a process outside PortWeave; the client generator sends startup traffic into the client endpoint, and both remote endpoint buffers plus monitor branches can be inspected.
 
 MCP automation can generate the same shape through the read-only template catalog:
 
@@ -98,7 +100,7 @@ flowMode = none
 | Key | Default | Notes |
 | --- | --- | --- |
 | `protocol` | `raw-tcp` | Only `raw-tcp` is supported in Phase 1. |
-| `role` | `client` | Only TCP client mode is supported. |
+| `role` | `client` | `client` connects to an existing endpoint; `server` listens in the graph runtime. |
 | `host` | empty | Required before validation/start succeeds; use a hostname or IP without URL scheme. |
 | `port` | `3001` | TCP port, `1..65535`. |
 | `connectTimeoutMs` | `3000` | TCP dial timeout, `100..60000` ms. |
@@ -108,25 +110,25 @@ flowMode = none
 | `allowStartDisconnected` | `false` | If false, graph start fails when the TCP endpoint is unavailable; if true, the node starts as `reconnecting`. |
 | `readBufKB` | `32` | TCP read buffer size, `1..1024` KiB; runtime still clamps defensively. |
 | `baudRate`, `dataBits`, `stopBits`, `parity`, `flowMode` | serial metadata defaults | Kept for future RFC2217/serial metadata compatibility; Phase 1 raw TCP does not negotiate them. |
-| `viewMode`, `autoScroll`, `showTimestamp` | receiver-like display defaults | Controls node buffer rendering in the frontend. |
+| `viewMode`, `autoScroll`, `showTimestamp` | endpoint buffer display defaults | Controls node buffer rendering in the frontend. |
 
 ## Suggested topologies
 
 Use `serial.remote` as the graph-owned resource node that bridges a remote TCP byte stream with ordinary graph nodes:
 
 ```text
-serial.sender -> serial.remote
-serial.remote -> serial.receiver
+serial.script.generator -> serial.remote.tx
+serial.remote.rx -> serial.monitor
 ```
 
-For inspection and fan-out, add a tap or monitor downstream from `rx`:
+For inspection and fan-out, add a tap downstream from `rx`; endpoint buffers are also queryable directly:
 
 ```text
-serial.remote -> serial.tap -> serial.receiver
+serial.remote.rx -> serial.tap -> serial.monitor
                          \-> serial.monitor
 ```
 
-For protocol flows, connect protocol-node transmit output into `serial.remote.tx`, then route `serial.remote.rx` back to the protocol receive input or to a tap that fans out to protocol + monitor/receiver nodes. Keep the graph acyclic by using the existing protocol response-cycle pattern rather than drawing a direct cycle.
+For protocol flows, connect protocol-node transmit output into `serial.remote.tx`, then route `serial.remote.rx` back to the protocol receive input or to a tap that fans out to protocol + monitor nodes. Keep the graph acyclic by using the existing protocol response-cycle pattern rather than drawing a direct cycle.
 
 ## Validation and resource identity
 
@@ -181,7 +183,7 @@ This is deliberately different from physical/virtual serial nodes, which use `po
 - Wait for status `running`, then send again.
 - If the node is `error` with `reconnect=false`, stop/start the graph after restoring the endpoint or enable reconnect.
 
-### No data appears in the receiver buffer
+### No data appears in the endpoint buffer
 
 - Confirm the graph connects `serial.remote.rx` to a receiver, tap, monitor, or protocol receive input.
 - Confirm the remote device is actually transmitting bytes after TCP connection.

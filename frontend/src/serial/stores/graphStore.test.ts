@@ -16,16 +16,19 @@ const bindings = vi.hoisted(() => ({
 vi.mock('../../../bindings/github.com/littepointR/portweave/internal/modules/serial/service.js', () => bindings)
 
 describe('serial graph store', () => {
+  let portSequence = 0
+
   beforeEach(() => {
     setActivePinia(createPinia())
+    portSequence = 0
     vi.clearAllMocks()
     bindings.StartSerialGraph.mockImplementation(async (req: { ID: string }) => ({
       ID: req.ID,
       Status: 'running',
       Error: '',
       Nodes: [
-        { ID: 'node-1', Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 5, FrameCount: 0, ResourceID: '', Error: '' },
-        { ID: 'node-2', Type: 'serial.receiver', Status: 'running', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
+        { ID: 'node-1', Type: 'serial.virtual', Status: 'running', RxBytes: 0, TxBytes: 5, FrameCount: 0, ResourceID: '', Error: '' },
+        { ID: 'node-2', Type: 'serial.virtual', Status: 'running', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
       ],
     }))
     bindings.GetSerialGraphStatus.mockResolvedValue({
@@ -33,8 +36,8 @@ describe('serial graph store', () => {
       Status: 'running',
       Error: '',
       Nodes: [
-        { ID: 'node-1', Type: 'serial.sender', Status: 'running', RxBytes: 0, TxBytes: 5, FrameCount: 0, ResourceID: '', Error: '' },
-        { ID: 'node-2', Type: 'serial.receiver', Status: 'running', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
+        { ID: 'node-1', Type: 'serial.virtual', Status: 'running', RxBytes: 0, TxBytes: 5, FrameCount: 0, ResourceID: '', Error: '' },
+        { ID: 'node-2', Type: 'serial.virtual', Status: 'running', RxBytes: 5, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' },
       ],
     })
     bindings.SendSerialGraphNode.mockResolvedValue(5)
@@ -51,12 +54,21 @@ describe('serial graph store', () => {
     })
   })
 
+  function addVirtual(store: ReturnType<typeof useSerialGraphStore>, position?: { x: number; y: number }) {
+    const node = store.addNode('serial.virtual', position)
+    store.updateNodeConfig(node.id, { portName: `portweave-test-${++portSequence}` })
+    const updated = store.nodes.find(item => item.id === node.id)
+    if (!updated) throw new Error(`test virtual node not found: ${node.id}`)
+    store.clearOperationLogsForGraph(store.activeGraphId ?? 'graph-1')
+    return updated
+  }
+
   it('adds, connects, selects, exports, and restores graph nodes', () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender', { x: 24, y: 32 })
-    const receiver = store.addNode('serial.receiver', { x: 320, y: 48 })
+    const sender = addVirtual(store, { x: 24, y: 32 })
+    const receiver = addVirtual(store, { x: 320, y: 48 })
 
-    const edge = store.connect(sender.id, 'out', receiver.id, 'in')
+    const edge = store.connect(sender.id, 'rx', receiver.id, 'tx')
     store.selectNode(receiver.id)
 
     expect(sender.id).toBe('node-1')
@@ -72,7 +84,7 @@ describe('serial graph store', () => {
     const restored = useSerialGraphStore()
     restored.restoreState(snapshot)
 
-    expect(restored.nodes.map(node => node.type)).toEqual(['serial.sender', 'serial.receiver'])
+    expect(restored.nodes.map(node => node.type)).toEqual(['serial.virtual', 'serial.virtual'])
     expect(restored.edges).toEqual(snapshot.graphs[0].edges)
     expect(restored.selectedNodeId).toBe(receiver.id)
   })
@@ -80,10 +92,10 @@ describe('serial graph store', () => {
   it('creates and switches multiple topology graphs', () => {
     const store = useSerialGraphStore()
     store.renameGraph(store.activeGraphId!, '主拓扑')
-    const firstSender = store.addNode('serial.sender')
+    const firstSender = addVirtual(store)
 
     const second = store.createGraph('备用拓扑')
-    const secondReceiver = store.addNode('serial.receiver')
+    const secondReceiver = addVirtual(store)
 
     expect(store.graphList.map(graph => graph.name)).toEqual(['主拓扑', '备用拓扑'])
     expect(store.activeGraphId).toBe(second.id)
@@ -96,7 +108,7 @@ describe('serial graph store', () => {
 
   it('duplicates topology graphs without stale runtime node status', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
     await store.startRuntime()
 
     const copy = store.duplicateGraph('graph-1')
@@ -113,7 +125,7 @@ describe('serial graph store', () => {
       id: 'legacy',
       name: '旧拓扑',
       nodes: [
-        { id: 'node-1', type: 'serial.sender', position: { x: 0, y: 0 }, config: {} },
+        { id: 'node-1', type: 'serial.virtual', position: { x: 0, y: 0 }, config: {} },
       ],
       edges: [],
       selectedNodeId: 'node-1',
@@ -124,7 +136,7 @@ describe('serial graph store', () => {
 
     expect(store.graphList).toEqual([{ id: 'legacy', name: '旧拓扑' }])
     expect(store.activeGraphId).toBe('legacy')
-    expect(store.nodes[0].type).toBe('serial.sender')
+    expect(store.nodes[0].type).toBe('serial.virtual')
     expect(store.nodeTabs).toEqual([])
   })
 
@@ -134,7 +146,7 @@ describe('serial graph store', () => {
       id: 'graph-1',
       name: '',
       nodes: [
-        { id: 'node-x', type: 'serial.sender', position: { x: 1, y: 2 }, config: {}, status: 'running', error: 'stale' },
+        { id: 'node-x', type: 'serial.virtual', position: { x: 1, y: 2 }, config: {}, status: 'running', error: 'stale' },
       ],
       edges: [],
       selectedNodeId: 'node-x',
@@ -153,7 +165,7 @@ describe('serial graph store', () => {
     await store.removeGraph('graph-2')
     expect(store.graphList).toEqual([])
 
-    const recreated = store.addNode('serial.sender')
+    const recreated = addVirtual(store)
     expect(recreated.id).toBe('node-1')
     expect(store.graphList).toEqual([{ id: 'graph-1', name: '拓扑图 1' }])
   })
@@ -165,7 +177,7 @@ describe('serial graph store', () => {
         id: 'graph-9',
         name: '坏拓扑',
         nodes: [{ id: 'missing-provider', type: 'serial.unknown', position: { x: 0, y: 0 }, config: {} }],
-        edges: [{ id: 'edge-bad', source: 'missing-provider', sourceHandle: 'out', target: 'missing-provider', targetHandle: 'in' }],
+        edges: [{ id: 'edge-bad', source: 'missing-provider', sourceHandle: 'rx', target: 'missing-provider', targetHandle: 'tx' }],
         selectedNodeId: null,
         selectedEdgeId: null,
         nodeTabs: [],
@@ -182,12 +194,12 @@ describe('serial graph store', () => {
     }))
 
     store.resetWorkspace()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
     bindings.StartSerialGraph.mockResolvedValueOnce({
       ID: 'graph-1',
       Status: 'paused',
       Error: 'runtime paused',
-      Nodes: [{ ID: sender.id, Type: 'serial.sender', Status: 'paused', RxBytes: 0, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' }],
+      Nodes: [{ ID: sender.id, Type: 'serial.virtual', Status: 'paused', RxBytes: 0, TxBytes: 0, FrameCount: 0, ResourceID: '', Error: '' }],
     })
     await store.startRuntime()
     expect(store.runtimeStatus).toBe('idle')
@@ -235,22 +247,14 @@ describe('serial graph store', () => {
     }))
   })
 
-  it('records runtime actions while keeping sender and receiver payload logging opt-in', async () => {
+  it('records runtime actions while keeping endpoint payload logging opt-in', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
 
-    expect(sender.config).toEqual(expect.objectContaining({
-      enableLogging: false,
-      logLevel: 'info',
-      logFormat: '',
-    }))
-    expect(receiver.config).toEqual(expect.objectContaining({
-      enableLogging: false,
-      logLevel: 'info',
-      logFormat: '',
-    }))
+    expect(sender.config).toEqual(expect.not.objectContaining({ enableLogging: true }))
+    expect(receiver.config).toEqual(expect.not.objectContaining({ enableLogging: true }))
 
     await store.startRuntime()
     await store.sendNode(sender.id, 'hello', 'ascii')
@@ -266,15 +270,15 @@ describe('serial graph store', () => {
       nodeId: entry.nodeId,
     }))).toEqual([
       { level: 'info', source: 'serial.graph', action: 'start', nodeId: undefined },
-      { level: 'info', source: 'serial.sender', action: 'send-command', nodeId: sender.id },
-      { level: 'info', source: 'serial.receiver', action: 'clear-buffer', nodeId: receiver.id },
-      { level: 'info', source: 'serial.receiver', action: 'reset-counters', nodeId: receiver.id },
+      { level: 'info', source: 'serial.virtual', action: 'send-command', nodeId: sender.id },
+      { level: 'info', source: 'serial.virtual', action: 'clear-buffer', nodeId: receiver.id },
+      { level: 'info', source: 'serial.virtual', action: 'reset-counters', nodeId: receiver.id },
       { level: 'info', source: 'serial.graph', action: 'stop', nodeId: undefined },
     ])
     expect(store.operationLogs.some(entry => entry.action === 'send')).toBe(false)
     expect(store.operationLogs.some(entry => entry.action === 'receive')).toBe(false)
     expect(store.operationLogs.find(entry => entry.action === 'send-command')).toEqual(expect.objectContaining({
-      message: '发送器发送 5 bytes',
+      message: '虚拟串口发送 5 bytes',
       payloadText: 'hello',
       payloadHex: '68 65 6c 6c 6f',
       byteLength: 5,
@@ -283,7 +287,7 @@ describe('serial graph store', () => {
 
   it('records runtime start failures as operation log errors', async () => {
     const store = useSerialGraphStore()
-    store.addNode('serial.sender')
+    addVirtual(store)
     bindings.StartSerialGraph.mockRejectedValueOnce(new Error('backend unavailable'))
 
     await expect(store.startRuntime()).rejects.toThrow('backend unavailable')
@@ -300,11 +304,11 @@ describe('serial graph store', () => {
     ])
   })
 
-  it('records sender and receiver operation logs when logging is enabled', async () => {
+  it('records endpoint operation logs when logging is enabled', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
     store.updateNodeConfig(sender.id, { enableLogging: true })
     store.updateNodeConfig(receiver.id, { enableLogging: true })
 
@@ -317,7 +321,7 @@ describe('serial graph store', () => {
     expect(payloadLogs).toHaveLength(2)
     expect(payloadLogs[0]).toEqual(expect.objectContaining({
       level: 'info',
-      source: 'serial.sender',
+      source: 'serial.virtual',
       action: 'send',
       category: 'serial.graph',
       nodeId: sender.id,
@@ -326,12 +330,12 @@ describe('serial graph store', () => {
       payloadHex: '68 65 6c 6c 6f',
       byteLength: 5,
     }))
-    expect(payloadLogs[0].message).toContain('发送器')
+    expect(payloadLogs[0].message).toContain('虚拟串口')
     expect(payloadLogs[0].message).toContain('tx')
     expect(payloadLogs[0].message).toContain('hello')
     expect(payloadLogs[1]).toEqual(expect.objectContaining({
       level: 'info',
-      source: 'serial.receiver',
+      source: 'serial.virtual',
       action: 'receive',
       category: 'serial.graph',
       nodeId: receiver.id,
@@ -340,16 +344,16 @@ describe('serial graph store', () => {
       payloadHex: '68 65 6c 6c 6f',
       byteLength: 5,
     }))
-    expect(payloadLogs[1].message).toContain('接收器')
+    expect(payloadLogs[1].message).toContain('虚拟串口')
     expect(payloadLogs[1].message).toContain('rx')
     expect(payloadLogs[1].message).toContain('hello')
   })
 
   it('formats logging entries with node templates and falls back on invalid templates', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
     store.updateNodeConfig(sender.id, {
       enableLogging: true,
       logLevel: 'debug',
@@ -382,7 +386,7 @@ describe('serial graph store', () => {
       payloadText: 'hi',
       byteLength: 2,
     }))
-    expect(payloadLogs[1].message).toContain('接收器')
+    expect(payloadLogs[1].message).toContain('虚拟串口')
     expect(payloadLogs[1].message).toContain('rx')
     expect(payloadLogs[1].details).toContain('unknown field missing')
     expect(store.nodeBufferText.get(receiver.id)).toBe('hi')
@@ -390,7 +394,7 @@ describe('serial graph store', () => {
 
   it('normalizes hex sender payloads the same way as the backend before logging', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
     store.updateNodeConfig(sender.id, { enableLogging: true })
     bindings.SendSerialGraphNode.mockResolvedValueOnce(2)
 
@@ -409,11 +413,11 @@ describe('serial graph store', () => {
 
   it('records filter pass and drop operation logs for direct sends', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
     const filter = store.addNode('serial.filter')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', filter.id, 'in')
-    store.connect(filter.id, 'out', receiver.id, 'in')
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', filter.id, 'in')
+    store.connect(filter.id, 'out', receiver.id, 'tx')
     store.updateNodeConfig(filter.id, { mode: 'plain', expression: 'ok' })
 
     await store.startRuntime()
@@ -438,9 +442,9 @@ describe('serial graph store', () => {
 
   it('records invalid filter matcher errors without throwing direct sends', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
     const filter = store.addNode('serial.filter')
-    store.connect(sender.id, 'out', filter.id, 'in')
+    store.connect(sender.id, 'rx', filter.id, 'in')
     store.updateNodeConfig(filter.id, { mode: 'regex', expression: '[unterminated' })
 
     await store.startRuntime()
@@ -462,9 +466,9 @@ describe('serial graph store', () => {
 
   it('removes connected edges when a node is removed', () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
 
     store.removeNode(sender.id)
 
@@ -476,7 +480,7 @@ describe('serial graph store', () => {
 
   it('closes node tabs without deleting graph nodes', () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
 
     store.closeNodeTab(sender.id)
 
@@ -488,9 +492,9 @@ describe('serial graph store', () => {
   it('rejects invalid graph connections', () => {
     const store = useSerialGraphStore()
     const master = store.addNode('serial.modbus.master')
-    const receiver = store.addNode('serial.receiver')
+    const receiver = addVirtual(store)
 
-    const edge = store.connect(master.id, 'registers', receiver.id, 'in')
+    const edge = store.connect(master.id, 'registers', receiver.id, 'tx')
 
     expect(edge).toBeNull()
     expect(store.edges).toEqual([])
@@ -498,20 +502,20 @@ describe('serial graph store', () => {
 
   it('starts the graph runtime with topology nodes and updates node statuses', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender', { x: 12, y: 18 })
-    const receiver = store.addNode('serial.receiver', { x: 260, y: 18 })
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store, { x: 12, y: 18 })
+    const receiver = addVirtual(store, { x: 260, y: 18 })
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
 
     await store.startRuntime()
 
     expect(bindings.StartSerialGraph).toHaveBeenCalledWith(expect.objectContaining({
       ID: 'graph-1',
       Nodes: [
-        expect.objectContaining({ ID: sender.id, Type: 'serial.sender', Position: { X: 12, Y: 18 } }),
-        expect.objectContaining({ ID: receiver.id, Type: 'serial.receiver', Position: { X: 260, Y: 18 } }),
+        expect.objectContaining({ ID: sender.id, Type: 'serial.virtual', Position: { X: 12, Y: 18 } }),
+        expect.objectContaining({ ID: receiver.id, Type: 'serial.virtual', Position: { X: 260, Y: 18 } }),
       ],
       Edges: [
-        expect.objectContaining({ Source: sender.id, SourceHandle: 'out', Target: receiver.id, TargetHandle: 'in' }),
+        expect.objectContaining({ Source: sender.id, SourceHandle: 'rx', Target: receiver.id, TargetHandle: 'tx' }),
       ],
     }))
     expect(store.runtimeStatus).toBe('running')
@@ -554,13 +558,13 @@ describe('serial graph store', () => {
 
   it('keeps runtime state isolated per topology graph', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
     await store.startRuntime()
 
     const second = store.createGraph('第二拓扑')
-    const secondReceiver = store.addNode('serial.receiver')
+    const secondReceiver = addVirtual(store)
 
     expect(store.runtimeStatus).toBe('idle')
     expect(store.nodeStatuses.get(secondReceiver.id)).toBeUndefined()
@@ -574,12 +578,12 @@ describe('serial graph store', () => {
 
   it('runs and queries a requested graph without switching the active graph', async () => {
     const store = useSerialGraphStore()
-    store.addNode('serial.sender')
+    addVirtual(store)
 
     const second = store.createGraph('第二拓扑')
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
     store.setActiveGraph('graph-1')
 
     await store.startRuntimeForGraph(second.id)
@@ -589,8 +593,8 @@ describe('serial graph store', () => {
     expect(bindings.StartSerialGraph).toHaveBeenCalledWith(expect.objectContaining({
       ID: second.id,
       Nodes: [
-        expect.objectContaining({ ID: sender.id, Type: 'serial.sender' }),
-        expect.objectContaining({ ID: receiver.id, Type: 'serial.receiver' }),
+        expect.objectContaining({ ID: sender.id, Type: 'serial.virtual' }),
+        expect.objectContaining({ ID: receiver.id, Type: 'serial.virtual' }),
       ],
     }))
     expect(bindings.QuerySerialGraphNodeBuffer).toHaveBeenCalledWith(expect.objectContaining({
@@ -601,11 +605,11 @@ describe('serial graph store', () => {
     expect(store.runtimeStateForGraph(second.id).nodeBufferText.get(receiver.id)).toBe('hello')
   })
 
-  it('sends through a runtime node and queries receiver data', async () => {
+  it('sends through a runtime node and queries endpoint data', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
     await store.startRuntime()
 
     await store.sendNode(sender.id, 'hello', 'ascii')
@@ -626,9 +630,9 @@ describe('serial graph store', () => {
 
   it('clears buffers, resets counters, and stops runtime', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', receiver.id, 'tx')
     await store.startRuntime()
 
     await store.queryNodeBuffer(receiver.id)
@@ -645,7 +649,7 @@ describe('serial graph store', () => {
 
   it('stops a running runtime before removing its topology graph', async () => {
     const store = useSerialGraphStore()
-    store.addNode('serial.sender')
+    addVirtual(store)
     await store.startRuntime('graph-1-runtime')
     store.createGraph('第二拓扑')
 
@@ -658,7 +662,7 @@ describe('serial graph store', () => {
 
   it('allows removing the last topology graph after stopping its runtime', async () => {
     const store = useSerialGraphStore()
-    store.addNode('serial.sender')
+    addVirtual(store)
     await store.startRuntime('graph-1-runtime')
 
     await store.removeGraph('graph-1')
@@ -676,7 +680,7 @@ describe('serial graph store', () => {
     }))
     const store = useSerialGraphStore()
     store.renameGraph('graph-1', '运行拓扑')
-    store.addNode('serial.sender')
+    addVirtual(store)
     await store.startRuntime('graph-1-runtime')
     const second = store.createGraph('保留拓扑')
 
@@ -772,7 +776,7 @@ describe('serial graph store', () => {
     const store = useSerialGraphStore()
     store.appendOperationLogForGraph('graph-1', {
       level: 'info',
-      source: 'sender',
+      source: 'endpoint',
       action: 'send',
       category: 'serial',
       message: 'Sent TEMP OK payload',
@@ -785,7 +789,7 @@ describe('serial graph store', () => {
     })
     store.appendOperationLogForGraph('graph-1', {
       level: 'error',
-      source: 'receiver',
+      source: 'endpoint',
       action: 'template',
       category: 'serial',
       message: 'Log template failed',
@@ -825,9 +829,9 @@ describe('serial graph store', () => {
     store.renameGraph('graph-1', '   ')
     expect(store.graphList[0].name).toBe('拓扑图 1')
 
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    const edge = store.connect(sender.id, 'out', receiver.id, 'in')
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    const edge = store.connect(sender.id, 'rx', receiver.id, 'tx')
     const second = store.createGraph('备用拓扑', false)
 
     store.moveNodeInGraph('graph-1', sender.id, { x: 99, y: 101 })
@@ -853,7 +857,7 @@ describe('serial graph store', () => {
 
   it('guards stopped runtime commands and records backend failure logs', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
 
     await expect(store.sendNode(sender.id, 'hello')).rejects.toThrow('serial graph is not running')
     await expect(store.queryNodeBuffer(sender.id)).rejects.toThrow('serial graph is not running')
@@ -890,7 +894,7 @@ describe('serial graph store', () => {
 
   it('decodes runtime snapshots, clone exports, and null query responses', async () => {
     const store = useSerialGraphStore()
-    const receiver = store.addNode('serial.receiver')
+    const receiver = addVirtual(store)
     await store.startRuntime()
     bindings.QuerySerialGraphNodeBuffer.mockResolvedValueOnce({
       Offset: 10,
@@ -931,13 +935,13 @@ describe('serial graph store', () => {
 
   it('logs filter traversal through intermediate nodes and log template edge cases', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
+    const sender = addVirtual(store)
     const tap = store.addNode('serial.tap')
     const filter = store.addNode('serial.filter')
-    const receiver = store.addNode('serial.receiver')
-    store.connect(sender.id, 'out', tap.id, 'in')
+    const receiver = addVirtual(store)
+    store.connect(sender.id, 'rx', tap.id, 'in')
     store.connect(tap.id, 'out', filter.id, 'in')
-    store.connect(filter.id, 'out', receiver.id, 'in')
+    store.connect(filter.id, 'out', receiver.id, 'tx')
     store.updateNodeConfig(sender.id, { enableLogging: true, logFormat: 'bad }' })
     store.updateNodeConfig(filter.id, { mode: 'plain', expression: 'ok' })
 
@@ -960,9 +964,9 @@ describe('serial graph store', () => {
 
   it('keeps graph fallback views stable after no-op mutations and empty workspaces', async () => {
     const store = useSerialGraphStore()
-    const sender = store.addNode('serial.sender')
-    const receiver = store.addNode('serial.receiver')
-    const edge = store.connect(sender.id, 'out', receiver.id, 'in')!
+    const sender = addVirtual(store)
+    const receiver = addVirtual(store)
+    const edge = store.connect(sender.id, 'rx', receiver.id, 'tx')!
 
     store.selectNodeInGraph('graph-1', null)
     store.removeEdgeFromGraph('graph-1', 'missing-edge')
@@ -998,7 +1002,7 @@ describe('serial graph store', () => {
 
   it('handles sparse runtime responses and commands for missing nodes', async () => {
     const store = useSerialGraphStore()
-    const receiver = store.addNode('serial.receiver')
+    const receiver = addVirtual(store)
     bindings.StartSerialGraph.mockResolvedValueOnce({
       ID: 'graph-1-runtime',
       Status: 'running',

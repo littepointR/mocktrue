@@ -12,7 +12,7 @@ test.describe('Serial Graph E2E', () => {
 
     await page.getByRole('button', { name: '⇄' }).click();
     await page.waitForSelector('[data-testid="serial-graph-view-split"]');
-    await page.locator('[data-testid="serial-graph-provider-serial.sender"]').click();
+    await page.locator('[data-testid="serial-graph-provider-serial.script.generator"]').click();
 
     const canvas = page.locator('[data-testid="serial-graph-canvas"]');
     const workbench = page.locator('[data-testid="serial-graph-node-workbench"]');
@@ -61,7 +61,7 @@ test.describe('Serial Graph E2E', () => {
 
     await page.getByRole('button', { name: '⇄' }).click();
     await page.waitForSelector('[data-testid="serial-graph-view-split"]');
-    await page.locator('[data-testid="serial-graph-provider-serial.sender"]').click();
+    await page.locator('[data-testid="serial-graph-provider-serial.script.generator"]').click();
 
     const canvas = page.locator('[data-testid="serial-graph-canvas"]');
     const workbench = page.locator('[data-testid="serial-graph-node-workbench"]');
@@ -83,17 +83,19 @@ test.describe('Serial Graph E2E', () => {
     await expect.poll(async () => (await canvas.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(120);
   });
 
-  test('should keep receiver buffer content inside a fixed scrolling area', async ({ page }) => {
+  test('should keep endpoint buffer content inside a fixed scrolling area', async ({ page }) => {
     await page.goto('/');
     await page.evaluate(() => {
       (window as any).__mockState.graphBufferText = `${Array.from({ length: 600 }, (_, index) => `rx-line-${index}`).join('\n')}\n`;
     });
     await page.getByRole('button', { name: '⇄' }).click();
     await page.waitForSelector('[data-testid="serial-graph-view-split"]');
-    await page.locator('[data-testid="serial-graph-provider-serial.sender"]').click();
-    await page.locator('[data-testid="serial-graph-provider-serial.receiver"]').click();
-    await page.locator('[data-testid="serial-graph-output-node-1-out"]').click();
-    await page.locator('[data-testid="serial-graph-input-node-2-in"]').click();
+    await page.locator('[data-testid="serial-graph-provider-serial.virtual"]').click();
+    await page.locator('[data-testid="serial-graph-provider-serial.virtual"]').click();
+    await page.locator('[data-testid="serial-graph-node-tab-node-2"]').click();
+    await page.locator('[data-testid="serial-graph-config-portName"]').fill('portweave-e2e-sink');
+    await page.locator('[data-testid="serial-graph-output-node-1-rx"]').click();
+    await page.locator('[data-testid="serial-graph-input-node-2-tx"]').click();
     await page.locator('[data-testid="serial-graph-node-tab-node-2"]').click();
 
     const workbench = page.locator('[data-testid="serial-graph-node-workbench"]');
@@ -102,6 +104,8 @@ test.describe('Serial Graph E2E', () => {
     const beforeWorkbench = await workbench.boundingBox();
 
     await page.locator('[data-testid="serial-graph-start"]').click();
+    await expect(page.locator('[data-testid="serial-graph-runtime-status"]')).toContainText('running');
+    await expect(page.locator('[data-testid="serial-graph-content-refresh-buffer"]')).toBeEnabled();
     await page.locator('[data-testid="serial-graph-content-refresh-buffer"]').click();
     await expect(buffer).toContainText('rx-line-599', { timeout: 10000 });
 

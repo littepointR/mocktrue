@@ -66,7 +66,7 @@ describe('workspaceFileStore graph tab files', () => {
 
     expect(files.isDirty).toBe(false)
 
-    graph.addNode('serial.sender')
+    graph.addNode('serial.virtual')
     files.syncGraphSnapshot('graph-1')
 
     expect(files.isDirty).toBe(true)
@@ -83,7 +83,7 @@ describe('workspaceFileStore graph tab files', () => {
     const graph = useSerialGraphStore()
     const files = useWorkspaceFileStore()
     graph.renameGraph('graph-1', '主拓扑')
-    graph.addNode('serial.sender')
+    graph.addNode('serial.virtual')
     files.syncAllGraphSnapshots()
 
     const path = await files.save()
@@ -456,7 +456,7 @@ describe('workspaceFileStore graph tab files', () => {
 
     graph.setActiveGraph('graph-1')
     files.syncGraphSnapshot('graph-1')
-    graph.addNode('serial.sender')
+    graph.addNode('serial.virtual')
     files.syncGraphSnapshot('graph-1')
     expect(files.isGraphDirty('graph-1')).toBe(true)
 

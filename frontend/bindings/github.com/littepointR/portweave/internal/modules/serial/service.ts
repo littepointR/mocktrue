@@ -335,7 +335,7 @@ export function QueryPage(portID: string, offset: number, length: number): $Canc
 }
 
 /**
- * QuerySerialGraphNodeBuffer reads buffered bytes for a receiver-like node.
+ * QuerySerialGraphNodeBuffer reads buffered bytes for a graph endpoint node.
  */
 export function QuerySerialGraphNodeBuffer(req: $models.SerialGraphBufferQuery): $CancellablePromise<buffer$0.Snapshot | null> {
     return $Call.ByID(1522296334, req);
@@ -391,7 +391,7 @@ export function Send(req: $models.SendRequest): $CancellablePromise<number> {
 }
 
 /**
- * SendSerialGraphNode injects a payload into a sender/protocol-capable graph node.
+ * SendSerialGraphNode injects a payload into a writable graph endpoint or protocol node.
  */
 export function SendSerialGraphNode(req: $models.SerialGraphSendRequest): $CancellablePromise<number> {
     return $Call.ByID(1775124258, req);

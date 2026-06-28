@@ -21,8 +21,6 @@ describe('serial graph model', () => {
       'serial.bridge',
       'serial.monitor',
       'serial.tap',
-      'serial.sender',
-      'serial.receiver',
       'serial.modbus.master',
       'serial.modbus.slave',
       'serial.fecbus.master',
@@ -31,6 +29,8 @@ describe('serial graph model', () => {
       'serial.script.generator',
       'serial.script.analyzer',
     ]))
+    expect(types).not.toContain('serial.sender')
+    expect(types).not.toContain('serial.receiver')
   })
 
   it('registers script node providers with stable ports and frozen config fields', () => {
@@ -125,7 +125,7 @@ describe('serial graph model', () => {
     expect(modbusSlave?.description).toContain('完整可编辑的多 Unit 数据模型请使用 Modbus 会话面板')
   })
 
-  it('removes legacy and unused topology config fields when restoring graph state', () => {
+  it('keeps removed node types unsupported when restoring graph state', () => {
     const state = cloneSerialGraphState({
       graphs: [{
         ...defaultSerialGraphDocument(),
@@ -133,13 +133,13 @@ describe('serial graph model', () => {
           node('monitor', 'serial.monitor', { mode: 'auto-virtual', displayMode: 'hex' }),
           node('bridge', 'serial.bridge', { baudRate: 115200 }),
           node('slave', 'serial.modbus.slave', { mode: 'rtu', unitIds: '1,2', addressMode: 'zero-based' }),
-          node('sender', 'serial.sender', { mode: 'ascii', payload: 'ok' }),
+          node('legacy-sender', 'serial.sender', { mode: 'ascii', payload: 'ok' }),
         ],
         nodeTabs: [
           { nodeId: 'monitor', title: '串口监控' },
           { nodeId: 'bridge', title: '串口桥接' },
           { nodeId: 'slave', title: 'Modbus 从站' },
-          { nodeId: 'sender', title: '发送器' },
+          { nodeId: 'legacy-sender', title: '发送器' },
         ],
       }],
       activeGraphId: 'graph-1',
@@ -148,28 +148,29 @@ describe('serial graph model', () => {
     expect(state.graphs[0].nodes.find(item => item.id === 'monitor')?.config).toEqual({ displayMode: 'hex' })
     expect(state.graphs[0].nodes.find(item => item.id === 'bridge')?.config).toEqual({})
     expect(state.graphs[0].nodes.find(item => item.id === 'slave')?.config).toEqual({ mode: 'rtu', unitIds: '1,2' })
-    expect(state.graphs[0].nodes.find(item => item.id === 'sender')?.config).toEqual({ mode: 'ascii', payload: 'ok' })
+    expect(state.graphs[0].nodes.find(item => item.id === 'legacy-sender')?.config).toEqual({ mode: 'ascii', payload: 'ok' })
+    expect(validateGraph(state.graphs[0]).errors).toEqual(expect.arrayContaining(['provider not found: serial.sender']))
   })
 
   it('allows compatible byte stream connections and rejects non-emitting monitor outputs', () => {
     const state = graph([
-      node('source', 'serial.sender'),
-      node('sink', 'serial.receiver'),
+      node('source', 'serial.virtual'),
+      node('sink', 'serial.virtual'),
       node('monitor', 'serial.monitor'),
     ])
 
     expect(canConnect(state, {
       source: 'source',
-      sourceHandle: 'out',
+      sourceHandle: 'rx',
       target: 'sink',
-      targetHandle: 'in',
+      targetHandle: 'tx',
     }).valid).toBe(true)
 
     expect(canConnect(state, {
       source: 'monitor',
       sourceHandle: 'frames',
       target: 'sink',
-      targetHandle: 'in',
+      targetHandle: 'tx',
     }).errors).toEqual(expect.arrayContaining(['output port not found: serial.monitor.frames']))
   })
 
@@ -187,21 +188,21 @@ describe('serial graph model', () => {
 
   it('only allows fan-out through tap style nodes', () => {
     const direct = graph([
-      node('source', 'serial.sender'),
-      node('sink-a', 'serial.receiver'),
-      node('sink-b', 'serial.receiver'),
+      node('source', 'serial.virtual'),
+      node('sink-a', 'serial.virtual'),
+      node('sink-b', 'serial.virtual'),
     ], [
-      { id: 'edge-1', source: 'source', sourceHandle: 'out', target: 'sink-a', targetHandle: 'in' },
-      { id: 'edge-2', source: 'source', sourceHandle: 'out', target: 'sink-b', targetHandle: 'in' },
+      { id: 'edge-1', source: 'source', sourceHandle: 'rx', target: 'sink-a', targetHandle: 'tx' },
+      { id: 'edge-2', source: 'source', sourceHandle: 'rx', target: 'sink-b', targetHandle: 'tx' },
     ])
 
     const throughTap = graph([
       node('tap', 'serial.tap'),
-      node('sink-a', 'serial.receiver'),
-      node('sink-b', 'serial.receiver'),
+      node('sink-a', 'serial.virtual'),
+      node('sink-b', 'serial.virtual'),
     ], [
-      { id: 'edge-1', source: 'tap', sourceHandle: 'out', target: 'sink-a', targetHandle: 'in' },
-      { id: 'edge-2', source: 'tap', sourceHandle: 'out', target: 'sink-b', targetHandle: 'in' },
+      { id: 'edge-1', source: 'tap', sourceHandle: 'out', target: 'sink-a', targetHandle: 'tx' },
+      { id: 'edge-2', source: 'tap', sourceHandle: 'out', target: 'sink-b', targetHandle: 'tx' },
     ])
 
     expect(validateGraph(direct).valid).toBe(false)
@@ -232,11 +233,11 @@ describe('serial graph model', () => {
       node('master', 'serial.modbus.master'),
       node('slave', 'serial.modbus.slave'),
       node('tap', 'serial.tap'),
-      node('receiver', 'serial.receiver'),
+      node('sink', 'serial.virtual'),
     ], [
       { id: 'edge-request', source: 'master', sourceHandle: 'tx', target: 'slave', targetHandle: 'rx' },
       { id: 'edge-response-tap', source: 'slave', sourceHandle: 'tx', target: 'tap', targetHandle: 'in' },
-      { id: 'edge-response-receiver', source: 'tap', sourceHandle: 'out', target: 'receiver', targetHandle: 'in' },
+      { id: 'edge-response-sink', source: 'tap', sourceHandle: 'out', target: 'sink', targetHandle: 'tx' },
     ])
 
     const result = canConnect(state, {
@@ -305,22 +306,15 @@ describe('serial graph model', () => {
     })
     expect(provider?.defaultConfig).not.toHaveProperty('mode')
 
-    const sender = node('sender', 'serial.sender')
     const remote = createSerialGraphNode('remote', 'serial.remote', { x: 120, y: 40 }, { host: '127.0.0.1' })
-    const receiver = node('receiver', 'serial.receiver')
-    const state = graph([sender, remote, receiver])
+    const sink = node('sink', 'serial.virtual')
+    const state = graph([remote, sink])
 
-    expect(canConnect(state, {
-      source: sender.id,
-      sourceHandle: 'out',
-      target: remote.id,
-      targetHandle: 'tx',
-    }).valid).toBe(true)
     expect(canConnect(state, {
       source: remote.id,
       sourceHandle: 'rx',
-      target: receiver.id,
-      targetHandle: 'in',
+      target: sink.id,
+      targetHandle: 'tx',
     }).valid).toBe(true)
   })
 
@@ -373,7 +367,8 @@ describe('serial graph model', () => {
     expect(validateGraph(graph([validRemote('long-reconnect-interval', { reconnectIntervalMs: 60001 })])).errors.join('\n')).toContain('reconnectIntervalMs out of range')
     expect(validateGraph(graph([validRemote('large-read-buffer', { readBufKB: 2048 })])).errors.join('\n')).toContain('readBufKB out of range')
     expect(validateGraph(graph([validRemote('bad-protocol', { protocol: 'rfc2217' })])).errors.join('\n')).toContain('unsupported protocol')
-    expect(validateGraph(graph([validRemote('bad-role', { role: 'server' })])).errors.join('\n')).toContain('unsupported role')
+    expect(validateGraph(graph([validRemote('server', { role: 'server' })])).errors).toEqual([])
+    expect(validateGraph(graph([validRemote('bad-role', { role: 'peer' })])).errors.join('\n')).toContain('unsupported role')
 
     const duplicate = validateGraph(graph([
       validRemote('remote-a'),
@@ -382,6 +377,10 @@ describe('serial graph model', () => {
     expect(duplicate.valid).toBe(false)
     expect(duplicate.errors.join('\n')).toContain('resource remote endpoint duplicated')
     expect(duplicate.errors.join('\n')).toContain('127.0.0.1:3001')
+    expect(validateGraph(graph([
+      validRemote('remote-server', { role: 'server' }),
+      validRemote('remote-client', { role: 'client' }),
+    ])).errors).toEqual([])
 
     expect(validateGraph(graph([
       validRemote('remote-a'),

@@ -82,9 +82,9 @@ describe('workspace session snapshot', () => {
     virtual.bridges = [{ ID: 'br-1', Port1: 'ttyV0', Port2: '/tmp/ttyA', BaudRate: 115200 }]
     useBufferStore().appendData('port-1', [1, 2, 3], 123)
     useSerialWorkspaceStore().updateTabState('port-1', { sendHeight: 240 })
-    const sender = useSerialGraphStore().addNode('serial.sender', { x: 20, y: 24 })
-    const receiver = useSerialGraphStore().addNode('serial.receiver', { x: 320, y: 24 })
-    useSerialGraphStore().connect(sender.id, 'out', receiver.id, 'in')
+    const sender = useSerialGraphStore().addNode('serial.virtual', { x: 20, y: 24 })
+    const receiver = useSerialGraphStore().addNode('serial.virtual', { x: 320, y: 24 })
+    useSerialGraphStore().connect(sender.id, 'rx', receiver.id, 'tx')
     useMonitorStore().restoreState({
       activeMonitorId: 'mon-1',
       filters: { 'mon-1': { direction: 'all', search: 'aa', displayMode: 'hex' } },
@@ -104,14 +104,14 @@ describe('workspace session snapshot', () => {
     expect(snapshot.serial.monitors.activeMonitorId).toBe('mon-1')
     expect(snapshot.serial.modbus.masterForm.functionCode).toBe(3)
     expect(snapshot.serial.fecbus.sendForm.functionCode).toBe(34)
-    expect(graph.nodes.map(node => node.type)).toEqual(['serial.sender', 'serial.receiver'])
+    expect(graph.nodes.map(node => node.type)).toEqual(['serial.virtual', 'serial.virtual'])
     expect(graph.edges).toHaveLength(1)
     expect(snapshot.serial.workspace.tabStates['port-1'].sendHeight).toBe(240)
   })
 
   it('builds graph tab snapshots from the fallback active graph and raw runtime buffers', () => {
     const graphStore = useSerialGraphStore()
-    const sender = graphStore.addNode('serial.sender')
+    const sender = graphStore.addNode('serial.virtual')
     graphStore.restoreRuntimeSnapshot('graph-1', {
       nodeBuffers: { [sender.id]: new Uint8Array([90]) },
       nodeFrames: {},
@@ -178,15 +178,15 @@ describe('workspace session snapshot', () => {
         },
         graph: {
           nodes: [
-            { id: 'graph-sender', type: 'serial.sender', position: { x: 20, y: 20 }, config: {} },
-            { id: 'graph-receiver', type: 'serial.receiver', position: { x: 300, y: 20 }, config: {} },
+            { id: 'graph-sender', type: 'serial.virtual', position: { x: 20, y: 20 }, config: {} },
+            { id: 'graph-receiver', type: 'serial.virtual', position: { x: 300, y: 20 }, config: {} },
           ],
           edges: [{
             id: 'graph-edge',
             source: 'graph-sender',
-            sourceHandle: 'out',
+            sourceHandle: 'rx',
             target: 'graph-receiver',
-            targetHandle: 'in',
+            targetHandle: 'tx',
           }],
           selectedNodeId: 'graph-receiver',
           selectedEdgeId: null,
@@ -239,7 +239,7 @@ describe('workspace session snapshot', () => {
   it('restores legacy snapshots without serial graph as an empty topology', async () => {
     const legacySnapshot = buildWorkspaceSnapshot() as any
     delete legacySnapshot.serial.graph
-    useSerialGraphStore().addNode('serial.sender')
+    useSerialGraphStore().addNode('serial.virtual')
 
     const result = await restoreWorkspaceSnapshot(legacySnapshot)
 
@@ -302,7 +302,7 @@ describe('workspace session snapshot', () => {
     expect(bridgeGraph?.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
       'serial.bridge',
     ]))
-    expect(bridgeGraph?.nodes.map(node => node.type)).not.toContain('serial.monitor')
+    expect(bridgeGraph?.nodes.map(node => node.type)).toContain('serial.monitor')
 
     const workspace = useSerialWorkspaceStore()
     expect(workspace.editorLayout.type).toBe('group')
@@ -314,7 +314,7 @@ describe('workspace session snapshot', () => {
 
   it('exports and restores graph tab runtime buffers, frames, and fallback workspace graph snapshots', async () => {
     const graphStore = useSerialGraphStore()
-    const sender = graphStore.addNode('serial.sender')
+    const sender = graphStore.addNode('serial.virtual')
     graphStore.restoreRuntimeSnapshot('graph-1', {
       nodeBuffers: { [sender.id]: new Uint8Array([65]) },
       nodeBufferChunks: {

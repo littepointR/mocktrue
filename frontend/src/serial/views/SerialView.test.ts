@@ -122,7 +122,7 @@ describe('SerialView graph workspace layout', () => {
     })
     graph.renameGraph('graph-1', '生产拓扑')
     files.markClean('/tmp/production.portweave.json', { clean: true }, 'graph-1')
-    graph.addNode('serial.sender')
+    graph.addNode('serial.virtual')
     files.syncGraphSnapshot('graph-1')
 
     const wrapper = mount(SerialView, {
@@ -269,7 +269,7 @@ describe('SerialView graph workspace layout', () => {
     })
     graph.renameGraph('graph-1', '未保存拓扑')
     files.markClean('/tmp/dirty.portweave.json', { clean: true }, 'graph-1')
-    graph.addNode('serial.sender')
+    graph.addNode('serial.virtual')
     files.syncGraphSnapshot('graph-1')
     const confirm = vi.fn()
       .mockReturnValueOnce(false)

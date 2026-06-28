@@ -116,7 +116,7 @@ func TestSerialGraphFilterExpressionSubset(t *testing.T) {
 		Source:    "runtime",
 		GraphID:   "graph-1",
 		NodeID:    "rx-1",
-		NodeType:  "serial.receiver",
+		NodeType:  "serial.virtual",
 		Direction: "rx",
 	}
 

@@ -820,18 +820,18 @@
         "config": { "port": "/dev/ttyUSB0", "baudRate": 115200 }
       },
       {
-        "id": "tap-1",
-        "type": "serial.tap",
+        "id": "monitor-1",
+        "type": "serial.monitor",
         "position": { "x": 420, "y": 180 },
-        "config": {}
+        "config": { "displayMode": "hex" }
       }
     ],
     "edges": [
       {
-        "id": "e-port-tap",
+        "id": "e-port-monitor",
         "source": "port-1",
         "sourceHandle": "out.bytes",
-        "target": "tap-1",
+        "target": "monitor-1",
         "targetHandle": "in.bytes"
       }
     ]

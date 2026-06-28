@@ -20,7 +20,6 @@ describe('serial graph model', () => {
       'serial.virtual',
       'serial.bridge',
       'serial.monitor',
-      'serial.tap',
       'serial.modbus.master',
       'serial.modbus.slave',
       'serial.fecbus.master',
@@ -31,6 +30,8 @@ describe('serial graph model', () => {
     ]))
     expect(types).not.toContain('serial.sender')
     expect(types).not.toContain('serial.receiver')
+    expect(types).not.toContain('serial.tap')
+    expect(types).not.toContain('serial.tee')
   })
 
   it('registers script node providers with stable ports and frozen config fields', () => {
@@ -134,12 +135,16 @@ describe('serial graph model', () => {
           node('bridge', 'serial.bridge', { baudRate: 115200 }),
           node('slave', 'serial.modbus.slave', { mode: 'rtu', unitIds: '1,2', addressMode: 'zero-based' }),
           node('legacy-sender', 'serial.sender', { mode: 'ascii', payload: 'ok' }),
+          node('legacy-tap', 'serial.tap'),
+          node('legacy-tee', 'serial.tee'),
         ],
         nodeTabs: [
           { nodeId: 'monitor', title: '串口监控' },
           { nodeId: 'bridge', title: '串口桥接' },
           { nodeId: 'slave', title: 'Modbus 从站' },
           { nodeId: 'legacy-sender', title: '发送器' },
+          { nodeId: 'legacy-tap', title: '分流器' },
+          { nodeId: 'legacy-tee', title: 'T 型分支' },
         ],
       }],
       activeGraphId: 'graph-1',
@@ -150,6 +155,10 @@ describe('serial graph model', () => {
     expect(state.graphs[0].nodes.find(item => item.id === 'slave')?.config).toEqual({ mode: 'rtu', unitIds: '1,2' })
     expect(state.graphs[0].nodes.find(item => item.id === 'legacy-sender')?.config).toEqual({ mode: 'ascii', payload: 'ok' })
     expect(validateGraph(state.graphs[0]).errors).toEqual(expect.arrayContaining(['provider not found: serial.sender']))
+    expect(validateGraph(state.graphs[0]).errors).toEqual(expect.arrayContaining([
+      'provider not found: serial.tap',
+      'provider not found: serial.tee',
+    ]))
   })
 
   it('allows compatible byte stream connections and rejects non-emitting monitor outputs', () => {
@@ -186,7 +195,7 @@ describe('serial graph model', () => {
     expect(result.errors.some(error => error.includes('/tmp/ttyA'))).toBe(true)
   })
 
-  it('only allows fan-out through tap style nodes', () => {
+  it('allows output fan-out without dedicated branch nodes', () => {
     const direct = graph([
       node('source', 'serial.virtual'),
       node('sink-a', 'serial.virtual'),
@@ -196,17 +205,7 @@ describe('serial graph model', () => {
       { id: 'edge-2', source: 'source', sourceHandle: 'rx', target: 'sink-b', targetHandle: 'tx' },
     ])
 
-    const throughTap = graph([
-      node('tap', 'serial.tap'),
-      node('sink-a', 'serial.virtual'),
-      node('sink-b', 'serial.virtual'),
-    ], [
-      { id: 'edge-1', source: 'tap', sourceHandle: 'out', target: 'sink-a', targetHandle: 'tx' },
-      { id: 'edge-2', source: 'tap', sourceHandle: 'out', target: 'sink-b', targetHandle: 'tx' },
-    ])
-
-    expect(validateGraph(direct).valid).toBe(false)
-    expect(validateGraph(throughTap).valid).toBe(true)
+    expect(validateGraph(direct).errors).toEqual([])
   })
 
   it('rejects two-node directed cycles when connecting', () => {
@@ -232,17 +231,15 @@ describe('serial graph model', () => {
     const state = graph([
       node('master', 'serial.modbus.master'),
       node('slave', 'serial.modbus.slave'),
-      node('tap', 'serial.tap'),
       node('sink', 'serial.virtual'),
     ], [
       { id: 'edge-request', source: 'master', sourceHandle: 'tx', target: 'slave', targetHandle: 'rx' },
-      { id: 'edge-response-tap', source: 'slave', sourceHandle: 'tx', target: 'tap', targetHandle: 'in' },
-      { id: 'edge-response-sink', source: 'tap', sourceHandle: 'out', target: 'sink', targetHandle: 'tx' },
+      { id: 'edge-response-sink', source: 'slave', sourceHandle: 'tx', target: 'sink', targetHandle: 'tx' },
     ])
 
     const result = canConnect(state, {
-      source: 'tap',
-      sourceHandle: 'out',
+      source: 'slave',
+      sourceHandle: 'tx',
       target: 'master',
       targetHandle: 'rx',
     })
@@ -252,7 +249,7 @@ describe('serial graph model', () => {
       ...state,
       edges: [
         ...state.edges,
-        { id: 'edge-response-master', source: 'tap', sourceHandle: 'out', target: 'master', targetHandle: 'rx' },
+        { id: 'edge-response-master', source: 'slave', sourceHandle: 'tx', target: 'master', targetHandle: 'rx' },
       ],
     }).errors).toEqual([])
   })

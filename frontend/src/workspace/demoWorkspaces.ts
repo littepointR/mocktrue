@@ -72,7 +72,7 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'serial-graph-demo',
     title: '串口拓扑演示',
-    description: '展示串口端点、分流器、监控和协议节点的图形化连接。',
+    description: '展示串口端点、直接多路输出、监控和协议节点的图形化连接。',
     snapshotFactory: createSerialGraphDemo,
   },
   {
@@ -517,16 +517,14 @@ function serialGraphState(suffix: string, portName: string): SerialGraphWorkspac
   const nodes: SerialGraphNode[] = [
     graphNode(suffix, 'generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`PortWeave graph ${suffix}\r\n`)),
     graphNode(suffix, 'vport', 'serial.virtual', 264, 32, virtualConfig(portName)),
-    graphNode(suffix, 'tap', 'serial.tap', 496, 32),
-    graphNode(suffix, 'modbus', 'serial.modbus.master', 752, 168, modbusMasterConfig()),
-    graphNode(suffix, 'monitor', 'serial.monitor', 752, 304, monitorConfig()),
+    graphNode(suffix, 'modbus', 'serial.modbus.master', 528, 168, modbusMasterConfig()),
+    graphNode(suffix, 'monitor', 'serial.monitor', 528, 304, monitorConfig()),
   ]
 
   return graphState(suffix, '串口拓扑演示', nodes, [
     graphEdge(suffix, 'generator-vport', `graph-generator-${suffix}`, 'out', `graph-vport-${suffix}`, 'tx'),
-    graphEdge(suffix, 'vport-tap', `graph-vport-${suffix}`, 'rx', `graph-tap-${suffix}`, 'in'),
-    graphEdge(suffix, 'tap-modbus', `graph-tap-${suffix}`, 'out', `graph-modbus-${suffix}`, 'rx'),
-    graphEdge(suffix, 'tap-monitor', `graph-tap-${suffix}`, 'out', `graph-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'vport-modbus', `graph-vport-${suffix}`, 'rx', `graph-modbus-${suffix}`, 'rx'),
+    graphEdge(suffix, 'vport-monitor', `graph-vport-${suffix}`, 'rx', `graph-monitor-${suffix}`, 'in'),
   ], selectedNodeId)
 }
 
@@ -535,23 +533,21 @@ function serialObservabilityGraphState(suffix: string, portName: string): Serial
   const nodes: SerialGraphNode[] = [
     graphNode(suffix, 'observability-generator', 'serial.script.generator', 32, 168, scriptGeneratorConfig('TEMP=42 STATUS OK\r\n')),
     graphNode(suffix, 'observability-vport', 'serial.virtual', 280, 168, virtualConfig(portName)),
-    graphNode(suffix, 'observability-tap', 'serial.tap', 528, 168),
-    graphNode(suffix, 'observability-filter-plain', 'serial.filter', 776, 32, filterConfig('plain', 'STATUS OK')),
-    graphNode(suffix, 'observability-filter-regex', 'serial.filter', 776, 168, filterConfig('regex', /TEMP=\d+/.source)),
-    graphNode(suffix, 'observability-filter-expression', 'serial.filter', 776, 304, filterConfig('expression', 'len >= 4 and text contains "OK"')),
-    graphNode(suffix, 'observability-monitor-plain', 'serial.monitor', 1040, 32, monitorConfig('ascii')),
-    graphNode(suffix, 'observability-monitor-regex', 'serial.monitor', 1040, 168, monitorConfig('hex')),
-    graphNode(suffix, 'observability-monitor-expression', 'serial.monitor', 1040, 304, monitorConfig('ascii')),
+    graphNode(suffix, 'observability-filter-plain', 'serial.filter', 528, 32, filterConfig('plain', 'STATUS OK')),
+    graphNode(suffix, 'observability-filter-regex', 'serial.filter', 528, 168, filterConfig('regex', /TEMP=\d+/.source)),
+    graphNode(suffix, 'observability-filter-expression', 'serial.filter', 528, 304, filterConfig('expression', 'len >= 4 and text contains "OK"')),
+    graphNode(suffix, 'observability-monitor-plain', 'serial.monitor', 792, 32, monitorConfig('ascii')),
+    graphNode(suffix, 'observability-monitor-regex', 'serial.monitor', 792, 168, monitorConfig('hex')),
+    graphNode(suffix, 'observability-monitor-expression', 'serial.monitor', 792, 304, monitorConfig('ascii')),
   ]
 
   return graphState(suffix, '串口过滤与日志演示', nodes, [
     graphEdge(suffix, 'observability-generator-vport', `graph-observability-generator-${suffix}`, 'out', `graph-observability-vport-${suffix}`, 'tx'),
-    graphEdge(suffix, 'observability-vport-tap', `graph-observability-vport-${suffix}`, 'rx', `graph-observability-tap-${suffix}`, 'in'),
-    graphEdge(suffix, 'observability-tap-filter-plain', `graph-observability-tap-${suffix}`, 'out', `graph-observability-filter-plain-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-vport-filter-plain', `graph-observability-vport-${suffix}`, 'rx', `graph-observability-filter-plain-${suffix}`, 'in'),
     graphEdge(suffix, 'observability-filter-plain-monitor', `graph-observability-filter-plain-${suffix}`, 'out', `graph-observability-monitor-plain-${suffix}`, 'in'),
-    graphEdge(suffix, 'observability-tap-filter-regex', `graph-observability-tap-${suffix}`, 'out', `graph-observability-filter-regex-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-vport-filter-regex', `graph-observability-vport-${suffix}`, 'rx', `graph-observability-filter-regex-${suffix}`, 'in'),
     graphEdge(suffix, 'observability-filter-regex-monitor', `graph-observability-filter-regex-${suffix}`, 'out', `graph-observability-monitor-regex-${suffix}`, 'in'),
-    graphEdge(suffix, 'observability-tap-filter-expression', `graph-observability-tap-${suffix}`, 'out', `graph-observability-filter-expression-${suffix}`, 'in'),
+    graphEdge(suffix, 'observability-vport-filter-expression', `graph-observability-vport-${suffix}`, 'rx', `graph-observability-filter-expression-${suffix}`, 'in'),
     graphEdge(suffix, 'observability-filter-expression-monitor', `graph-observability-filter-expression-${suffix}`, 'out', selectedNodeId, 'in'),
   ], selectedNodeId)
 }
@@ -559,24 +555,18 @@ function serialObservabilityGraphState(suffix: string, portName: string): Serial
 function remoteSerialGraphState(suffix: string): SerialGraphWorkspaceState {
   const serverId = `graph-remote-0-server-${suffix}`
   const clientId = `graph-remote-1-client-${suffix}`
-  const serverTapId = `graph-remote-server-tap-${suffix}`
-  const clientTapId = `graph-remote-client-tap-${suffix}`
   const nodes: SerialGraphNode[] = [
     graphNode(suffix, 'remote-client-generator', 'serial.script.generator', 32, 256, scriptGeneratorConfig(`client -> server ${suffix}\r\n`, 1500)),
     graphNode(suffix, 'remote-0-server', 'serial.remote', 280, 64, remoteSerialConfig('server')),
     graphNode(suffix, 'remote-1-client', 'serial.remote', 280, 256, remoteSerialConfig('client')),
-    graphNode(suffix, 'remote-server-tap', 'serial.tap', 528, 64),
-    graphNode(suffix, 'remote-client-tap', 'serial.tap', 528, 256),
-    graphNode(suffix, 'remote-server-monitor', 'serial.monitor', 776, 64, monitorConfig()),
-    graphNode(suffix, 'remote-client-monitor', 'serial.monitor', 776, 256, monitorConfig()),
+    graphNode(suffix, 'remote-server-monitor', 'serial.monitor', 528, 64, monitorConfig()),
+    graphNode(suffix, 'remote-client-monitor', 'serial.monitor', 528, 256, monitorConfig()),
   ]
 
   return graphState(suffix, '远端串口演示', nodes, [
     graphEdge(suffix, 'remote-client-generator-client', `graph-remote-client-generator-${suffix}`, 'out', clientId, 'tx'),
-    graphEdge(suffix, 'remote-server-rx-tap', serverId, 'rx', serverTapId, 'in'),
-    graphEdge(suffix, 'remote-server-tap-monitor', serverTapId, 'out', `graph-remote-server-monitor-${suffix}`, 'in'),
-    graphEdge(suffix, 'remote-client-rx-tap', clientId, 'rx', clientTapId, 'in'),
-    graphEdge(suffix, 'remote-client-tap-monitor', clientTapId, 'out', `graph-remote-client-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'remote-server-rx-monitor', serverId, 'rx', `graph-remote-server-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'remote-client-rx-monitor', clientId, 'rx', `graph-remote-client-monitor-${suffix}`, 'in'),
   ], serverId)
 }
 
@@ -639,52 +629,44 @@ function monitorGraphState(suffix: string, portName: string): SerialGraphWorkspa
   const nodes = [
     graphNode(suffix, 'monitor-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`monitor demo ${suffix}\r\n`)),
     graphNode(suffix, 'monitor-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
-    graphNode(suffix, 'monitor-tap', 'serial.tap', 528, 32),
-    graphNode(suffix, 'monitor', 'serial.monitor', 776, 32, monitorConfig()),
+    graphNode(suffix, 'monitor', 'serial.monitor', 528, 32, monitorConfig()),
   ]
 
   return graphState(suffix, '串口监控演示', nodes, [
     graphEdge(suffix, 'monitor-generator-vport', `graph-monitor-generator-${suffix}`, 'out', `graph-monitor-vport-${suffix}`, 'tx'),
-    graphEdge(suffix, 'monitor-vport-tap', `graph-monitor-vport-${suffix}`, 'rx', `graph-monitor-tap-${suffix}`, 'in'),
-    graphEdge(suffix, 'monitor-tap-monitor', `graph-monitor-tap-${suffix}`, 'out', selectedNodeId, 'in'),
+    graphEdge(suffix, 'monitor-vport-monitor', `graph-monitor-vport-${suffix}`, 'rx', selectedNodeId, 'in'),
   ], selectedNodeId)
 }
 
 function scriptTransformGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-script-transform-${suffix}`
-  const tapId = `graph-script-transform-tap-${suffix}`
   const nodes = [
     graphNode(suffix, 'script-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig()),
     graphNode(suffix, 'script-transform-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
     graphNode(suffix, 'script-transform', 'serial.script.transform', 528, 32, scriptTransformConfig()),
-    graphNode(suffix, 'script-transform-tap', 'serial.tap', 776, 32),
-    graphNode(suffix, 'script-transform-monitor', 'serial.monitor', 1024, 32, monitorConfig()),
+    graphNode(suffix, 'script-transform-monitor', 'serial.monitor', 776, 32, monitorConfig()),
   ]
 
   return graphState(suffix, '脚本转换演示', nodes, [
     graphEdge(suffix, 'script-generator-vport', `graph-script-generator-${suffix}`, 'out', `graph-script-transform-vport-${suffix}`, 'tx'),
     graphEdge(suffix, 'script-vport-transform', `graph-script-transform-vport-${suffix}`, 'rx', selectedNodeId, 'in'),
-    graphEdge(suffix, 'script-transform-tap', selectedNodeId, 'out', tapId, 'in'),
-    graphEdge(suffix, 'script-transform-tap-monitor', tapId, 'out', `graph-script-transform-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'script-transform-monitor', selectedNodeId, 'out', `graph-script-transform-monitor-${suffix}`, 'in'),
   ], selectedNodeId)
 }
 
 function scriptAnalyzerGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-script-analyzer-${suffix}`
-  const tapId = `graph-script-analyzer-tap-${suffix}`
   const nodes = [
     graphNode(suffix, 'script-analyzer-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig()),
     graphNode(suffix, 'script-analyzer-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
-    graphNode(suffix, 'script-analyzer-tap', 'serial.tap', 528, 32),
-    graphNode(suffix, 'script-analyzer-monitor', 'serial.monitor', 776, 32, monitorConfig()),
-    graphNode(suffix, 'script-analyzer', 'serial.script.analyzer', 776, 168, scriptAnalyzerConfig()),
+    graphNode(suffix, 'script-analyzer-monitor', 'serial.monitor', 528, 32, monitorConfig()),
+    graphNode(suffix, 'script-analyzer', 'serial.script.analyzer', 528, 168, scriptAnalyzerConfig()),
   ]
 
   return graphState(suffix, '脚本分析演示', nodes, [
     graphEdge(suffix, 'script-analyzer-generator-vport', `graph-script-analyzer-generator-${suffix}`, 'out', `graph-script-analyzer-vport-${suffix}`, 'tx'),
-    graphEdge(suffix, 'script-analyzer-vport-tap', `graph-script-analyzer-vport-${suffix}`, 'rx', tapId, 'in'),
-    graphEdge(suffix, 'script-analyzer-tap-monitor', tapId, 'out', `graph-script-analyzer-monitor-${suffix}`, 'in'),
-    graphEdge(suffix, 'script-analyzer-tap-analyzer', tapId, 'out', selectedNodeId, 'in'),
+    graphEdge(suffix, 'script-analyzer-vport-monitor', `graph-script-analyzer-vport-${suffix}`, 'rx', `graph-script-analyzer-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'script-analyzer-vport-analyzer', `graph-script-analyzer-vport-${suffix}`, 'rx', selectedNodeId, 'in'),
   ], selectedNodeId)
 }
 
@@ -692,21 +674,18 @@ function modbusGraphState(suffix: string, requestPortName: string): SerialGraphW
   const selectedNodeId = `graph-modbus-master-${suffix}`
   const requestPortId = `graph-modbus-vport-${suffix}`
   const slaveId = `graph-modbus-slave-${suffix}`
-  const tapId = `graph-modbus-response-tap-${suffix}`
   const nodes = [
     graphNode(suffix, 'modbus-master', 'serial.modbus.master', 32, 32, modbusMasterConfig({ autoSend: true })),
     graphNode(suffix, 'modbus-vport', 'serial.virtual', 280, 32, virtualConfig(requestPortName)),
     graphNode(suffix, 'modbus-slave', 'serial.modbus.slave', 528, 32, modbusSlaveConfig()),
-    graphNode(suffix, 'modbus-response-tap', 'serial.tap', 776, 32),
-    graphNode(suffix, 'modbus-monitor', 'serial.monitor', 1024, 32, monitorConfig()),
+    graphNode(suffix, 'modbus-monitor', 'serial.monitor', 776, 32, monitorConfig()),
   ]
 
   return graphState(suffix, 'Modbus 调试演示', nodes, [
     graphEdge(suffix, 'modbus-master-vport', selectedNodeId, 'tx', requestPortId, 'tx'),
     graphEdge(suffix, 'modbus-vport-slave', requestPortId, 'rx', slaveId, 'rx'),
-    graphEdge(suffix, 'modbus-slave-tap', slaveId, 'tx', tapId, 'in'),
-    graphEdge(suffix, 'modbus-tap-master', tapId, 'out', selectedNodeId, 'rx'),
-    graphEdge(suffix, 'modbus-tap-monitor', tapId, 'out', `graph-modbus-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'modbus-slave-master', slaveId, 'tx', selectedNodeId, 'rx'),
+    graphEdge(suffix, 'modbus-slave-monitor', slaveId, 'tx', `graph-modbus-monitor-${suffix}`, 'in'),
   ], selectedNodeId)
 }
 
@@ -714,20 +693,17 @@ function fecbusGraphState(suffix: string, requestPortName: string): SerialGraphW
   const selectedNodeId = `graph-fecbus-master-${suffix}`
   const requestPortId = `graph-fecbus-vport-${suffix}`
   const slaveId = `graph-fecbus-slave-${suffix}`
-  const tapId = `graph-fecbus-response-tap-${suffix}`
   const nodes = [
     graphNode(suffix, 'fecbus-master', 'serial.fecbus.master', 32, 32, fecbusMasterConfig({ autoSend: true })),
     graphNode(suffix, 'fecbus-vport', 'serial.virtual', 280, 32, virtualConfig(requestPortName)),
     graphNode(suffix, 'fecbus-slave', 'serial.fecbus.slave', 528, 32, fecbusSlaveConfig()),
-    graphNode(suffix, 'fecbus-response-tap', 'serial.tap', 776, 32),
-    graphNode(suffix, 'fecbus-monitor', 'serial.monitor', 1024, 32, monitorConfig()),
+    graphNode(suffix, 'fecbus-monitor', 'serial.monitor', 776, 32, monitorConfig()),
   ]
 
   return graphState(suffix, 'FECbus 调试演示', nodes, [
     graphEdge(suffix, 'fecbus-master-vport', selectedNodeId, 'tx', requestPortId, 'tx'),
     graphEdge(suffix, 'fecbus-vport-slave', requestPortId, 'rx', slaveId, 'rx'),
-    graphEdge(suffix, 'fecbus-slave-tap', slaveId, 'tx', tapId, 'in'),
-    graphEdge(suffix, 'fecbus-tap-monitor', tapId, 'out', `graph-fecbus-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'fecbus-slave-monitor', slaveId, 'tx', `graph-fecbus-monitor-${suffix}`, 'in'),
   ], selectedNodeId)
 }
 
@@ -747,7 +723,6 @@ function fullWorkspaceGraphState(
   const scriptGeneratorId = `graph-full-script-generator-${suffix}`
   const scriptPortId = `graph-full-script-vport-${suffix}`
   const scriptTransformId = `graph-full-script-transform-${suffix}`
-  const scriptTapId = `graph-full-script-tap-${suffix}`
   const scriptAnalyzerId = `graph-full-script-analyzer-${suffix}`
   const modbusMasterId = `graph-full-modbus-master-${suffix}`
   const modbusPortId = `graph-full-modbus-vport-${suffix}`
@@ -758,8 +733,7 @@ function fullWorkspaceGraphState(
   const nodes = [
     graphNode(suffix, 'full-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`full workspace ${suffix}\r\n`)),
     graphNode(suffix, 'full-vport', 'serial.virtual', 280, 32, virtualConfig(terminalPort)),
-    graphNode(suffix, 'full-tap', 'serial.tap', 528, 32),
-    graphNode(suffix, 'full-filter', 'serial.filter', 652, 32, filterConfig('plain', 'full workspace')),
+    graphNode(suffix, 'full-filter', 'serial.filter', 528, 32, filterConfig('plain', 'full workspace')),
     graphNode(suffix, 'full-monitor', 'serial.monitor', 776, 32, monitorConfig()),
 
     graphNode(suffix, 'full-bridge-generator-a', 'serial.script.generator', 32, 344, scriptGeneratorConfig(`full bridge A ${suffix}\r\n`)),
@@ -773,27 +747,23 @@ function fullWorkspaceGraphState(
     graphNode(suffix, 'full-script-generator', 'serial.script.generator', 1040, 656, scriptGeneratorConfig()),
     graphNode(suffix, 'full-script-vport', 'serial.virtual', 1288, 656, virtualConfig(scriptPort)),
     graphNode(suffix, 'full-script-transform', 'serial.script.transform', 1536, 656, scriptTransformConfig()),
-    graphNode(suffix, 'full-script-tap', 'serial.tap', 1784, 656),
-    graphNode(suffix, 'full-script-monitor', 'serial.monitor', 2032, 656, monitorConfig()),
-    graphNode(suffix, 'full-script-analyzer', 'serial.script.analyzer', 2032, 792, scriptAnalyzerConfig()),
+    graphNode(suffix, 'full-script-monitor', 'serial.monitor', 1784, 656, monitorConfig()),
+    graphNode(suffix, 'full-script-analyzer', 'serial.script.analyzer', 1784, 792, scriptAnalyzerConfig()),
 
     graphNode(suffix, 'full-modbus-master', 'serial.modbus.master', 1040, 32, modbusMasterConfig({ autoSend: true })),
     graphNode(suffix, 'full-modbus-vport', 'serial.virtual', 1288, 32, virtualConfig(modbusPort)),
     graphNode(suffix, 'full-modbus-slave', 'serial.modbus.slave', 1536, 32, modbusSlaveConfig()),
-    graphNode(suffix, 'full-modbus-tap', 'serial.tap', 1784, 32),
-    graphNode(suffix, 'full-modbus-monitor', 'serial.monitor', 2032, 32, monitorConfig()),
+    graphNode(suffix, 'full-modbus-monitor', 'serial.monitor', 1784, 32, monitorConfig()),
 
     graphNode(suffix, 'full-fecbus-master', 'serial.fecbus.master', 1040, 344, fecbusMasterConfig({ autoSend: true })),
     graphNode(suffix, 'full-fecbus-vport', 'serial.virtual', 1288, 344, virtualConfig(fecbusPort)),
     graphNode(suffix, 'full-fecbus-slave', 'serial.fecbus.slave', 1536, 344, fecbusSlaveConfig()),
-    graphNode(suffix, 'full-fecbus-tap', 'serial.tap', 1784, 344),
-    graphNode(suffix, 'full-fecbus-monitor', 'serial.monitor', 2032, 344, monitorConfig()),
+    graphNode(suffix, 'full-fecbus-monitor', 'serial.monitor', 1784, 344, monitorConfig()),
   ]
 
   return graphState(suffix, '完整工作区演示', nodes, [
     graphEdge(suffix, 'full-generator-vport', fullGeneratorId, 'out', selectedNodeId, 'tx'),
-    graphEdge(suffix, 'full-vport-tap', `graph-full-vport-${suffix}`, 'rx', `graph-full-tap-${suffix}`, 'in'),
-    graphEdge(suffix, 'full-tap-filter', `graph-full-tap-${suffix}`, 'out', `graph-full-filter-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-vport-filter', `graph-full-vport-${suffix}`, 'rx', `graph-full-filter-${suffix}`, 'in'),
     graphEdge(suffix, 'full-filter-monitor', `graph-full-filter-${suffix}`, 'out', `graph-full-monitor-${suffix}`, 'in'),
     graphEdge(suffix, 'full-bridge-generator-a-vport-a', fullBridgeGeneratorAId, 'out', `graph-full-bridge-vport-a-${suffix}`, 'tx'),
     graphEdge(suffix, 'full-bridge-vport-a-in', `graph-full-bridge-vport-a-${suffix}`, 'rx', `graph-full-bridge-${suffix}`, 'a-in'),
@@ -803,18 +773,15 @@ function fullWorkspaceGraphState(
     graphEdge(suffix, 'full-bridge-a-out-monitor', `graph-full-bridge-${suffix}`, 'a-out', `graph-full-bridge-monitor-a-${suffix}`, 'in'),
     graphEdge(suffix, 'full-script-generator-vport', scriptGeneratorId, 'out', scriptPortId, 'tx'),
     graphEdge(suffix, 'full-script-vport-transform', scriptPortId, 'rx', scriptTransformId, 'in'),
-    graphEdge(suffix, 'full-script-transform-tap', scriptTransformId, 'out', scriptTapId, 'in'),
-    graphEdge(suffix, 'full-script-tap-monitor', scriptTapId, 'out', `graph-full-script-monitor-${suffix}`, 'in'),
-    graphEdge(suffix, 'full-script-tap-analyzer', scriptTapId, 'out', scriptAnalyzerId, 'in'),
+    graphEdge(suffix, 'full-script-transform-monitor', scriptTransformId, 'out', `graph-full-script-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-script-transform-analyzer', scriptTransformId, 'out', scriptAnalyzerId, 'in'),
     graphEdge(suffix, 'full-modbus-master-vport', modbusMasterId, 'tx', modbusPortId, 'tx'),
     graphEdge(suffix, 'full-modbus-vport-slave', modbusPortId, 'rx', modbusSlaveId, 'rx'),
-    graphEdge(suffix, 'full-modbus-slave-tap', modbusSlaveId, 'tx', `graph-full-modbus-tap-${suffix}`, 'in'),
-    graphEdge(suffix, 'full-modbus-tap-master', `graph-full-modbus-tap-${suffix}`, 'out', modbusMasterId, 'rx'),
-    graphEdge(suffix, 'full-modbus-tap-monitor', `graph-full-modbus-tap-${suffix}`, 'out', `graph-full-modbus-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-modbus-slave-master', modbusSlaveId, 'tx', modbusMasterId, 'rx'),
+    graphEdge(suffix, 'full-modbus-slave-monitor', modbusSlaveId, 'tx', `graph-full-modbus-monitor-${suffix}`, 'in'),
     graphEdge(suffix, 'full-fecbus-master-vport', fecbusMasterId, 'tx', fecbusPortId, 'tx'),
     graphEdge(suffix, 'full-fecbus-vport-slave', fecbusPortId, 'rx', fecbusSlaveId, 'rx'),
-    graphEdge(suffix, 'full-fecbus-slave-tap', fecbusSlaveId, 'tx', `graph-full-fecbus-tap-${suffix}`, 'in'),
-    graphEdge(suffix, 'full-fecbus-tap-monitor', `graph-full-fecbus-tap-${suffix}`, 'out', `graph-full-fecbus-monitor-${suffix}`, 'in'),
+    graphEdge(suffix, 'full-fecbus-slave-monitor', fecbusSlaveId, 'tx', `graph-full-fecbus-monitor-${suffix}`, 'in'),
   ], selectedNodeId)
 }
 

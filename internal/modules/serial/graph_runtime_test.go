@@ -725,22 +725,20 @@ func TestSerialGraphRuntimeAutoSenderStopsWithGraph(t *testing.T) {
 	}
 }
 
-func TestSerialGraphRuntimeTapFansOut(t *testing.T) {
+func TestSerialGraphRuntimeOutputFansOut(t *testing.T) {
 	svc := NewService(nil)
 	defer svc.cleanup()
 
 	graph := startTestGraph(t, svc, SerialGraphStartRequest{
-		ID: "graph-tap",
+		ID: "graph-fan-out",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.virtual"},
-			{ID: "tap", Type: "serial.tap"},
 			{ID: "rx-a", Type: "serial.virtual"},
 			{ID: "rx-b", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "tap", TargetHandle: "in"},
-			{ID: "edge-2", Source: "tap", SourceHandle: "out", Target: "rx-a", TargetHandle: "tx"},
-			{ID: "edge-3", Source: "tap", SourceHandle: "out", Target: "rx-b", TargetHandle: "tx"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "rx-a", TargetHandle: "tx"},
+			{ID: "edge-2", Source: "sender", SourceHandle: "rx", Target: "rx-b", TargetHandle: "tx"},
 		},
 	})
 
@@ -1676,7 +1674,6 @@ func TestGraphConfigPayloadAndValidationHelpersCoverBranches(t *testing.T) {
 		"output port not found: serial.virtual.missing",
 		"input port not found: serial.virtual.missing",
 		"input already connected: receiver.tx",
-		"fan-out requires a tap node: sender.rx",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("validateSerialGraphRuntimeRequest errors %q missing %q", joined, want)
@@ -1799,14 +1796,12 @@ func TestSerialGraphRuntimeModbusResponseCanReturnToMaster(t *testing.T) {
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.modbus.master", Config: map[string]any{"mode": "rtu", "unitIds": "3", "functionCode": 3, "address": 0, "quantity": 2}},
 			{ID: "slave", Type: "serial.modbus.slave", Config: map[string]any{"mode": "rtu", "unitIds": "3"}},
-			{ID: "tap", Type: "serial.tap"},
 			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
 			{ID: "edge-master-slave", Source: "master", SourceHandle: "tx", Target: "slave", TargetHandle: "rx"},
-			{ID: "edge-slave-tap", Source: "slave", SourceHandle: "tx", Target: "tap", TargetHandle: "in"},
-			{ID: "edge-tap-master", Source: "tap", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
-			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
+			{ID: "edge-slave-master", Source: "slave", SourceHandle: "tx", Target: "master", TargetHandle: "rx"},
+			{ID: "edge-slave-receiver", Source: "slave", SourceHandle: "tx", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -2064,12 +2059,12 @@ func TestSerialGraphRuntimeResetCountersAndClearBuffer(t *testing.T) {
 	}
 }
 
-func TestSerialGraphRuntimeRejectsInvalidGraph(t *testing.T) {
+func TestSerialGraphRuntimeAllowsDirectFanOutGraph(t *testing.T) {
 	svc := NewService(nil)
 	defer svc.cleanup()
 
-	_, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
-		ID: "invalid",
+	graph := startTestGraph(t, svc, SerialGraphStartRequest{
+		ID: "direct-fan-out",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.virtual"},
 			{ID: "rx-a", Type: "serial.virtual"},
@@ -2080,8 +2075,20 @@ func TestSerialGraphRuntimeRejectsInvalidGraph(t *testing.T) {
 			{ID: "edge-2", Source: "sender", SourceHandle: "rx", Target: "rx-b", TargetHandle: "tx"},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "fan-out requires a tap node") {
-		t.Fatalf("StartSerialGraph error = %v, want fan-out validation error", err)
+
+	if _, err := svc.SendSerialGraphNode(SerialGraphSendRequest{
+		GraphID: graph.ID,
+		NodeID:  "sender",
+		Content: "fanout",
+		Mode:    "ascii",
+	}); err != nil {
+		t.Fatalf("SendSerialGraphNode returned error: %v", err)
+	}
+	for _, nodeID := range []string{"rx-a", "rx-b"} {
+		page := waitGraphBuffer(t, svc, graph.ID, nodeID, len("fanout"))
+		if string(page.Data) != "fanout" {
+			t.Fatalf("%s buffer = %q, want fanout", nodeID, string(page.Data))
+		}
 	}
 }
 
@@ -2549,19 +2556,17 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 		nodes := []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
 			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("monitor"))},
-			{ID: "tap", Type: "serial.tap"},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
 			{ID: "edge-sender-vport", Source: "sender", SourceHandle: "rx", Target: "vport", TargetHandle: "tx"},
-			{ID: "edge-vport-tap", Source: "vport", SourceHandle: "rx", Target: "tap", TargetHandle: "in"},
-			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
-			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+			{ID: "edge-vport-receiver", Source: "vport", SourceHandle: "rx", Target: "receiver", TargetHandle: "tx"},
+			{ID: "edge-vport-monitor", Source: "vport", SourceHandle: "rx", Target: "monitor", TargetHandle: "in"},
 		}
 		return demoGraphStressCase{
 			Request:       request(nodes, edges),
-			StatusNodes:   []string{"sender", "vport", "tap", "receiver", "monitor"},
+			StatusNodes:   []string{"sender", "vport", "receiver", "monitor"},
 			ByteWorkloads: byteWorkloads([2]string{"sender", "receiver"}),
 			MonitorNodes:  []string{"monitor"},
 		}
@@ -2570,21 +2575,19 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "master", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
 			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("modbus"))},
 			{ID: "slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
-			{ID: "tap", Type: "serial.tap"},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
 			{ID: "edge-master-vport", Source: "master", SourceHandle: "tx", Target: "vport", TargetHandle: "tx"},
 			{ID: "edge-vport-slave", Source: "vport", SourceHandle: "rx", Target: "slave", TargetHandle: "rx"},
-			{ID: "edge-slave-tap", Source: "slave", SourceHandle: "tx", Target: "tap", TargetHandle: "in"},
-			{ID: "edge-tap-master", Source: "tap", SourceHandle: "out", Target: "master", TargetHandle: "rx"},
-			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
-			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+			{ID: "edge-slave-master", Source: "slave", SourceHandle: "tx", Target: "master", TargetHandle: "rx"},
+			{ID: "edge-slave-receiver", Source: "slave", SourceHandle: "tx", Target: "receiver", TargetHandle: "tx"},
+			{ID: "edge-slave-monitor", Source: "slave", SourceHandle: "tx", Target: "monitor", TargetHandle: "in"},
 		}
 		return demoGraphStressCase{
 			Request:           request(nodes, edges),
-			StatusNodes:       []string{"master", "vport", "slave", "tap", "receiver", "monitor"},
+			StatusNodes:       []string{"master", "vport", "slave", "receiver", "monitor"},
 			ProtocolWorkloads: protocolWorkload("master", "receiver"),
 			MonitorNodes:      []string{"monitor"},
 		}
@@ -2593,20 +2596,18 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig()},
 			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("fecbus"))},
 			{ID: "slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
-			{ID: "tap", Type: "serial.tap"},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
 			{ID: "edge-master-vport", Source: "master", SourceHandle: "tx", Target: "vport", TargetHandle: "tx"},
 			{ID: "edge-vport-slave", Source: "vport", SourceHandle: "rx", Target: "slave", TargetHandle: "rx"},
-			{ID: "edge-slave-tap", Source: "slave", SourceHandle: "tx", Target: "tap", TargetHandle: "in"},
-			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
-			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+			{ID: "edge-slave-receiver", Source: "slave", SourceHandle: "tx", Target: "receiver", TargetHandle: "tx"},
+			{ID: "edge-slave-monitor", Source: "slave", SourceHandle: "tx", Target: "monitor", TargetHandle: "in"},
 		}
 		return demoGraphStressCase{
 			Request:           request(nodes, edges),
-			StatusNodes:       []string{"master", "vport", "slave", "tap", "receiver", "monitor"},
+			StatusNodes:       []string{"master", "vport", "slave", "receiver", "monitor"},
 			ProtocolWorkloads: protocolWorkload("master", "receiver"),
 			MonitorNodes:      []string{"monitor"},
 		}
@@ -2614,21 +2615,19 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 		nodes := []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
 			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("graph"))},
-			{ID: "tap", Type: "serial.tap"},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "modbus", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
 			{ID: "edge-sender-vport", Source: "sender", SourceHandle: "rx", Target: "vport", TargetHandle: "tx"},
-			{ID: "edge-vport-tap", Source: "vport", SourceHandle: "rx", Target: "tap", TargetHandle: "in"},
-			{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
-			{ID: "edge-tap-modbus", Source: "tap", SourceHandle: "out", Target: "modbus", TargetHandle: "rx"},
-			{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+			{ID: "edge-vport-receiver", Source: "vport", SourceHandle: "rx", Target: "receiver", TargetHandle: "tx"},
+			{ID: "edge-vport-modbus", Source: "vport", SourceHandle: "rx", Target: "modbus", TargetHandle: "rx"},
+			{ID: "edge-vport-monitor", Source: "vport", SourceHandle: "rx", Target: "monitor", TargetHandle: "in"},
 		}
 		return demoGraphStressCase{
 			Request:       request(nodes, edges),
-			StatusNodes:   []string{"sender", "vport", "tap", "receiver", "modbus", "monitor"},
+			StatusNodes:   []string{"sender", "vport", "receiver", "modbus", "monitor"},
 			ByteWorkloads: byteWorkloads([2]string{"sender", "receiver"}),
 			MonitorNodes:  []string{"monitor"},
 		}
@@ -2636,7 +2635,6 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 		nodes := []SerialGraphNodeSpec{
 			{ID: "main-sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
 			{ID: "main-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("main"))},
-			{ID: "main-tap", Type: "serial.tap"},
 			{ID: "main-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "main-monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 			{ID: "bridge-sender-a", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
@@ -2649,20 +2647,17 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "modbus-master", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
 			{ID: "modbus-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-modbus"))},
 			{ID: "modbus-slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
-			{ID: "modbus-tap", Type: "serial.tap"},
 			{ID: "modbus-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "modbus-monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 			{ID: "fecbus-master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig()},
 			{ID: "fecbus-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-fecbus"))},
 			{ID: "fecbus-slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
-			{ID: "fecbus-tap", Type: "serial.tap"},
 			{ID: "fecbus-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
 			{ID: "edge-main-sender-vport", Source: "main-sender", SourceHandle: "rx", Target: "main-vport", TargetHandle: "tx"},
-			{ID: "edge-main-vport-tap", Source: "main-vport", SourceHandle: "rx", Target: "main-tap", TargetHandle: "in"},
-			{ID: "edge-main-tap-receiver", Source: "main-tap", SourceHandle: "out", Target: "main-receiver", TargetHandle: "tx"},
-			{ID: "edge-main-tap-monitor", Source: "main-tap", SourceHandle: "out", Target: "main-monitor", TargetHandle: "in"},
+			{ID: "edge-main-vport-receiver", Source: "main-vport", SourceHandle: "rx", Target: "main-receiver", TargetHandle: "tx"},
+			{ID: "edge-main-vport-monitor", Source: "main-vport", SourceHandle: "rx", Target: "main-monitor", TargetHandle: "in"},
 			{ID: "edge-bridge-sender-a-vport", Source: "bridge-sender-a", SourceHandle: "rx", Target: "bridge-vport-a", TargetHandle: "tx"},
 			{ID: "edge-bridge-vport-a-in", Source: "bridge-vport-a", SourceHandle: "rx", Target: "bridge", TargetHandle: "a-in"},
 			{ID: "edge-bridge-b-receiver", Source: "bridge", SourceHandle: "b-out", Target: "bridge-receiver-b", TargetHandle: "tx"},
@@ -2671,22 +2666,20 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 			{ID: "edge-bridge-a-receiver", Source: "bridge", SourceHandle: "a-out", Target: "bridge-receiver-a", TargetHandle: "tx"},
 			{ID: "edge-modbus-master-vport", Source: "modbus-master", SourceHandle: "tx", Target: "modbus-vport", TargetHandle: "tx"},
 			{ID: "edge-modbus-vport-slave", Source: "modbus-vport", SourceHandle: "rx", Target: "modbus-slave", TargetHandle: "rx"},
-			{ID: "edge-modbus-slave-tap", Source: "modbus-slave", SourceHandle: "tx", Target: "modbus-tap", TargetHandle: "in"},
-			{ID: "edge-modbus-tap-master", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-master", TargetHandle: "rx"},
-			{ID: "edge-modbus-tap-receiver", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-receiver", TargetHandle: "tx"},
-			{ID: "edge-modbus-tap-monitor", Source: "modbus-tap", SourceHandle: "out", Target: "modbus-monitor", TargetHandle: "in"},
+			{ID: "edge-modbus-slave-master", Source: "modbus-slave", SourceHandle: "tx", Target: "modbus-master", TargetHandle: "rx"},
+			{ID: "edge-modbus-slave-receiver", Source: "modbus-slave", SourceHandle: "tx", Target: "modbus-receiver", TargetHandle: "tx"},
+			{ID: "edge-modbus-slave-monitor", Source: "modbus-slave", SourceHandle: "tx", Target: "modbus-monitor", TargetHandle: "in"},
 			{ID: "edge-fecbus-master-vport", Source: "fecbus-master", SourceHandle: "tx", Target: "fecbus-vport", TargetHandle: "tx"},
 			{ID: "edge-fecbus-vport-slave", Source: "fecbus-vport", SourceHandle: "rx", Target: "fecbus-slave", TargetHandle: "rx"},
-			{ID: "edge-fecbus-slave-tap", Source: "fecbus-slave", SourceHandle: "tx", Target: "fecbus-tap", TargetHandle: "in"},
-			{ID: "edge-fecbus-tap-receiver", Source: "fecbus-tap", SourceHandle: "out", Target: "fecbus-receiver", TargetHandle: "tx"},
+			{ID: "edge-fecbus-slave-receiver", Source: "fecbus-slave", SourceHandle: "tx", Target: "fecbus-receiver", TargetHandle: "tx"},
 		}
 		return demoGraphStressCase{
 			Request: request(nodes, edges),
 			StatusNodes: []string{
-				"main-sender", "main-vport", "main-tap", "main-receiver", "main-monitor",
+				"main-sender", "main-vport", "main-receiver", "main-monitor",
 				"bridge-sender-a", "bridge-vport-a", "bridge-sender-b", "bridge-vport-b", "bridge", "bridge-receiver-a", "bridge-receiver-b",
-				"modbus-master", "modbus-vport", "modbus-slave", "modbus-tap", "modbus-receiver", "modbus-monitor",
-				"fecbus-master", "fecbus-vport", "fecbus-slave", "fecbus-tap", "fecbus-receiver",
+				"modbus-master", "modbus-vport", "modbus-slave", "modbus-receiver", "modbus-monitor",
+				"fecbus-master", "fecbus-vport", "fecbus-slave", "fecbus-receiver",
 			},
 			ByteWorkloads: byteWorkloads(
 				[2]string{"main-sender", "main-receiver"},

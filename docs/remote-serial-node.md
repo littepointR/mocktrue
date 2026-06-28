@@ -39,6 +39,34 @@ ssh -N -L 3001:127.0.0.1:3001 user@serial-gateway.local
 
 With the tunnel above, set `host = 127.0.0.1` and `port = 3001` in PortWeave.
 
+## Built-in examples
+
+PortWeave includes a frontend demo workspace named `remote-serial-demo` / `远端串口演示`. It builds a safe example topology without pre-opening runtime resources:
+
+```text
+serial.sender -> serial.remote -> serial.tap -> serial.receiver
+                                          \-> serial.monitor
+```
+
+The demo uses `host = 127.0.0.1`, `port = 3001`, `protocol = raw-tcp`, `role = client`, and `allowStartDisconnected = true` so it can be opened even before a local ser2net endpoint or SSH tunnel is running.
+
+MCP automation can generate the same shape through the read-only template catalog:
+
+```json
+{
+  "tool": "serial_graph_demo_template",
+  "arguments": {
+    "id": "serial-remote-raw-tcp",
+    "graph_id": "remote-demo",
+    "remote_host": "127.0.0.1",
+    "remote_port": 3001,
+    "allow_start_disconnected": true
+  }
+}
+```
+
+Use the returned `nodes` and `edges` directly with `serial_graph_validate`, then `serial_graph_start`. The template response also includes `serial_graph_status`, `serial_graph_send`, and `serial_graph_query_node_buffer` usage examples. MCP templates do not persist or synthesize frontend UI operation-log state; they cover graph config plus backend runtime buffers/status.
+
 ## PortWeave node configuration
 
 Recommended Phase 1 configuration:

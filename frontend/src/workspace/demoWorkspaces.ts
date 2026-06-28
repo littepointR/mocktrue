@@ -82,6 +82,12 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
     snapshotFactory: createSerialObservabilityDemo,
   },
   {
+    id: 'remote-serial-demo',
+    title: '远端串口演示',
+    description: '展示通过 raw TCP client 连接远端串口服务器，并把远端字节流分发到接收器和监控节点。',
+    snapshotFactory: createRemoteSerialDemo,
+  },
+  {
     id: 'full-workspace-demo',
     title: '完整工作区演示',
     description: '展示设置以及拓扑图中的虚拟串口、桥接、监控、Modbus 和 FECbus 配置。',
@@ -208,6 +214,16 @@ function createSerialObservabilityDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
   const portName = `portweave-demo-observability-${suffix}`
   const graph = serialObservabilityGraphState(suffix, portName)
+
+  return snapshot({
+    graph,
+    workspace: graphWorkspace(graph),
+  })
+}
+
+function createRemoteSerialDemo(): WorkspaceSnapshot {
+  const suffix = nextDemoSuffix()
+  const graph = remoteSerialGraphState(suffix)
 
   return snapshot({
     graph,
@@ -545,6 +561,25 @@ function serialObservabilityGraphState(suffix: string, portName: string): Serial
   ], selectedNodeId)
 }
 
+function remoteSerialGraphState(suffix: string): SerialGraphWorkspaceState {
+  const remoteId = `graph-remote-port-${suffix}`
+  const tapId = `graph-remote-tap-${suffix}`
+  const nodes: SerialGraphNode[] = [
+    graphNode(suffix, 'remote-sender', 'serial.sender', 32, 120, senderConfig(`remote demo ${suffix}\r\n`, 1500)),
+    graphNode(suffix, 'remote-port', 'serial.remote', 280, 120, remoteSerialConfig()),
+    graphNode(suffix, 'remote-tap', 'serial.tap', 528, 120),
+    graphNode(suffix, 'remote-receiver', 'serial.receiver', 776, 32, timestampReceiverConfig('ascii', 'info')),
+    graphNode(suffix, 'remote-monitor', 'serial.monitor', 776, 208, monitorConfig()),
+  ]
+
+  return graphState(suffix, '远端串口演示', nodes, [
+    graphEdge(suffix, 'remote-sender-port', `graph-remote-sender-${suffix}`, 'out', remoteId, 'tx'),
+    graphEdge(suffix, 'remote-port-tap', remoteId, 'rx', tapId, 'in'),
+    graphEdge(suffix, 'remote-tap-receiver', tapId, 'out', `graph-remote-receiver-${suffix}`, 'in'),
+    graphEdge(suffix, 'remote-tap-monitor', tapId, 'out', `graph-remote-monitor-${suffix}`, 'in'),
+  ], remoteId)
+}
+
 function serialOpenGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-open-receiver-${suffix}`
   const nodes = [
@@ -872,6 +907,29 @@ function virtualConfig(portName: string): Record<string, unknown> {
     parity: 'none',
     flowMode: 'none',
     readBufKB: 32,
+  }
+}
+
+function remoteSerialConfig(): Record<string, unknown> {
+  return {
+    protocol: 'raw-tcp',
+    role: 'client',
+    host: '127.0.0.1',
+    port: 3001,
+    connectTimeoutMs: 3000,
+    writeTimeoutMs: 3000,
+    reconnect: true,
+    reconnectIntervalMs: 1000,
+    allowStartDisconnected: true,
+    readBufKB: 32,
+    baudRate: 115200,
+    dataBits: 8,
+    stopBits: '1',
+    parity: 'none',
+    flowMode: 'none',
+    viewMode: 'ascii',
+    autoScroll: true,
+    showTimestamp: true,
   }
 }
 

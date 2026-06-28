@@ -411,9 +411,12 @@ type serialGraphStartArgs struct {
 }
 
 type serialGraphDemoTemplateArgs struct {
-	ID       string `json:"id"`
-	GraphID  string `json:"graph_id,omitempty"`
-	PortName string `json:"port_name,omitempty"`
+	ID                     string `json:"id"`
+	GraphID                string `json:"graph_id,omitempty"`
+	PortName               string `json:"port_name,omitempty"`
+	RemoteHost             string `json:"remote_host,omitempty"`
+	RemotePort             any    `json:"remote_port,omitempty"`
+	AllowStartDisconnected bool   `json:"allow_start_disconnected,omitempty"`
 }
 
 type serialGraphIDArgs struct {
@@ -634,7 +637,8 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 				"compatible_kinds": []string{"bytes", "frame", "registers", "status", "control"},
 				"fan_out":          "Only output ports marked multiple, serial.tap, or serial.tee may feed multiple inputs.",
 				"cycles":           "Directed cycles are rejected.",
-				"resource_owners":  "Nodes that own a port resource must not reuse the same configured port_name.",
+				"resource_owners":  "Nodes that own a local serial resource must not reuse the same configured port_name; serial.remote nodes must not reuse the same normalized raw TCP endpoint in one graph.",
+				"remote_security":  "serial.remote raw TCP has no authentication, authorization, encryption, or serial parameter negotiation; use trusted LAN/VPN/SSH tunnel endpoints only.",
 			},
 		}, nil
 	})
@@ -644,7 +648,10 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 	})
 
 	addReadTool[serialGraphDemoTemplateArgs, map[string]any](server, "serial_graph_demo_template", "Return a read-only serial graph demo template usable with serial_graph_validate and serial_graph_start. This does not query or synthesize frontend UI operation-log state.", func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphDemoTemplateArgs) (*mcp.CallToolResult, map[string]any, error) {
-		template, ok := serialGraphDemoTemplate(args)
+		template, ok, err := serialGraphDemoTemplate(args)
+		if err != nil {
+			return nil, nil, err
+		}
 		if !ok {
 			return nil, nil, errors.New(errors.CodeInvalid, "serial graph demo template not found: "+args.ID)
 		}
@@ -1359,7 +1366,10 @@ func serialGraphProviders() []serialGraphProvider {
 	}
 }
 
-const serialGraphObservabilityTemplateID = "serial-observability-filter-logging"
+const (
+	serialGraphObservabilityTemplateID = "serial-observability-filter-logging"
+	serialGraphRemoteTemplateID        = "serial-remote-raw-tcp"
+)
 
 func serialGraphDemoCatalog() []map[string]any {
 	return []map[string]any{
@@ -1371,13 +1381,31 @@ func serialGraphDemoCatalog() []map[string]any {
 			"node_types":          []string{"serial.sender", "serial.virtual", "serial.tap", "serial.filter", "serial.receiver"},
 			"operation_log_state": "not_in_backend",
 		},
+		{
+			"id":                  serialGraphRemoteTemplateID,
+			"title":               "Remote serial raw TCP",
+			"description":         "sender -> remote raw TCP client -> tap -> receiver/monitor; usable with serial_graph_validate and serial_graph_start.",
+			"tags":                []string{"serial", "remote", "raw-tcp", "mcp"},
+			"node_types":          []string{"serial.sender", "serial.remote", "serial.tap", "serial.receiver", "serial.monitor"},
+			"operation_log_state": "not_in_backend",
+			"security":            "raw TCP has no built-in authentication or encryption; bind gateways to trusted interfaces or wrap with SSH/VPN/TLS outside PortWeave.",
+		},
 	}
 }
 
-func serialGraphDemoTemplate(args serialGraphDemoTemplateArgs) (map[string]any, bool) {
-	if args.ID != serialGraphObservabilityTemplateID {
-		return nil, false
+func serialGraphDemoTemplate(args serialGraphDemoTemplateArgs) (map[string]any, bool, error) {
+	switch args.ID {
+	case serialGraphObservabilityTemplateID:
+		return serialGraphObservabilityDemoTemplate(args), true, nil
+	case serialGraphRemoteTemplateID:
+		template, err := serialGraphRemoteDemoTemplate(args)
+		return template, true, err
+	default:
+		return nil, false, nil
 	}
+}
+
+func serialGraphObservabilityDemoTemplate(args serialGraphDemoTemplateArgs) map[string]any {
 	graphID := strings.TrimSpace(args.GraphID)
 	if graphID == "" {
 		graphID = "serial-observability-mcp-demo"
@@ -1426,7 +1454,87 @@ func serialGraphDemoTemplate(args serialGraphDemoTemplateArgs) (map[string]any, 
 			"query_buffer_example": map[string]any{"tool": "serial_graph_query_node_buffer", "arguments": map[string]any{"graph_id": graphID, "node_id": "receiver-plain", "offset": 0, "length": 256}},
 			"operation_log_state":  "MCP supports graph config/templates plus backend buffers and frames; frontend UI operation-log state is not stored in the backend.",
 		},
-	}, true
+	}
+}
+
+func serialGraphRemoteDemoTemplate(args serialGraphDemoTemplateArgs) (map[string]any, error) {
+	graphID := strings.TrimSpace(args.GraphID)
+	if graphID == "" {
+		graphID = "serial-remote-raw-tcp-mcp-demo"
+	}
+	host := strings.TrimSpace(args.RemoteHost)
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if strings.Contains(host, "://") {
+		return nil, errors.New(errors.CodeInvalid, "remote_host must not include URL scheme")
+	}
+	portValue := args.RemotePort
+	if portValue == nil {
+		portValue = 3001
+	}
+	port, portOK := serialGraphStrictIntConfig(map[string]any{"remote_port": portValue}, "remote_port", 3001)
+	if !portOK {
+		return nil, errors.New(errors.CodeInvalid, "remote_port must be an integer")
+	}
+	if port < 1 || port > 65535 {
+		return nil, errors.New(errors.CodeInvalid, fmt.Sprintf("remote_port out of range: %d", port))
+	}
+
+	remoteConfig := map[string]any{
+		"protocol":               "raw-tcp",
+		"role":                   "client",
+		"host":                   host,
+		"port":                   port,
+		"connectTimeoutMs":       3000,
+		"writeTimeoutMs":         3000,
+		"reconnect":              true,
+		"reconnectIntervalMs":    1000,
+		"allowStartDisconnected": args.AllowStartDisconnected,
+		"readBufKB":              32,
+		"baudRate":               115200,
+		"dataBits":               8,
+		"stopBits":               "1",
+		"parity":                 "none",
+		"flowMode":               "none",
+		"viewMode":               "ascii",
+		"autoScroll":             true,
+		"showTimestamp":          true,
+	}
+	if errs := validateSerialGraphRemoteConfig("remote", remoteConfig); len(errs) > 0 {
+		return nil, errors.New(errors.CodeInvalid, strings.Join(errs, "; "))
+	}
+	nodes := []serialGraphNodeArg{
+		{ID: "sender", Type: "serial.sender", Position: serialGraphPositionArg{X: 20, Y: 120}, Config: map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "remote demo\r\n", "autoSend": true, "intervalMs": 1000}},
+		{ID: "remote", Type: "serial.remote", Position: serialGraphPositionArg{X: 260, Y: 120}, Config: remoteConfig},
+		{ID: "tap", Type: "serial.tap", Position: serialGraphPositionArg{X: 500, Y: 120}, Config: map[string]any{}},
+		{ID: "receiver", Type: "serial.receiver", Position: serialGraphPositionArg{X: 740, Y: 40}, Config: map[string]any{"viewMode": "ascii", "autoScroll": true, "showTimestamp": true}},
+		{ID: "monitor", Type: "serial.monitor", Position: serialGraphPositionArg{X: 740, Y: 200}, Config: map[string]any{"displayMode": "hex"}},
+	}
+	edges := []serialGraphEdgeArg{
+		{ID: "edge-sender-remote", Source: "sender", SourceHandle: "out", Target: "remote", TargetHandle: "tx"},
+		{ID: "edge-remote-tap", Source: "remote", SourceHandle: "rx", Target: "tap", TargetHandle: "in"},
+		{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+		{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+	}
+
+	return map[string]any{
+		"id":          serialGraphRemoteTemplateID,
+		"graph_id":    graphID,
+		"title":       "Remote serial raw TCP",
+		"description": "Read-only MCP template demonstrating a raw TCP client remote serial endpoint, downstream receiver, and monitor branch.",
+		"nodes":       nodes,
+		"edges":       edges,
+		"usage": map[string]any{
+			"validate":             "Call serial_graph_validate with the nodes and edges from this response before starting resources.",
+			"start":                map[string]any{"tool": "serial_graph_start", "arguments": serialGraphStartArgs{ID: graphID, Nodes: nodes, Edges: edges}},
+			"status_example":       map[string]any{"tool": "serial_graph_status", "arguments": map[string]any{"graph_id": graphID}},
+			"send_example":         map[string]any{"tool": "serial_graph_send", "arguments": map[string]any{"graph_id": graphID, "node_id": "sender", "content": "remote demo\r\n", "mode": "ascii"}},
+			"query_buffer_example": map[string]any{"tool": "serial_graph_query_node_buffer", "arguments": map[string]any{"graph_id": graphID, "node_id": "receiver", "offset": 0, "length": 256}},
+			"security":             "raw TCP has no built-in authentication or encryption; expose only on trusted networks or wrap with SSH/VPN/TLS outside PortWeave.",
+			"operation_log_state":  "MCP supports graph config/templates plus backend buffers and frames; frontend UI operation-log state is not stored in the backend.",
+		},
+	}, nil
 }
 
 func validateSerialGraph(graph serialGraphValidateArgs) []string {

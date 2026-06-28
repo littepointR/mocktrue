@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -886,7 +888,15 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		"method":"tools/call",
 		"params":{"name":"serial_graph_provider_catalog","arguments":{}}
 	}`)
-	providers := catalog["structuredContent"].(map[string]any)["providers"].([]any)
+	catalogContent := catalog["structuredContent"].(map[string]any)
+	providers := catalogContent["providers"].([]any)
+	rules := catalogContent["rules"].(map[string]any)
+	if !strings.Contains(fmt.Sprint(rules["resource_owners"]), "serial.remote") || !strings.Contains(fmt.Sprint(rules["resource_owners"]), "raw TCP endpoint") {
+		t.Fatalf("resource owner rules = %#v, want remote endpoint guidance", rules["resource_owners"])
+	}
+	if !strings.Contains(fmt.Sprint(rules["remote_security"]), "raw TCP") || !strings.Contains(fmt.Sprint(rules["remote_security"]), "trusted") {
+		t.Fatalf("remote security rules = %#v, want raw TCP trusted-network guidance", rules["remote_security"])
+	}
 	if len(providers) < 14 {
 		t.Fatalf("provider count = %d, want at least 14", len(providers))
 	}
@@ -1452,6 +1462,56 @@ func TestSerialGraphRuntimeMCPFiltersPassAndDrop(t *testing.T) {
 	}
 }
 
+func TestSerialGraphRemoteTemplateMCPRuntimeRoundTrip(t *testing.T) {
+	tcpServer := newMCPTCPTestServer(t)
+	host, port := tcpServer.hostPort()
+	svc := serial.NewService(nil)
+	handler := mcpHTTPHandler(newMCPServer(svc), true)
+
+	templateResult := callMCPTool(t, handler, 445, "serial_graph_demo_template", map[string]any{
+		"id":          "serial-remote-raw-tcp",
+		"graph_id":    "graph-mcp-remote-template",
+		"remote_host": host,
+		"remote_port": port,
+	})
+	template := templateResult["structuredContent"].(map[string]any)
+	nodes := template["nodes"].([]any)
+	edges := template["edges"].([]any)
+
+	valid := callMCPTool(t, handler, 446, "serial_graph_validate", map[string]any{"nodes": nodes, "edges": edges})
+	if valid["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("remote graph validate result = %#v", valid["structuredContent"])
+	}
+
+	start := callMCPTool(t, handler, 447, "serial_graph_start", map[string]any{"id": template["graph_id"], "nodes": nodes, "edges": edges})
+	if start["structuredContent"].(map[string]any)["graph"].(map[string]any)["ID"] != "graph-mcp-remote-template" {
+		t.Fatalf("remote graph start result = %#v", start["structuredContent"])
+	}
+	defer func() { _ = svc.StopSerialGraph("graph-mcp-remote-template") }()
+
+	conn := tcpServer.waitConn(t)
+	_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Write([]byte("device->mcp")); err != nil {
+		t.Fatalf("TCP server write returned error: %v", err)
+	}
+
+	bufferContent := waitMCPGraphBufferData(t, handler, "graph-mcp-remote-template", "receiver", "device->mcp")
+	if bufferContent["hex"] != "6465766963652d3e6d6370" {
+		t.Fatalf("remote receiver buffer = %#v", bufferContent)
+	}
+
+	callMCPTool(t, handler, 448, "serial_graph_send", map[string]any{"graph_id": "graph-mcp-remote-template", "node_id": "sender", "content": "mcp->device", "mode": "ascii"})
+	if got := tcpServer.waitReceivedText(t, "mcp->device"); got != "mcp->device" {
+		t.Fatalf("TCP server received = %q, want MCP send payload", got)
+	}
+
+	status := callMCPTool(t, handler, 449, "serial_graph_status", map[string]any{"graph_id": "graph-mcp-remote-template"})
+	graph := status["structuredContent"].(map[string]any)["graph"].(map[string]any)
+	if graph["ID"] != "graph-mcp-remote-template" {
+		t.Fatalf("remote graph status = %#v", graph)
+	}
+}
+
 func TestSerialGraphDemoTemplateToolsReturnValidFilterLoggingGraph(t *testing.T) {
 	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
 
@@ -1522,6 +1582,121 @@ func TestSerialGraphDemoTemplateToolsReturnValidFilterLoggingGraph(t *testing.T)
 	valid := callMCPTool(t, handler, 452, "serial_graph_validate", map[string]any{"nodes": nodes, "edges": edges})
 	if valid["structuredContent"].(map[string]any)["valid"] != true {
 		t.Fatalf("template validate result = %#v", valid["structuredContent"])
+	}
+}
+
+func TestSerialGraphDemoTemplateToolsReturnValidRemoteRawTCPGraph(t *testing.T) {
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	catalog := callMCPTool(t, handler, 452, "serial_graph_demo_catalog", map[string]any{})
+	templates := catalog["structuredContent"].(map[string]any)["templates"].([]any)
+	var remoteTemplate map[string]any
+	for _, raw := range templates {
+		template := raw.(map[string]any)
+		if template["id"] == "serial-remote-raw-tcp" {
+			remoteTemplate = template
+			break
+		}
+	}
+	if remoteTemplate == nil {
+		t.Fatalf("serial_graph_demo_catalog templates = %#v, want serial-remote-raw-tcp", templates)
+	}
+	if remoteTemplate["security"] == nil || remoteTemplate["operation_log_state"] != "not_in_backend" {
+		t.Fatalf("remote template metadata = %#v, want security and backend limitation documented", remoteTemplate)
+	}
+
+	templateResult := callMCPTool(t, handler, 453, "serial_graph_demo_template", map[string]any{
+		"id":                       "serial-remote-raw-tcp",
+		"graph_id":                 "graph-remote-template",
+		"remote_host":              "serial-gateway.local",
+		"remote_port":              3002,
+		"allow_start_disconnected": true,
+	})
+	template := templateResult["structuredContent"].(map[string]any)
+	if template["id"] != "serial-remote-raw-tcp" || template["usage"] == nil {
+		t.Fatalf("remote template content = %#v, want id and usage", template)
+	}
+
+	nodes := template["nodes"].([]any)
+	edges := template["edges"].([]any)
+	if len(nodes) != 5 || len(edges) != 4 {
+		t.Fatalf("remote template nodes/edges = %d/%d, want sender -> remote -> tap -> receiver/monitor", len(nodes), len(edges))
+	}
+
+	var sawRemote, sawSender, sawReceiver, sawMonitor bool
+	for _, raw := range nodes {
+		node := raw.(map[string]any)
+		config, _ := node["config"].(map[string]any)
+		switch node["type"] {
+		case "serial.sender":
+			sawSender = config["autoSend"] == true && strings.Contains(fmt.Sprint(config["payload"]), "remote")
+		case "serial.remote":
+			sawRemote = config["protocol"] == "raw-tcp" &&
+				config["role"] == "client" &&
+				config["host"] == "serial-gateway.local" &&
+				config["port"] == float64(3002) &&
+				config["allowStartDisconnected"] == true &&
+				config["mode"] == nil
+		case "serial.receiver":
+			sawReceiver = config["showTimestamp"] == true
+		case "serial.monitor":
+			sawMonitor = config["displayMode"] == "hex"
+		}
+	}
+	if !sawSender || !sawRemote || !sawReceiver || !sawMonitor {
+		t.Fatalf("remote template nodes = %#v", nodes)
+	}
+
+	validate := callMCPTool(t, handler, 454, "serial_graph_validate", map[string]any{"nodes": nodes, "edges": edges})
+	if validate["structuredContent"].(map[string]any)["valid"] != true {
+		t.Fatalf("remote template validate = %#v", validate["structuredContent"])
+	}
+
+	usage := template["usage"].(map[string]any)
+	for _, key := range []string{"validate", "start", "status_example", "send_example", "query_buffer_example", "security"} {
+		if usage[key] == nil {
+			t.Fatalf("remote template usage missing %s: %#v", key, usage)
+		}
+	}
+
+	stringPortResult := callMCPTool(t, handler, 455, "serial_graph_demo_template", map[string]any{
+		"id":          "serial-remote-raw-tcp",
+		"graph_id":    "graph-remote-template-string-port",
+		"remote_host": "127.0.0.1",
+		"remote_port": "3003",
+	})
+	stringPortNodes := stringPortResult["structuredContent"].(map[string]any)["nodes"].([]any)
+	var sawStringPort bool
+	for _, raw := range stringPortNodes {
+		node := raw.(map[string]any)
+		if node["type"] != "serial.remote" {
+			continue
+		}
+		config := node["config"].(map[string]any)
+		sawStringPort = config["port"] == float64(3003)
+	}
+	if !sawStringPort {
+		t.Fatalf("string remote_port template nodes = %#v, want parsed port 3003", stringPortNodes)
+	}
+}
+
+func TestSerialGraphDemoTemplateRejectsInvalidRemoteArgs(t *testing.T) {
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	for i, tc := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{name: "schemed host", args: map[string]any{"id": "serial-remote-raw-tcp", "remote_host": "tcp://127.0.0.1"}, want: "host must not include URL scheme"},
+		{name: "bad port", args: map[string]any{"id": "serial-remote-raw-tcp", "remote_host": "127.0.0.1", "remote_port": 70000}, want: "port out of range"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := callMCPToolAllowError(t, handler, 470+i, "serial_graph_demo_template", tc.args)
+			if result["isError"] != true || !strings.Contains(fmt.Sprint(result), tc.want) {
+				t.Fatalf("result = %#v, want error containing %q", result, tc.want)
+			}
+		})
 	}
 }
 
@@ -2056,6 +2231,113 @@ func freeTCPPort(t *testing.T) int {
 	}
 	defer func() { _ = listener.Close() }()
 	return listener.Addr().(*net.TCPAddr).Port
+}
+
+type mcpTCPTestServer struct {
+	listener net.Listener
+	accepted chan net.Conn
+	received chan []byte
+	mu       sync.Mutex
+	conns    []net.Conn
+}
+
+func newMCPTCPTestServer(t *testing.T) *mcpTCPTestServer {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen returned error: %v", err)
+	}
+	server := &mcpTCPTestServer{
+		listener: listener,
+		accepted: make(chan net.Conn, 4),
+		received: make(chan []byte, 16),
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		server.mu.Lock()
+		defer server.mu.Unlock()
+		for _, conn := range server.conns {
+			_ = conn.Close()
+		}
+	})
+	go server.acceptLoop()
+	return server
+}
+
+func (s *mcpTCPTestServer) hostPort() (string, int) {
+	addr := s.listener.Addr().(*net.TCPAddr)
+	return addr.IP.String(), addr.Port
+}
+
+func (s *mcpTCPTestServer) acceptLoop() {
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			return
+		}
+		s.mu.Lock()
+		s.conns = append(s.conns, conn)
+		s.mu.Unlock()
+		s.accepted <- conn
+		go s.readLoop(conn)
+	}
+}
+
+func (s *mcpTCPTestServer) readLoop(conn net.Conn) {
+	buf := make([]byte, 1024)
+	for {
+		n, err := conn.Read(buf)
+		if n > 0 {
+			data := append([]byte(nil), buf[:n]...)
+			s.received <- data
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (s *mcpTCPTestServer) waitConn(t *testing.T) net.Conn {
+	t.Helper()
+	select {
+	case conn := <-s.accepted:
+		return conn
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for TCP connection")
+		return nil
+	}
+}
+
+func (s *mcpTCPTestServer) waitReceivedText(t *testing.T, want string) string {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case data := <-s.received:
+			got := string(data)
+			if got == want {
+				return got
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for TCP payload %q", want)
+			return ""
+		}
+	}
+}
+
+func waitMCPGraphBufferData(t *testing.T, handler http.Handler, graphID, nodeID, want string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		bufferPage := callMCPTool(t, handler, 455, "serial_graph_query_node_buffer", map[string]any{"graph_id": graphID, "node_id": nodeID, "offset": 0, "length": 256})
+		content := bufferPage["structuredContent"].(map[string]any)
+		if content["data"] == want {
+			return content
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	bufferPage := callMCPTool(t, handler, 456, "serial_graph_query_node_buffer", map[string]any{"graph_id": graphID, "node_id": nodeID, "offset": 0, "length": 256})
+	return bufferPage["structuredContent"].(map[string]any)
 }
 
 func waitForHTTPReachable(t *testing.T, url string) {

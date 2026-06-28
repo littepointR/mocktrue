@@ -290,9 +290,9 @@ describe('workspace session snapshot', () => {
     const monitorGraph = useSerialGraphStore().activeGraph
     expect(monitorGraph?.name).toBe('串口监控演示')
     expect(monitorGraph?.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
-      'serial.tap',
       'serial.monitor',
     ]))
+    expect(monitorGraph?.nodes.map(node => node.type)).not.toContain('serial.tap')
     expect(monitorGraph?.nodes.map(node => node.type)).not.toContain('serial.bridge')
 
     await restoreWorkspaceSnapshot(bridgeSnapshot!)

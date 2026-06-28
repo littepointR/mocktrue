@@ -8,32 +8,29 @@ const expectedDemoNodeTypes: Record<string, string[]> = {
   'serial-open-demo': ['serial.script.generator', 'serial.virtual'],
   'virtual-port-demo': ['serial.script.generator', 'serial.virtual'],
   'bridge-demo': ['serial.script.generator', 'serial.virtual', 'serial.bridge', 'serial.monitor'],
-  'monitor-demo': ['serial.script.generator', 'serial.virtual', 'serial.tap', 'serial.monitor'],
+  'monitor-demo': ['serial.script.generator', 'serial.virtual', 'serial.monitor'],
   'script-transform-demo': [
     'serial.script.generator',
     'serial.virtual',
     'serial.script.transform',
-    'serial.tap',
     'serial.monitor',
   ],
   'script-analyzer-demo': [
     'serial.script.generator',
     'serial.virtual',
-    'serial.tap',
     'serial.monitor',
     'serial.script.analyzer',
   ],
-  'modbus-demo': ['serial.virtual', 'serial.modbus.master', 'serial.modbus.slave', 'serial.tap', 'serial.monitor'],
-  'fecbus-demo': ['serial.virtual', 'serial.fecbus.master', 'serial.fecbus.slave', 'serial.tap', 'serial.monitor'],
-  'serial-graph-demo': ['serial.script.generator', 'serial.virtual', 'serial.tap', 'serial.modbus.master', 'serial.monitor'],
-  'serial-observability-demo': ['serial.script.generator', 'serial.virtual', 'serial.tap', 'serial.filter', 'serial.monitor'],
-  'remote-serial-demo': ['serial.script.generator', 'serial.remote', 'serial.tap', 'serial.monitor'],
+  'modbus-demo': ['serial.virtual', 'serial.modbus.master', 'serial.modbus.slave', 'serial.monitor'],
+  'fecbus-demo': ['serial.virtual', 'serial.fecbus.master', 'serial.fecbus.slave', 'serial.monitor'],
+  'serial-graph-demo': ['serial.script.generator', 'serial.virtual', 'serial.modbus.master', 'serial.monitor'],
+  'serial-observability-demo': ['serial.script.generator', 'serial.virtual', 'serial.filter', 'serial.monitor'],
+  'remote-serial-demo': ['serial.script.generator', 'serial.remote', 'serial.monitor'],
   'full-workspace-demo': [
     'serial.script.generator',
     'serial.virtual',
     'serial.bridge',
     'serial.monitor',
-    'serial.tap',
     'serial.filter',
     'serial.script.transform',
     'serial.script.analyzer',
@@ -119,15 +116,15 @@ describe('demoWorkspaces', () => {
     expect(graph.nodes.map(node => node.type)).toEqual(expect.arrayContaining([
       'serial.script.generator',
       'serial.virtual',
-      'serial.tap',
       'serial.modbus.master',
       'serial.monitor',
     ]))
     const providerTypes = new Set(serialGraphProviders.map(provider => provider.type))
     expect(graph.nodes.every(node => providerTypes.has(node.type))).toBe(true)
+    expect(graph.nodes.map(node => node.type)).not.toContain('serial.tap')
+    expect(graph.nodes.map(node => node.type)).not.toContain('serial.tee')
     const generator = graph.nodes.find(node => node.type === 'serial.script.generator')
     const virtualPort = graph.nodes.find(node => node.type === 'serial.virtual')
-    const tap = graph.nodes.find(node => node.type === 'serial.tap')
     const monitor = graph.nodes.find(node => node.type === 'serial.monitor')
     expect(generator?.config).toEqual(expect.objectContaining({
       autoRun: true,
@@ -145,14 +142,14 @@ describe('demoWorkspaces', () => {
       expect.objectContaining({
         source: virtualPort?.id,
         sourceHandle: 'rx',
-        target: tap?.id,
+        target: monitor?.id,
         targetHandle: 'in',
       }),
       expect.objectContaining({
-        source: tap?.id,
-        sourceHandle: 'out',
-        target: monitor?.id,
-        targetHandle: 'in',
+        source: virtualPort?.id,
+        sourceHandle: 'rx',
+        target: expect.stringContaining('modbus'),
+        targetHandle: 'rx',
       }),
     ]))
     expect(graph.selectedNodeId).toBe(virtualPort?.id)
@@ -183,7 +180,6 @@ describe('demoWorkspaces', () => {
 
     const generator = graph.nodes.find(node => node.type === 'serial.script.generator')
     const virtualPort = graph.nodes.find(node => node.type === 'serial.virtual')
-    const tap = graph.nodes.find(node => node.type === 'serial.tap')
     const filters = graph.nodes.filter(node => node.type === 'serial.filter')
     const monitors = graph.nodes.filter(node => node.type === 'serial.monitor')
 
@@ -228,7 +224,7 @@ describe('demoWorkspaces', () => {
       expect.objectContaining({
         source: virtualPort?.id,
         sourceHandle: 'rx',
-        target: tap?.id,
+        target: filters[0]?.id,
         targetHandle: 'in',
       }),
     ]))
@@ -241,8 +237,8 @@ describe('demoWorkspaces', () => {
       ))
       expect(graph.edges, `${filter.id} input`).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          source: tap?.id,
-          sourceHandle: 'out',
+          source: virtualPort?.id,
+          sourceHandle: 'rx',
           target: filter.id,
           targetHandle: 'in',
         }),
@@ -295,10 +291,8 @@ describe('demoWorkspaces', () => {
 
     expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: clientGenerator?.id, sourceHandle: 'out', target: client?.id, targetHandle: 'tx' }),
-      expect.objectContaining({ source: server?.id, sourceHandle: 'rx', target: expect.stringContaining('remote-server-tap'), targetHandle: 'in' }),
-      expect.objectContaining({ source: expect.stringContaining('remote-server-tap'), sourceHandle: 'out', target: serverMonitor?.id, targetHandle: 'in' }),
-      expect.objectContaining({ source: client?.id, sourceHandle: 'rx', target: expect.stringContaining('remote-client-tap'), targetHandle: 'in' }),
-      expect.objectContaining({ source: expect.stringContaining('remote-client-tap'), sourceHandle: 'out', target: clientMonitor?.id, targetHandle: 'in' }),
+      expect.objectContaining({ source: server?.id, sourceHandle: 'rx', target: serverMonitor?.id, targetHandle: 'in' }),
+      expect.objectContaining({ source: client?.id, sourceHandle: 'rx', target: clientMonitor?.id, targetHandle: 'in' }),
     ]))
     expect(graph.selectedNodeId).toBe(server?.id)
   })
@@ -355,6 +349,8 @@ describe('demoWorkspaces', () => {
       const nodeTypes = graph.nodes.map(node => node.type)
 
       expect(nodeTypes, demo.id).toEqual(expect.arrayContaining(expectedDemoNodeTypes[demo.id]))
+      expect(nodeTypes, demo.id).not.toContain('serial.tap')
+      expect(nodeTypes, demo.id).not.toContain('serial.tee')
       expect(graph.nodes.every(node => providerTypes.has(node.type)), demo.id).toBe(true)
       expect(validateGraph(graph).errors, demo.id).toEqual([])
       expect(graph.nodeTabs.map(tab => tab.nodeId), demo.id).toEqual(graph.nodes.map(node => node.id))
@@ -611,9 +607,6 @@ function isObservableInput(nodeType: string, inputHandle: string): boolean {
 function outputsAfterInput(nodeType: string, inputHandle: string): string[] {
   if (nodeType === 'serial.virtual' && inputHandle === 'tx') {
     return ['rx']
-  }
-  if ((nodeType === 'serial.tap' || nodeType === 'serial.tee') && inputHandle === 'in') {
-    return ['out']
   }
   if (nodeType === 'serial.remote' && inputHandle === 'tx') {
     return ['rx']

@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -897,8 +896,8 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 	if !strings.Contains(fmt.Sprint(rules["remote_security"]), "raw TCP") || !strings.Contains(fmt.Sprint(rules["remote_security"]), "trusted") {
 		t.Fatalf("remote security rules = %#v, want raw TCP trusted-network guidance", rules["remote_security"])
 	}
-	if len(providers) < 14 {
-		t.Fatalf("provider count = %d, want at least 14", len(providers))
+	if len(providers) < 12 {
+		t.Fatalf("provider count = %d, want at least 12", len(providers))
 	}
 	providerTypes := make(map[string]bool, len(providers))
 	providerSpecs := make(map[string]map[string]any, len(providers))
@@ -920,7 +919,6 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 		"serial.physical",
 		"serial.virtual",
 		"serial.filter",
-		"serial.tap",
 		"serial.remote",
 		"serial.modbus.master",
 		"serial.fecbus.slave",
@@ -932,7 +930,7 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 			t.Fatalf("catalog missing %s in %#v", want, providerTypes)
 		}
 	}
-	for _, removed := range []string{"serial.sender", "serial.receiver"} {
+	for _, removed := range []string{"serial.sender", "serial.receiver", "serial.tap", "serial.tee"} {
 		if providerTypes[removed] {
 			t.Fatalf("catalog unexpectedly exposes removed provider %s", removed)
 		}
@@ -1541,8 +1539,8 @@ func TestSerialGraphDemoTemplateToolsReturnValidFilterLoggingGraph(t *testing.T)
 	}
 	nodes := template["nodes"].([]any)
 	edges := template["edges"].([]any)
-	if len(nodes) != 9 || len(edges) != 8 {
-		t.Fatalf("template nodes/edges = %d/%d, want generator -> virtual -> tap -> filters -> monitors graph", len(nodes), len(edges))
+	if len(nodes) != 8 || len(edges) != 7 {
+		t.Fatalf("template nodes/edges = %d/%d, want generator -> virtual -> filters -> monitors graph", len(nodes), len(edges))
 	}
 
 	configsByID := make(map[string]map[string]any, len(nodes))
@@ -1612,7 +1610,7 @@ func TestSerialGraphDemoTemplateToolsReturnValidRemoteRawTCPGraph(t *testing.T) 
 
 	nodes := template["nodes"].([]any)
 	edges := template["edges"].([]any)
-	if len(nodes) != 7 || len(edges) != 5 {
+	if len(nodes) != 5 || len(edges) != 3 {
 		t.Fatalf("remote template nodes/edges = %d/%d, want in-graph server/client loopback with endpoint buffers", len(nodes), len(edges))
 	}
 
@@ -1655,10 +1653,10 @@ func TestSerialGraphDemoTemplateToolsReturnValidRemoteRawTCPGraph(t *testing.T) 
 		switch edge["id"] {
 		case "edge-client-generator-remote":
 			sawClientToServer = edge["source"] == "client-generator" && edge["target"] == "b-remote-client"
-		case "edge-server-tap-monitor":
-			sawServerMonitorEdge = edge["source"] == "server-tap" && edge["target"] == "server-monitor"
-		case "edge-client-tap-monitor":
-			sawClientMonitorEdge = edge["source"] == "client-tap" && edge["target"] == "client-monitor"
+		case "edge-server-remote-monitor":
+			sawServerMonitorEdge = edge["source"] == "a-remote-server" && edge["target"] == "server-monitor"
+		case "edge-client-remote-monitor":
+			sawClientMonitorEdge = edge["source"] == "b-remote-client" && edge["target"] == "client-monitor"
 		}
 	}
 	if !sawClientToServer || !sawServerMonitorEdge || !sawClientMonitorEdge {
@@ -1747,21 +1745,6 @@ func TestSerialGraphValidateRejectsInvalidTopologyRules(t *testing.T) {
 			wantError: "output port not found",
 		},
 		{
-			name: "non tap fan out",
-			arguments: `{
-				"nodes":[
-					{"id":"source","type":"serial.virtual","position":{"x":0,"y":0},"config":{}},
-					{"id":"rx-a","type":"serial.virtual","position":{"x":260,"y":0},"config":{}},
-					{"id":"rx-b","type":"serial.virtual","position":{"x":260,"y":120},"config":{}}
-				],
-				"edges":[
-					{"id":"edge-1","source":"source","source_handle":"rx","target":"rx-a","target_handle":"tx"},
-					{"id":"edge-2","source":"source","source_handle":"rx","target":"rx-b","target_handle":"tx"}
-				]
-			}`,
-			wantError: "fan-out requires a tap node",
-		},
-		{
 			name: "duplicate resource owner port",
 			arguments: `{
 				"nodes":[
@@ -1793,6 +1776,32 @@ func TestSerialGraphValidateRejectsInvalidTopologyRules(t *testing.T) {
 				t.Fatalf("errors = %q, want %q", joined, tc.wantError)
 			}
 		})
+	}
+}
+
+func TestSerialGraphValidateAllowsDirectFanOut(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	result := callMCP(t, handler, `{
+		"jsonrpc":"2.0",
+		"id":44,
+		"method":"tools/call",
+		"params":{"name":"serial_graph_validate","arguments":{
+			"nodes":[
+				{"id":"source","type":"serial.virtual","position":{"x":0,"y":0},"config":{}},
+				{"id":"rx-a","type":"serial.virtual","position":{"x":260,"y":0},"config":{}},
+				{"id":"rx-b","type":"serial.virtual","position":{"x":260,"y":120},"config":{}}
+			],
+			"edges":[
+				{"id":"edge-1","source":"source","source_handle":"rx","target":"rx-a","target_handle":"tx"},
+				{"id":"edge-2","source":"source","source_handle":"rx","target":"rx-b","target_handle":"tx"}
+			]
+		}}
+	}`)
+	content := result["structuredContent"].(map[string]any)
+	if content["valid"] != true {
+		t.Fatalf("direct fan-out validation = %#v, want valid", content)
 	}
 }
 
@@ -2249,98 +2258,6 @@ func freeTCPPort(t *testing.T) int {
 	}
 	defer func() { _ = listener.Close() }()
 	return listener.Addr().(*net.TCPAddr).Port
-}
-
-type mcpTCPTestServer struct {
-	listener net.Listener
-	accepted chan net.Conn
-	received chan []byte
-	mu       sync.Mutex
-	conns    []net.Conn
-}
-
-func newMCPTCPTestServer(t *testing.T) *mcpTCPTestServer {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen returned error: %v", err)
-	}
-	server := &mcpTCPTestServer{
-		listener: listener,
-		accepted: make(chan net.Conn, 4),
-		received: make(chan []byte, 16),
-	}
-	t.Cleanup(func() {
-		_ = listener.Close()
-		server.mu.Lock()
-		defer server.mu.Unlock()
-		for _, conn := range server.conns {
-			_ = conn.Close()
-		}
-	})
-	go server.acceptLoop()
-	return server
-}
-
-func (s *mcpTCPTestServer) hostPort() (string, int) {
-	addr := s.listener.Addr().(*net.TCPAddr)
-	return addr.IP.String(), addr.Port
-}
-
-func (s *mcpTCPTestServer) acceptLoop() {
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			return
-		}
-		s.mu.Lock()
-		s.conns = append(s.conns, conn)
-		s.mu.Unlock()
-		s.accepted <- conn
-		go s.readLoop(conn)
-	}
-}
-
-func (s *mcpTCPTestServer) readLoop(conn net.Conn) {
-	buf := make([]byte, 1024)
-	for {
-		n, err := conn.Read(buf)
-		if n > 0 {
-			data := append([]byte(nil), buf[:n]...)
-			s.received <- data
-		}
-		if err != nil {
-			return
-		}
-	}
-}
-
-func (s *mcpTCPTestServer) waitConn(t *testing.T) net.Conn {
-	t.Helper()
-	select {
-	case conn := <-s.accepted:
-		return conn
-	case <-time.After(2 * time.Second):
-		t.Fatalf("timed out waiting for TCP connection")
-		return nil
-	}
-}
-
-func (s *mcpTCPTestServer) waitReceivedText(t *testing.T, want string) string {
-	t.Helper()
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case data := <-s.received:
-			got := string(data)
-			if got == want {
-				return got
-			}
-		case <-deadline:
-			t.Fatalf("timed out waiting for TCP payload %q", want)
-			return ""
-		}
-	}
 }
 
 func waitMCPGraphBufferData(t *testing.T, handler http.Handler, graphID, nodeID, want string) map[string]any {

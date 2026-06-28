@@ -196,24 +196,6 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     defaultConfig: { mode: 'plain', expression: '', caseSensitive: false, wholeWord: false },
   },
   {
-    type: 'serial.tap',
-    title: '分流器',
-    category: '工具',
-    description: '允许一路字节流分发到多个下游节点。',
-    inputs: [bytesIn],
-    outputs: [{ ...bytesOut, multiple: true }],
-    defaultConfig: {},
-  },
-  {
-    type: 'serial.tee',
-    title: 'T 型分支',
-    category: '工具',
-    description: '分流器的别名，用于表达串联链路中的并联分支。',
-    inputs: [bytesIn],
-    outputs: [{ ...bytesOut, multiple: true }],
-    defaultConfig: {},
-  },
-  {
     type: 'serial.script.transform',
     title: '脚本转换',
     category: '脚本',
@@ -426,13 +408,6 @@ export function canConnect(
     edge.target === draft.target && edge.targetHandle === draft.targetHandle
   ))) {
     errors.push(`input already connected: ${targetNode.id}.${targetPort.id}`)
-  }
-
-  const fanOutAllowed = sourcePort.multiple || sourceProvider.type === 'serial.tap' || sourceProvider.type === 'serial.tee'
-  if (!fanOutAllowed && otherEdges.some(edge => (
-    edge.source === draft.source && edge.sourceHandle === draft.sourceHandle
-  ))) {
-    errors.push(`fan-out requires a tap node: ${sourceNode.id}.${sourcePort.id}`)
   }
 
   if (wouldCreateDirectedCycle(state, draft, otherEdges)) {

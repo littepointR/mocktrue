@@ -46,8 +46,8 @@ PortWeave includes a frontend demo workspace named `remote-serial-demo` / `è¿œç«
 
 ```text
 serial.script.generator -> serial.remote(client)
-serial.remote(server).rx -> serial.tap -> serial.monitor
-serial.remote(client).rx -> serial.tap -> serial.monitor
+serial.remote(server).rx -> serial.monitor
+serial.remote(client).rx -> serial.monitor
 ```
 
 The demo starts a graph-owned raw TCP server and client on `host = 127.0.0.1`, `port = 3001`, `protocol = raw-tcp`. It does not require an external ser2net endpoint or a process outside PortWeave; the client generator sends startup traffic into the client endpoint, and both remote endpoint buffers plus monitor branches can be inspected.
@@ -121,14 +121,14 @@ serial.script.generator -> serial.remote.tx
 serial.remote.rx -> serial.monitor
 ```
 
-For inspection and fan-out, add a tap downstream from `rx`; endpoint buffers are also queryable directly:
+For inspection and fan-out, connect the `rx` output directly to multiple downstream inputs; endpoint buffers are also queryable directly:
 
 ```text
-serial.remote.rx -> serial.tap -> serial.monitor
-                         \-> serial.monitor
+serial.remote.rx -> serial.monitor
+                 \-> serial.monitor
 ```
 
-For protocol flows, connect protocol-node transmit output into `serial.remote.tx`, then route `serial.remote.rx` back to the protocol receive input or to a tap that fans out to protocol + monitor nodes. Keep the graph acyclic by using the existing protocol response-cycle pattern rather than drawing a direct cycle.
+For protocol flows, connect protocol-node transmit output into `serial.remote.tx`, then route `serial.remote.rx` directly to the protocol receive input and any monitor nodes that need the same bytes. Keep the graph acyclic by using the existing protocol response-cycle pattern rather than drawing a direct cycle.
 
 ## Validation and resource identity
 
@@ -185,9 +185,9 @@ This is deliberately different from physical/virtual serial nodes, which use `po
 
 ### No data appears in the endpoint buffer
 
-- Confirm the graph connects `serial.remote.rx` to a receiver, tap, monitor, or protocol receive input.
+- Confirm the graph connects `serial.remote.rx` to a monitor or protocol receive input.
 - Confirm the remote device is actually transmitting bytes after TCP connection.
-- Use a monitor/tap branch to inspect raw bytes before protocol parsers.
+- Use a monitor branch to inspect raw bytes before protocol parsers.
 
 ### Baud rate or parity changes do not affect the device
 

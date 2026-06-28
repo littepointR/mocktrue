@@ -1008,9 +1008,6 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) error 
 		r.handleScriptTransform(node, data)
 	case "serial.script.analyzer":
 		r.handleScriptAnalyzer(node, data)
-	case "serial.tap", "serial.tee":
-		node.addTx(len(data))
-		return r.emit(serialGraphPortRef{nodeID: ref.nodeID, handle: "out"}, data)
 	case "serial.bridge":
 		switch ref.handle {
 		case "a-in":
@@ -2385,15 +2382,6 @@ func validateGraphRuntimeEdge(
 			}
 		}
 	}
-	fanOutAllowed := sourcePort.Multiple || sourceProvider.Type == "serial.tap" || sourceProvider.Type == "serial.tee"
-	if !fanOutAllowed {
-		for _, other := range otherEdges {
-			if other.Source == edge.Source && other.SourceHandle == edge.SourceHandle {
-				errs = append(errs, edge.ID+": fan-out requires a tap node: "+sourceNode.ID+"."+sourcePort.ID)
-				break
-			}
-		}
-	}
 	if !graphRuntimeEdgeTargetsTerminalProtocolInput(nodes, edge) && graphRuntimeCreatesCycle(edge, otherEdges, nodes) {
 		errs = append(errs, edge.ID+": directed cycle not allowed")
 	}
@@ -2410,8 +2398,6 @@ func serialGraphRuntimeProviders() []serialGraphProviderSpec {
 		{Type: "serial.bridge", Inputs: []serialGraphPortSpec{{ID: "a-in", Kind: "bytes", Direction: "input"}, {ID: "b-in", Kind: "bytes", Direction: "input"}}, Outputs: []serialGraphPortSpec{{ID: "a-out", Kind: "bytes", Direction: "output"}, {ID: "b-out", Kind: "bytes", Direction: "output"}}},
 		{Type: "serial.monitor", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{}},
 		{Type: "serial.filter", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{bytesOut}},
-		{Type: "serial.tap", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
-		{Type: "serial.tee", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
 		{Type: "serial.script.transform", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{bytesOut}},
 		{Type: "serial.script.generator", Outputs: []serialGraphPortSpec{bytesOut}},
 		{Type: "serial.script.analyzer", Inputs: []serialGraphPortSpec{bytesIn}},

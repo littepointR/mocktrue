@@ -936,11 +936,9 @@ describe('serial graph store', () => {
   it('logs filter traversal through intermediate nodes and log template edge cases', async () => {
     const store = useSerialGraphStore()
     const sender = addVirtual(store)
-    const tap = store.addNode('serial.tap')
     const filter = store.addNode('serial.filter')
     const receiver = addVirtual(store)
-    store.connect(sender.id, 'rx', tap.id, 'in')
-    store.connect(tap.id, 'out', filter.id, 'in')
+    store.connect(sender.id, 'rx', filter.id, 'in')
     store.connect(filter.id, 'out', receiver.id, 'tx')
     store.updateNodeConfig(sender.id, { enableLogging: true, logFormat: 'bad }' })
     store.updateNodeConfig(filter.id, { mode: 'plain', expression: 'ok' })

@@ -11,10 +11,22 @@ vi.mock('naive-ui', () => ({
   NFormItem: { props: ['label'], template: '<label><span>{{ label }}</span><slot /></label>' },
   NInputGroup: { template: '<div><slot /></div>' },
   NSelect: {
-    props: ['value', 'options'],
+    props: {
+      value: null,
+      options: { type: Array, default: () => [] },
+      filterable: Boolean,
+      virtualScroll: { type: Boolean, default: true },
+      placeholder: String,
+    },
     emits: ['update:value'],
     template: `
-      <select :value="value" @change="$emit('update:value', $event.target.value)">
+      <select
+        :value="value"
+        :data-filterable="filterable ? 'true' : 'false'"
+        :data-virtual-scroll="virtualScroll === false ? 'false' : 'true'"
+        :data-placeholder="placeholder || ''"
+        @change="$emit('update:value', $event.target.value)"
+      >
         <option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option>
       </select>
     `,
@@ -70,6 +82,17 @@ describe('GlobalSettingsPanel global settings and examples', () => {
 
     await exampleSelect.setValue('fecbus-demo')
     expect(workspace.selectedDemoId).toBe('fecbus-demo')
+  })
+
+  it('makes the remote serial demo discoverable in the settings example picker', () => {
+    const wrapper = mount(GlobalSettingsPanel)
+    const exampleSelect = wrapper.findAll('select')[1]
+    const options = exampleSelect.findAll('option')
+
+    expect(options.some(option => option.attributes('value') === 'remote-serial-demo' && option.text() === '远端串口演示')).toBe(true)
+    expect(exampleSelect.attributes('data-filterable')).toBe('true')
+    expect(exampleSelect.attributes('data-virtual-scroll')).toBe('false')
+    expect(exampleSelect.attributes('data-placeholder')).toContain('搜索')
   })
 
   it('keeps the selected example after switching away from settings', async () => {

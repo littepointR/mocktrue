@@ -69,6 +69,9 @@ async function loadExampleWorkspace() {
             class="settings-panel__demo-select"
             :value="selectedExampleId"
             :options="exampleOptions"
+            filterable
+            :virtual-scroll="false"
+            placeholder="搜索或选择示例"
             @update:value="updateSelectedExample"
           />
           <NButton

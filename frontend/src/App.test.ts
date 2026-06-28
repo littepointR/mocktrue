@@ -134,7 +134,7 @@ describe('App settings effects', () => {
     })
     await flushPromises()
 
-    useSerialGraphStore().addNode('serial.sender')
+    useSerialGraphStore().addNode('serial.virtual')
     await wrapper.vm.$nextTick()
 
     const status = wrapper.findComponent({ name: 'StatusBar' })

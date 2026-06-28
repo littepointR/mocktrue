@@ -689,7 +689,7 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 		return nil, map[string]any{"graph": info}, nil
 	})
 
-	addWriteTool[serialGraphSendArgs, map[string]any](server, "serial_graph_send", "Send data through a graph sender or protocol node.", false, func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphSendArgs) (*mcp.CallToolResult, map[string]any, error) {
+	addWriteTool[serialGraphSendArgs, map[string]any](server, "serial_graph_send", "Send data through a writable graph endpoint or protocol node.", false, func(ctx context.Context, req *mcp.CallToolRequest, args serialGraphSendArgs) (*mcp.CallToolResult, map[string]any, error) {
 		written, err := serialService.SendSerialGraphNode(serial.SerialGraphSendRequest{
 			GraphID:  args.GraphID,
 			NodeID:   args.NodeID,
@@ -1174,22 +1174,7 @@ func serialGraphProviders() []serialGraphProvider {
 	}
 	bytesIn := serialGraphPortSpec{ID: "in", Label: "接收", Kind: "bytes", Direction: "input"}
 	bytesOut := serialGraphPortSpec{ID: "out", Label: "发送", Kind: "bytes", Direction: "output"}
-	loggingDefaults := map[string]any{
-		"enableLogging": false,
-		"logLevel":      "info",
-		"logFormat":     "",
-	}
-	scriptDefaults := map[string]any{
-		"script":         "output.bytes(input.bytes())",
-		"timeoutMs":      50,
-		"maxOutputBytes": 65536,
-		"maxStateBytes":  262144,
-		"onError":        "mark-error-and-drop",
-		"encoding":       "utf-8",
-		"autoRun":        false,
-		"intervalMs":     1000,
-		"displayMode":    "hex",
-	}
+	scriptDefaults := scriptDefaultsForTemplate()
 
 	return []serialGraphProvider{
 		{
@@ -1218,7 +1203,7 @@ func serialGraphProviders() []serialGraphProvider {
 			Type:          "serial.remote",
 			Title:         "远端串口",
 			Category:      "串口",
-			Description:   "通过 raw TCP client 连接远端串口服务器并在拓扑中收发字节流。",
+			Description:   "通过 raw TCP client/server 连接远端串口端点并在拓扑中收发字节流。",
 			Inputs:        []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "input"}},
 			Outputs:       []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "output"}},
 			DefaultConfig: remoteDefaults,
@@ -1274,24 +1259,6 @@ func serialGraphProviders() []serialGraphProvider {
 			Inputs:        []serialGraphPortSpec{bytesIn},
 			Outputs:       []serialGraphPortSpec{{ID: bytesOut.ID, Label: bytesOut.Label, Kind: bytesOut.Kind, Direction: bytesOut.Direction, Multiple: true}},
 			DefaultConfig: map[string]any{},
-		},
-		{
-			Type:          "serial.sender",
-			Title:         "发送器",
-			Category:      "终端",
-			Description:   "从编辑框或发送历史输出字节流。",
-			Inputs:        []serialGraphPortSpec{},
-			Outputs:       []serialGraphPortSpec{bytesOut},
-			DefaultConfig: withConfig(map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "", "autoSend": false, "intervalMs": 1000}, loggingDefaults),
-		},
-		{
-			Type:          "serial.receiver",
-			Title:         "接收器",
-			Category:      "终端",
-			Description:   "显示接收到的字节流。",
-			Inputs:        []serialGraphPortSpec{bytesIn},
-			Outputs:       []serialGraphPortSpec{},
-			DefaultConfig: withConfig(map[string]any{"viewMode": "ascii", "autoScroll": true, "showTimestamp": false}, loggingDefaults),
 		},
 		{
 			Type:          "serial.script.transform",
@@ -1376,17 +1343,17 @@ func serialGraphDemoCatalog() []map[string]any {
 		{
 			"id":                  serialGraphObservabilityTemplateID,
 			"title":               "Serial observability filter/logging",
-			"description":         "sender -> virtual -> tap -> plain/regex/expression filters -> logging receivers; usable with serial_graph_validate and serial_graph_start.",
+			"description":         "script generator -> virtual -> tap -> plain/regex/expression filters -> monitors; usable with serial_graph_validate and serial_graph_start.",
 			"tags":                []string{"serial", "filter", "logging", "observability"},
-			"node_types":          []string{"serial.sender", "serial.virtual", "serial.tap", "serial.filter", "serial.receiver"},
+			"node_types":          []string{"serial.script.generator", "serial.virtual", "serial.tap", "serial.filter", "serial.monitor"},
 			"operation_log_state": "not_in_backend",
 		},
 		{
 			"id":                  serialGraphRemoteTemplateID,
 			"title":               "Remote serial raw TCP",
-			"description":         "sender -> remote raw TCP client -> tap -> receiver/monitor; usable with serial_graph_validate and serial_graph_start.",
+			"description":         "raw TCP server/client loopback with endpoint buffers and monitor branches; usable with serial_graph_validate and serial_graph_start.",
 			"tags":                []string{"serial", "remote", "raw-tcp", "mcp"},
-			"node_types":          []string{"serial.sender", "serial.remote", "serial.tap", "serial.receiver", "serial.monitor"},
+			"node_types":          []string{"serial.script.generator", "serial.remote", "serial.tap", "serial.monitor"},
 			"operation_log_state": "not_in_backend",
 			"security":            "raw TCP has no built-in authentication or encryption; bind gateways to trusted interfaces or wrap with SSH/VPN/TLS outside PortWeave.",
 		},
@@ -1405,6 +1372,20 @@ func serialGraphDemoTemplate(args serialGraphDemoTemplateArgs) (map[string]any, 
 	}
 }
 
+func scriptDefaultsForTemplate() map[string]any {
+	return map[string]any{
+		"script":         "output.bytes(input.bytes())",
+		"timeoutMs":      50,
+		"maxOutputBytes": 65536,
+		"maxStateBytes":  262144,
+		"onError":        "mark-error-and-drop",
+		"encoding":       "utf-8",
+		"autoRun":        false,
+		"intervalMs":     1000,
+		"displayMode":    "hex",
+	}
+}
+
 func serialGraphObservabilityDemoTemplate(args serialGraphDemoTemplateArgs) map[string]any {
 	graphID := strings.TrimSpace(args.GraphID)
 	if graphID == "" {
@@ -1415,43 +1396,43 @@ func serialGraphObservabilityDemoTemplate(args serialGraphDemoTemplateArgs) map[
 		portName = "portweave-mcp-demo"
 	}
 
-	senderLogging := map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "OK: demo", "autoSend": false, "intervalMs": 1000, "enableLogging": true, "logLevel": "info", "logFormat": "tx {text}"}
-	receiverLogging := map[string]any{"viewMode": "ascii", "autoScroll": true, "showTimestamp": true, "enableLogging": true, "logLevel": "info", "logFormat": "{timestamp} {text}"}
+	generatorConfig := withConfig(scriptDefaultsForTemplate(), map[string]any{"script": "output.text(\"OK TEMP=42\\r\\n\", \"utf-8\")", "autoRun": true, "intervalMs": 1000})
 	nodes := []serialGraphNodeArg{
-		{ID: "sender", Type: "serial.sender", Position: serialGraphPositionArg{X: 20, Y: 80}, Config: senderLogging},
+		{ID: "generator", Type: "serial.script.generator", Position: serialGraphPositionArg{X: 20, Y: 80}, Config: generatorConfig},
 		{ID: "virtual", Type: "serial.virtual", Position: serialGraphPositionArg{X: 240, Y: 80}, Config: map[string]any{"portName": portName, "baudRate": 115200, "dataBits": 8, "stopBits": "1", "parity": "none", "flowMode": "none", "readBufKB": 32}},
 		{ID: "tap", Type: "serial.tap", Position: serialGraphPositionArg{X: 460, Y: 80}, Config: map[string]any{}},
 		{ID: "filter-plain", Type: "serial.filter", Position: serialGraphPositionArg{X: 680, Y: 0}, Config: map[string]any{"mode": "plain", "expression": "OK", "caseSensitive": false, "wholeWord": false}},
 		{ID: "filter-regex", Type: "serial.filter", Position: serialGraphPositionArg{X: 680, Y: 120}, Config: map[string]any{"mode": "regex", "expression": `TEMP=[0-9]+`, "caseSensitive": false, "wholeWord": false}},
 		{ID: "filter-expression", Type: "serial.filter", Position: serialGraphPositionArg{X: 680, Y: 240}, Config: map[string]any{"mode": "expression", "expression": "len >= 4 and hex contains \"0d0a\"", "caseSensitive": false, "wholeWord": false}},
-		{ID: "receiver-plain", Type: "serial.receiver", Position: serialGraphPositionArg{X: 940, Y: 0}, Config: withConfig(receiverLogging, map[string]any{"logFormat": "plain {timestamp} {text}"})},
-		{ID: "receiver-regex", Type: "serial.receiver", Position: serialGraphPositionArg{X: 940, Y: 120}, Config: withConfig(receiverLogging, map[string]any{"logFormat": "regex {timestamp} {text}"})},
-		{ID: "receiver-expression", Type: "serial.receiver", Position: serialGraphPositionArg{X: 940, Y: 240}, Config: withConfig(receiverLogging, map[string]any{"logFormat": "expr {timestamp} {hex}"})},
+		{ID: "monitor-plain", Type: "serial.monitor", Position: serialGraphPositionArg{X: 940, Y: 0}, Config: map[string]any{"displayMode": "ascii"}},
+		{ID: "monitor-regex", Type: "serial.monitor", Position: serialGraphPositionArg{X: 940, Y: 120}, Config: map[string]any{"displayMode": "hex"}},
+		{ID: "monitor-expression", Type: "serial.monitor", Position: serialGraphPositionArg{X: 940, Y: 240}, Config: map[string]any{"displayMode": "ascii"}},
 	}
 	edges := []serialGraphEdgeArg{
-		{ID: "edge-sender-virtual", Source: "sender", SourceHandle: "out", Target: "virtual", TargetHandle: "tx"},
+		{ID: "edge-generator-virtual", Source: "generator", SourceHandle: "out", Target: "virtual", TargetHandle: "tx"},
 		{ID: "edge-virtual-tap", Source: "virtual", SourceHandle: "rx", Target: "tap", TargetHandle: "in"},
 		{ID: "edge-tap-filter-plain", Source: "tap", SourceHandle: "out", Target: "filter-plain", TargetHandle: "in"},
 		{ID: "edge-tap-filter-regex", Source: "tap", SourceHandle: "out", Target: "filter-regex", TargetHandle: "in"},
 		{ID: "edge-tap-filter-expression", Source: "tap", SourceHandle: "out", Target: "filter-expression", TargetHandle: "in"},
-		{ID: "edge-filter-plain-receiver", Source: "filter-plain", SourceHandle: "out", Target: "receiver-plain", TargetHandle: "in"},
-		{ID: "edge-filter-regex-receiver", Source: "filter-regex", SourceHandle: "out", Target: "receiver-regex", TargetHandle: "in"},
-		{ID: "edge-filter-expression-receiver", Source: "filter-expression", SourceHandle: "out", Target: "receiver-expression", TargetHandle: "in"},
+		{ID: "edge-filter-plain-monitor", Source: "filter-plain", SourceHandle: "out", Target: "monitor-plain", TargetHandle: "in"},
+		{ID: "edge-filter-regex-monitor", Source: "filter-regex", SourceHandle: "out", Target: "monitor-regex", TargetHandle: "in"},
+		{ID: "edge-filter-expression-monitor", Source: "filter-expression", SourceHandle: "out", Target: "monitor-expression", TargetHandle: "in"},
 	}
 
 	return map[string]any{
 		"id":          serialGraphObservabilityTemplateID,
 		"graph_id":    graphID,
 		"title":       "Serial observability filter/logging",
-		"description": "Read-only MCP template demonstrating sender logging, virtual loopback, plain/regex/expression filters, receiver timestamps, and receiver logging.",
+		"description": "Read-only MCP template demonstrating script-generated traffic, virtual loopback, plain/regex/expression filters, and monitor frames.",
 		"nodes":       nodes,
 		"edges":       edges,
 		"usage": map[string]any{
 			"validate":             "Call serial_graph_validate with the nodes and edges from this response.",
 			"start":                map[string]any{"tool": "serial_graph_start", "arguments": serialGraphStartArgs{ID: graphID, Nodes: nodes, Edges: edges}},
-			"send_pass_example":    map[string]any{"tool": "serial_graph_send", "arguments": map[string]any{"graph_id": graphID, "node_id": "sender", "content": "OK TEMP=42\r\n", "mode": "ascii"}},
-			"send_drop_example":    map[string]any{"tool": "serial_graph_send", "arguments": map[string]any{"graph_id": graphID, "node_id": "sender", "content": "DROP", "mode": "ascii"}},
-			"query_buffer_example": map[string]any{"tool": "serial_graph_query_node_buffer", "arguments": map[string]any{"graph_id": graphID, "node_id": "receiver-plain", "offset": 0, "length": 256}},
+			"send_pass_example":    map[string]any{"tool": "serial_graph_send", "arguments": map[string]any{"graph_id": graphID, "node_id": "virtual", "content": "OK TEMP=42\r\n", "mode": "ascii"}},
+			"send_drop_example":    map[string]any{"tool": "serial_graph_send", "arguments": map[string]any{"graph_id": graphID, "node_id": "virtual", "content": "DROP", "mode": "ascii"}},
+			"query_buffer_example": map[string]any{"tool": "serial_graph_query_node_buffer", "arguments": map[string]any{"graph_id": graphID, "node_id": "virtual", "offset": 0, "length": 256}},
+			"query_frames_example": map[string]any{"tool": "serial_graph_query_node_frames", "arguments": map[string]any{"graph_id": graphID, "node_id": "monitor-plain", "offset": 0, "limit": 20}},
 			"operation_log_state":  "MCP supports graph config/templates plus backend buffers and frames; frontend UI operation-log state is not stored in the backend.",
 		},
 	}
@@ -1481,9 +1462,8 @@ func serialGraphRemoteDemoTemplate(args serialGraphDemoTemplateArgs) (map[string
 		return nil, errors.New(errors.CodeInvalid, fmt.Sprintf("remote_port out of range: %d", port))
 	}
 
-	remoteConfig := map[string]any{
+	remoteBaseConfig := map[string]any{
 		"protocol":               "raw-tcp",
-		"role":                   "client",
 		"host":                   host,
 		"port":                   port,
 		"connectTimeoutMs":       3000,
@@ -1501,36 +1481,45 @@ func serialGraphRemoteDemoTemplate(args serialGraphDemoTemplateArgs) (map[string
 		"autoScroll":             true,
 		"showTimestamp":          true,
 	}
-	if errs := validateSerialGraphRemoteConfig("remote", remoteConfig); len(errs) > 0 {
+	serverConfig := withConfig(remoteBaseConfig, map[string]any{"role": "server", "reconnect": false, "allowStartDisconnected": false})
+	clientConfig := withConfig(remoteBaseConfig, map[string]any{"role": "client", "reconnect": true, "allowStartDisconnected": args.AllowStartDisconnected})
+	if errs := validateSerialGraphRemoteConfig("a-remote-server", serverConfig); len(errs) > 0 {
+		return nil, errors.New(errors.CodeInvalid, strings.Join(errs, "; "))
+	}
+	if errs := validateSerialGraphRemoteConfig("b-remote-client", clientConfig); len(errs) > 0 {
 		return nil, errors.New(errors.CodeInvalid, strings.Join(errs, "; "))
 	}
 	nodes := []serialGraphNodeArg{
-		{ID: "sender", Type: "serial.sender", Position: serialGraphPositionArg{X: 20, Y: 120}, Config: map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "remote demo\r\n", "autoSend": true, "intervalMs": 1000}},
-		{ID: "remote", Type: "serial.remote", Position: serialGraphPositionArg{X: 260, Y: 120}, Config: remoteConfig},
-		{ID: "tap", Type: "serial.tap", Position: serialGraphPositionArg{X: 500, Y: 120}, Config: map[string]any{}},
-		{ID: "receiver", Type: "serial.receiver", Position: serialGraphPositionArg{X: 740, Y: 40}, Config: map[string]any{"viewMode": "ascii", "autoScroll": true, "showTimestamp": true}},
-		{ID: "monitor", Type: "serial.monitor", Position: serialGraphPositionArg{X: 740, Y: 200}, Config: map[string]any{"displayMode": "hex"}},
+		{ID: "client-generator", Type: "serial.script.generator", Position: serialGraphPositionArg{X: 20, Y: 240}, Config: withConfig(scriptDefaultsForTemplate(), map[string]any{"script": "output.text(\"client -> server\\r\\n\", \"utf-8\")", "autoRun": true, "intervalMs": 1000})},
+		{ID: "a-remote-server", Type: "serial.remote", Position: serialGraphPositionArg{X: 260, Y: 60}, Config: serverConfig},
+		{ID: "b-remote-client", Type: "serial.remote", Position: serialGraphPositionArg{X: 260, Y: 240}, Config: clientConfig},
+		{ID: "server-tap", Type: "serial.tap", Position: serialGraphPositionArg{X: 500, Y: 60}, Config: map[string]any{}},
+		{ID: "client-tap", Type: "serial.tap", Position: serialGraphPositionArg{X: 500, Y: 240}, Config: map[string]any{}},
+		{ID: "server-monitor", Type: "serial.monitor", Position: serialGraphPositionArg{X: 740, Y: 60}, Config: map[string]any{"displayMode": "hex"}},
+		{ID: "client-monitor", Type: "serial.monitor", Position: serialGraphPositionArg{X: 740, Y: 240}, Config: map[string]any{"displayMode": "hex"}},
 	}
 	edges := []serialGraphEdgeArg{
-		{ID: "edge-sender-remote", Source: "sender", SourceHandle: "out", Target: "remote", TargetHandle: "tx"},
-		{ID: "edge-remote-tap", Source: "remote", SourceHandle: "rx", Target: "tap", TargetHandle: "in"},
-		{ID: "edge-tap-receiver", Source: "tap", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
-		{ID: "edge-tap-monitor", Source: "tap", SourceHandle: "out", Target: "monitor", TargetHandle: "in"},
+		{ID: "edge-client-generator-remote", Source: "client-generator", SourceHandle: "out", Target: "b-remote-client", TargetHandle: "tx"},
+		{ID: "edge-server-remote-tap", Source: "a-remote-server", SourceHandle: "rx", Target: "server-tap", TargetHandle: "in"},
+		{ID: "edge-server-tap-monitor", Source: "server-tap", SourceHandle: "out", Target: "server-monitor", TargetHandle: "in"},
+		{ID: "edge-client-remote-tap", Source: "b-remote-client", SourceHandle: "rx", Target: "client-tap", TargetHandle: "in"},
+		{ID: "edge-client-tap-monitor", Source: "client-tap", SourceHandle: "out", Target: "client-monitor", TargetHandle: "in"},
 	}
 
 	return map[string]any{
 		"id":          serialGraphRemoteTemplateID,
 		"graph_id":    graphID,
 		"title":       "Remote serial raw TCP",
-		"description": "Read-only MCP template demonstrating a raw TCP client remote serial endpoint, downstream receiver, and monitor branch.",
+		"description": "Read-only MCP template demonstrating an in-graph raw TCP server/client remote serial loopback with endpoint buffers and monitor branches.",
 		"nodes":       nodes,
 		"edges":       edges,
 		"usage": map[string]any{
 			"validate":             "Call serial_graph_validate with the nodes and edges from this response before starting resources.",
 			"start":                map[string]any{"tool": "serial_graph_start", "arguments": serialGraphStartArgs{ID: graphID, Nodes: nodes, Edges: edges}},
 			"status_example":       map[string]any{"tool": "serial_graph_status", "arguments": map[string]any{"graph_id": graphID}},
-			"send_example":         map[string]any{"tool": "serial_graph_send", "arguments": map[string]any{"graph_id": graphID, "node_id": "sender", "content": "remote demo\r\n", "mode": "ascii"}},
-			"query_buffer_example": map[string]any{"tool": "serial_graph_query_node_buffer", "arguments": map[string]any{"graph_id": graphID, "node_id": "receiver", "offset": 0, "length": 256}},
+			"send_example":         map[string]any{"tool": "serial_graph_send", "arguments": map[string]any{"graph_id": graphID, "node_id": "a-remote-server", "content": "server -> client\r\n", "mode": "ascii"}},
+			"query_buffer_example": map[string]any{"tool": "serial_graph_query_node_buffer", "arguments": map[string]any{"graph_id": graphID, "node_id": "b-remote-client", "offset": 0, "length": 256}},
+			"query_frames_example": map[string]any{"tool": "serial_graph_query_node_frames", "arguments": map[string]any{"graph_id": graphID, "node_id": "client-monitor", "offset": 0, "limit": 20}},
 			"security":             "raw TCP has no built-in authentication or encryption; expose only on trusted networks or wrap with SSH/VPN/TLS outside PortWeave.",
 			"operation_log_state":  "MCP supports graph config/templates plus backend buffers and frames; frontend UI operation-log state is not stored in the backend.",
 		},
@@ -1701,7 +1690,8 @@ func validateSerialGraphResourceOwners(nodes []serialGraphNodeArg, providers map
 			if !ok {
 				continue
 			}
-			resourceKey := "remote:" + endpoint
+			role := serialGraphStringConfig(node.Config, "role", "client")
+			resourceKey := "remote:" + endpoint + ":" + role
 			if previous, exists := used[resourceKey]; exists {
 				errs = append(errs, fmt.Sprintf("resource remote endpoint duplicated: %s (%s, %s)", endpoint, previous, node.ID))
 			} else {
@@ -1739,7 +1729,7 @@ func validateSerialGraphRemoteConfig(nodeID string, config map[string]any) []str
 	if protocol != "raw-tcp" {
 		errs = append(errs, prefix+"unsupported protocol: "+protocol)
 	}
-	if role != "client" {
+	if role != "client" && role != "server" {
 		errs = append(errs, prefix+"unsupported role: "+role)
 	}
 	if host == "" {

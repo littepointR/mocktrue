@@ -166,6 +166,7 @@ type serialGraphRuntimeNode struct {
 	resourceID            string
 	handleID              string
 	remoteConn            net.Conn
+	remoteListener        net.Listener
 	remoteReconnectActive atomic.Bool
 	script                *serialScriptRuntime
 	externalWriteInFlight atomic.Bool
@@ -262,7 +263,7 @@ func (s *Service) GetSerialGraphStatus(id string) (*SerialGraphRuntimeInfo, erro
 	return &info, nil
 }
 
-// SendSerialGraphNode injects a payload into a sender/protocol-capable graph node.
+// SendSerialGraphNode injects a payload into a writable graph endpoint or protocol node.
 func (s *Service) SendSerialGraphNode(req SerialGraphSendRequest) (int, error) {
 	if req.NodeID == "" {
 		return 0, errors.New(errors.CodeInvalid, "node ID must not be empty")
@@ -278,7 +279,7 @@ func (s *Service) SendSerialGraphNode(req SerialGraphSendRequest) (int, error) {
 	return written, nil
 }
 
-// QuerySerialGraphNodeBuffer reads buffered bytes for a receiver-like node.
+// QuerySerialGraphNodeBuffer reads buffered bytes for a graph endpoint node.
 func (s *Service) QuerySerialGraphNodeBuffer(req SerialGraphBufferQuery) (*buffer.Snapshot, error) {
 	if req.Length <= 0 {
 		req.Length = 4096
@@ -500,6 +501,9 @@ func (r *serialGraphRuntime) startRemoteNode(ctx context.Context, node *serialGr
 		return err
 	}
 	node.setResourceID(resourceID)
+	if graphStringConfigWithDefault(node.spec.Config, "role", "client") == "server" {
+		return r.startRemoteServerNode(ctx, node, endpoint)
+	}
 	remoteCtx := r.ensureRemoteContext()
 	conn, err := dialGraphRemote(ctx, node.spec.Config, endpoint)
 	if err != nil {
@@ -514,6 +518,19 @@ func (r *serialGraphRuntime) startRemoteNode(ctx context.Context, node *serialGr
 	node.setRemoteConn(conn)
 	node.setStatus(SerialGraphStatusRunning, "")
 	go r.runRemoteReader(remoteCtx, node, conn)
+	return nil
+}
+
+func (r *serialGraphRuntime) startRemoteServerNode(ctx context.Context, node *serialGraphRuntimeNode, endpoint string) error {
+	listenerConfig := net.ListenConfig{}
+	listener, err := listenerConfig.Listen(ctx, "tcp", endpoint)
+	if err != nil {
+		node.setStatus(SerialGraphStatusError, err.Error())
+		return errors.Wrap(errors.CodeIO, "start graph remote server node "+node.spec.ID, err)
+	}
+	node.setRemoteListener(listener)
+	node.setStatus(SerialGraphStatusRunning, "")
+	go r.runRemoteAcceptLoop(r.ensureRemoteContext(), node, listener)
 	return nil
 }
 
@@ -533,6 +550,22 @@ func dialGraphRemote(ctx context.Context, config map[string]any, endpoint string
 	}
 	dialer := &net.Dialer{Timeout: timeout}
 	return dialer.DialContext(ctx, "tcp", endpoint)
+}
+
+func (r *serialGraphRuntime) runRemoteAcceptLoop(ctx context.Context, node *serialGraphRuntimeNode, listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if r.isStopped() || ctx.Err() != nil {
+				return
+			}
+			node.setStatus(SerialGraphStatusError, err.Error())
+			return
+		}
+		node.setRemoteConn(conn)
+		node.setStatus(SerialGraphStatusRunning, "")
+		go r.runRemoteReader(ctx, node, conn)
+	}
 }
 
 func (r *serialGraphRuntime) runRemoteReader(ctx context.Context, node *serialGraphRuntimeNode, conn net.Conn) {
@@ -568,6 +601,12 @@ func (r *serialGraphRuntime) runRemoteReader(ctx context.Context, node *serialGr
 			}
 			detached := node.closeRemoteConnIfCurrent(conn)
 			conn = nil
+			if graphStringConfigWithDefault(node.spec.Config, "role", "client") == "server" {
+				if detached {
+					node.setStatus(SerialGraphStatusRunning, "")
+				}
+				return
+			}
 			if graphBoolConfig(node.spec.Config, "reconnect", true) {
 				if detached {
 					node.setStatus(SerialGraphStatusReconnecting, err.Error())
@@ -715,6 +754,9 @@ func (r *serialGraphRuntime) startAutoSenders() error {
 				nodeID:   node.spec.ID,
 				interval: interval,
 			})
+			continue
+		}
+		if node.spec.Type != "serial.modbus.master" && node.spec.Type != "serial.fecbus.master" {
 			continue
 		}
 		if !graphBoolConfig(node.spec.Config, "autoSend", false) {
@@ -885,6 +927,7 @@ func (r *serialGraphRuntime) stop() {
 		cancelRemote()
 	}
 	for _, node := range remoteNodes {
+		_ = node.closeRemoteListener()
 		_ = node.closeRemoteConn()
 	}
 	for _, portID := range ownedVPorts {
@@ -923,7 +966,7 @@ func (r *serialGraphRuntime) send(nodeID string, data []byte) error {
 		node.addTx(len(data))
 		node.appendModbusFrame(data, "发送")
 		return r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
-	case "serial.sender", "serial.fecbus.master", "serial.fecbus.slave":
+	case "serial.fecbus.master", "serial.fecbus.slave":
 		node.addTx(len(data))
 		return r.emit(serialGraphPortRef{nodeID: nodeID, handle: defaultGraphOutputHandle(node.spec.Type)}, data)
 	case "serial.physical":
@@ -938,6 +981,8 @@ func (r *serialGraphRuntime) send(nodeID string, data []byte) error {
 		}
 		node.addTx(n)
 		return nil
+	case "serial.virtual":
+		return r.receive(serialGraphPortRef{nodeID: nodeID, handle: "tx"}, data)
 	case "serial.remote":
 		_, err := r.writeRemoteNode(node, data)
 		return err
@@ -955,8 +1000,6 @@ func (r *serialGraphRuntime) receive(ref serialGraphPortRef, data []byte) error 
 		node.addRx(len(data))
 	}
 	switch node.spec.Type {
-	case "serial.receiver":
-		node.appendBuffer(data)
 	case "serial.monitor":
 		node.appendFrame(data)
 	case "serial.filter":
@@ -1367,6 +1410,27 @@ func (n *serialGraphRuntimeNode) closeRemoteConn() error {
 		return nil
 	}
 	return conn.Close()
+}
+
+func (n *serialGraphRuntimeNode) setRemoteListener(listener net.Listener) {
+	n.mu.Lock()
+	previous := n.remoteListener
+	n.remoteListener = listener
+	n.mu.Unlock()
+	if previous != nil && previous != listener {
+		_ = previous.Close()
+	}
+}
+
+func (n *serialGraphRuntimeNode) closeRemoteListener() error {
+	n.mu.Lock()
+	listener := n.remoteListener
+	n.remoteListener = nil
+	n.mu.Unlock()
+	if listener == nil {
+		return nil
+	}
+	return listener.Close()
 }
 
 func (n *serialGraphRuntimeNode) tryBeginRemoteReconnect() bool {
@@ -1805,26 +1869,8 @@ func graphNodeSendData(node *serialGraphRuntimeNode, req SerialGraphSendRequest)
 	}
 }
 
-func graphAutoSenderData(config map[string]any) ([]byte, error) {
-	content := graphStringConfigRaw(config, "payload")
-	data, err := encodeGraphPayload(
-		content,
-		graphStringConfigWithDefault(config, "mode", "ascii"),
-		graphStringConfigWithDefault(config, "encoding", "utf-8"),
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, errors.New(errors.CodeInvalid, "payload must not be empty")
-	}
-	return data, nil
-}
-
 func graphAutoNodeData(node *serialGraphRuntimeNode) ([]byte, error) {
 	switch node.spec.Type {
-	case "serial.sender":
-		return graphAutoSenderData(node.spec.Config)
 	case "serial.modbus.master", "serial.fecbus.master":
 		data, err := graphNodeSendData(node, SerialGraphSendRequest{})
 		if err != nil {
@@ -2150,7 +2196,7 @@ func validateGraphRemoteConfig(nodeID string, config map[string]any) []string {
 	if protocol != "raw-tcp" {
 		errs = append(errs, prefix+"unsupported protocol: "+protocol)
 	}
-	if role != "client" {
+	if role != "client" && role != "server" {
 		errs = append(errs, prefix+"unsupported role: "+role)
 	}
 	if host == "" {
@@ -2265,7 +2311,8 @@ func validateGraphRuntimeResources(nodes []SerialGraphNodeSpec, providers map[st
 			if err != nil {
 				continue
 			}
-			resourceKey := "remote:" + endpoint
+			role := graphStringConfigWithDefault(node.Config, "role", "client")
+			resourceKey := "remote:" + endpoint + ":" + role
 			if previous, exists := used[resourceKey]; exists {
 				errs = append(errs, fmt.Sprintf("resource remote endpoint duplicated: %s (%s, %s)", endpoint, previous, node.ID))
 			} else {
@@ -2365,8 +2412,6 @@ func serialGraphRuntimeProviders() []serialGraphProviderSpec {
 		{Type: "serial.filter", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{bytesOut}},
 		{Type: "serial.tap", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
 		{Type: "serial.tee", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{{ID: "out", Kind: "bytes", Direction: "output", Multiple: true}}},
-		{Type: "serial.sender", Outputs: []serialGraphPortSpec{bytesOut}},
-		{Type: "serial.receiver", Inputs: []serialGraphPortSpec{bytesIn}},
 		{Type: "serial.script.transform", Inputs: []serialGraphPortSpec{bytesIn}, Outputs: []serialGraphPortSpec{bytesOut}},
 		{Type: "serial.script.generator", Outputs: []serialGraphPortSpec{bytesOut}},
 		{Type: "serial.script.analyzer", Inputs: []serialGraphPortSpec{bytesIn}},

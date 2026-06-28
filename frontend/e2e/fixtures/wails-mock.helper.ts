@@ -60,8 +60,8 @@ export async function injectWailsMock(page: Page) {
           ID: node.ID,
           Type: node.Type,
           Status: status,
-          RxBytes: node.Type === 'serial.receiver' ? utf8Length(mockState.graphBufferText) : 0,
-          TxBytes: node.Type === 'serial.sender' ? 5 : 0,
+          RxBytes: node.Type === 'serial.virtual' ? utf8Length(mockState.graphBufferText) : 0,
+          TxBytes: node.Type === 'serial.virtual' ? 5 : 0,
           FrameCount: 0,
           ResourceID: '',
           Error: '',
@@ -84,23 +84,23 @@ export async function injectWailsMock(page: Page) {
     }
 
     const handlers: Record<number, (...args: any[]) => any> = {
-      3334354438: (msg: string) => `pong:${msg}`,
-      2380440348: () => mockState.ports,
-      1403721065: openHandle,
-      358686901: (id: string) => {
+      1928388028: (msg: string) => `pong:${msg}`,
+      4182410974: () => mockState.ports,
+      1195186767: openHandle,
+      2692040291: (id: string) => {
         const idx = mockState.handles.findIndex(h => h.ID === id);
         if (idx >= 0) mockState.handles.splice(idx, 1);
         return null;
       },
-      2409741650: () => mockState.handles,
-      257355161: () => ({ Data: [], Total: 0, Offset: 0, Length: 0 }),
-      304932660: (req: any) => {
+      1355113788: () => mockState.handles,
+      1969116331: () => ({ Data: [], Total: 0, Offset: 0, Length: 0 }),
+      4261822586: (req: any) => {
         const handle = mockState.handles.find(h => h.ID === req.PortID);
         const byteLength = req.Mode === 'hex' ? hexLength(req.Content) : utf8Length(req.Content);
         if (handle) handle.TxBytes += byteLength;
         return byteLength;
       },
-      4017649972: (id: string) => {
+      3177301874: (id: string) => {
         const handle = mockState.handles.find(h => h.ID === id);
         if (!handle) {
           throw new Error(`handle not found: ${id}`);
@@ -109,7 +109,7 @@ export async function injectWailsMock(page: Page) {
         handle.TxBytes = 0;
         return null;
       },
-      3426122829: (id: string, p1: string, p2: string) => {
+      3496889163: (id: string, p1: string, p2: string) => {
         if (mockState.virtualPairs.some(pair => pair.ID === id)) {
           throw new Error('pair ID already exists');
         }
@@ -121,7 +121,7 @@ export async function injectWailsMock(page: Page) {
         );
         return pair;
       },
-      4156784338: (id: string, portName: string) => {
+      3301470276: (id: string, portName: string) => {
         if (mockState.virtualPorts.some(port => port.ID === id)) {
           throw new Error('virtual port ID already exists');
         }
@@ -137,17 +137,17 @@ export async function injectWailsMock(page: Page) {
         });
         return vport;
       },
-      1660406268: (id: string) => {
+      3913697050: (id: string) => {
         mockState.virtualPairs = mockState.virtualPairs.filter(pair => pair.ID !== id);
         return null;
       },
-      2248938995: (id: string) => {
+      3839982485: (id: string) => {
         mockState.virtualPorts = mockState.virtualPorts.filter(port => port.ID !== id);
         return null;
       },
-      3694945770: () => mockState.virtualPairs,
-      1806471203: () => mockState.virtualPorts,
-      2000913547: (id: string, p1: string, p2: string, baud: number) => {
+      1655246708: () => mockState.virtualPairs,
+      210542465: () => mockState.virtualPorts,
+      3123603669: (id: string, p1: string, p2: string, baud: number) => {
         if (p1 === p2) {
           throw new Error('cannot bridge a port to itself');
         }
@@ -158,25 +158,25 @@ export async function injectWailsMock(page: Page) {
         mockState.bridges.push(bridge);
         return bridge;
       },
-      2952555164: (id: string) => {
+      2881720190: (id: string) => {
         mockState.bridges = mockState.bridges.filter(bridge => bridge.ID !== id);
         return null;
       },
-      2577893816: () => mockState.bridges,
-      1012747357: (req: any) => {
+      776031598: () => mockState.bridges,
+      2672436528: (req: any) => {
         const info = graphRuntimeInfo(req);
         mockState.graphRuntimes.set(req.ID, info);
         return info;
       },
-      683655879: (id: string) => mockState.graphRuntimes.get(id) ?? null,
-      3861305359: graphBufferSnapshot,
-      4031508859: () => ({ Frames: [], Total: 0, NextOffset: 0 }),
-      2404770757: (req: any) => utf8Length(req.Content ?? ''),
-      302086400: () => {
+      4114883914: (id: string) => mockState.graphRuntimes.get(id) ?? null,
+      1522296334: graphBufferSnapshot,
+      282320358: () => ({ Frames: [], Total: 0, NextOffset: 0 }),
+      1775124258: (req: any) => utf8Length(req.Content ?? ''),
+      2132218629: () => {
         mockState.graphBufferText = '';
         return null;
       },
-      3006074319: (id: string) => {
+      156612884: (id: string) => {
         const info = mockState.graphRuntimes.get(id);
         if (info) {
           mockState.graphRuntimes.set(id, {
@@ -187,10 +187,9 @@ export async function injectWailsMock(page: Page) {
         }
         return null;
       },
-      3144020029: () => null,
-      3331981752: (req: any) => utf8Length(req.Content ?? ''),
-      3380062301: () => null,
-      1653301220: () => ({ CPUPercent: 7.5, MemoryBytes: 64 * 1024 * 1024 }),
+      1596240579: () => null,
+      1010678280: () => null,
+      1511569774: () => ({ CPUPercent: 7.5, MemoryBytes: 64 * 1024 * 1024 }),
     };
 
     const originalFetch = window.fetch.bind(window);

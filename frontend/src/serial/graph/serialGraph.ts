@@ -89,6 +89,7 @@ const serialDefaults = {
   parity: 'none',
   flowMode: 'none',
   readBufKB: 32,
+  viewMode: 'ascii',
   autoScroll: true,
   showTimestamp: false,
 }
@@ -112,12 +113,6 @@ const remoteSerialDefaults = {
   viewMode: 'ascii',
   autoScroll: true,
   showTimestamp: false,
-}
-
-const serialGraphLoggingDefaults = {
-  enableLogging: false,
-  logLevel: 'info',
-  logFormat: '',
 }
 
 const bytesIn: SerialGraphPortSpec = { id: 'in', label: '接收', kind: 'bytes', direction: 'input' }
@@ -161,7 +156,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     type: 'serial.remote',
     title: '远端串口',
     category: '串口',
-    description: '通过 raw TCP client 连接远端串口服务器并在拓扑中收发字节流。',
+    description: '通过 raw TCP client/server 连接远端串口端点并在拓扑中收发字节流。',
     inputs: [{ id: 'tx', label: '发送', kind: 'bytes', direction: 'input' }],
     outputs: [{ id: 'rx', label: '接收', kind: 'bytes', direction: 'output' }],
     defaultConfig: { ...remoteSerialDefaults },
@@ -217,24 +212,6 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     inputs: [bytesIn],
     outputs: [{ ...bytesOut, multiple: true }],
     defaultConfig: {},
-  },
-  {
-    type: 'serial.sender',
-    title: '发送器',
-    category: '终端',
-    description: '从编辑框或发送历史输出字节流。',
-    inputs: [],
-    outputs: [bytesOut],
-    defaultConfig: { mode: 'ascii', encoding: 'utf-8', payload: '', autoSend: false, intervalMs: 1000, ...serialGraphLoggingDefaults },
-  },
-  {
-    type: 'serial.receiver',
-    title: '接收器',
-    category: '终端',
-    description: '显示接收到的字节流。',
-    inputs: [bytesIn],
-    outputs: [],
-    defaultConfig: { viewMode: 'ascii', autoScroll: true, showTimestamp: false, ...serialGraphLoggingDefaults },
   },
   {
     type: 'serial.script.transform',
@@ -503,7 +480,8 @@ function validateResourceOwners(state: SerialGraphTopologyState): string[] {
     if (node.type === 'serial.remote') {
       const endpoint = remoteEndpointKey(node.config)
       if (!endpoint) continue
-      const resourceKey = `remote:${endpoint}`
+      const role = remoteConfigString(node.config, 'role', 'client')
+      const resourceKey = `remote:${endpoint}:${role}`
       const previous = used.get(resourceKey)
       if (previous) {
         errors.push(`resource remote endpoint duplicated: ${endpoint} (${previous.id}, ${node.id})`)
@@ -541,7 +519,7 @@ function validateRemoteSerialNode(node: SerialGraphNode): string[] {
   const readBufKB = remoteConfigNumber(node.config, 'readBufKB', 32)
 
   if (protocol !== 'raw-tcp') errors.push(`${node.id}: unsupported protocol: ${protocol}`)
-  if (role !== 'client') errors.push(`${node.id}: unsupported role: ${role}`)
+  if (role !== 'client' && role !== 'server') errors.push(`${node.id}: unsupported role: ${role}`)
   if (!host) errors.push(`${node.id}: remote host required`)
   if (host.includes('://')) errors.push(`${node.id}: remote host must not include URL scheme`)
   if (!Number.isInteger(port)) errors.push(`${node.id}: remote port must be an integer`)

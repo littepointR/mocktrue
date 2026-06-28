@@ -46,7 +46,7 @@ describe('serial filter matcher', () => {
       source: 'runtime',
       graphId: 'graph-1',
       nodeId: 'rx-1',
-      nodeType: 'serial.receiver',
+      nodeType: 'serial.virtual',
       direction: 'rx',
     }
 

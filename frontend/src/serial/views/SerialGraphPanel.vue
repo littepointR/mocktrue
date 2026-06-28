@@ -473,18 +473,23 @@ function runtimeCounterItems(node: SerialGraphNode, rxBytes: number, txBytes: nu
 
 function supportsManualSend(node: SerialGraphNode): boolean {
   return [
-    'serial.sender',
+    'serial.physical',
+    'serial.virtual',
+    'serial.remote',
     'serial.modbus.master',
+    'serial.modbus.slave',
     'serial.fecbus.master',
+    'serial.fecbus.slave',
   ].includes(node.type)
 }
 
 function supportsBuffer(node: SerialGraphNode): boolean {
   return [
-    'serial.receiver',
     'serial.physical',
     'serial.virtual',
     'serial.remote',
+    'serial.modbus.master',
+    'serial.modbus.slave',
     'serial.fecbus.master',
     'serial.fecbus.slave',
   ].includes(node.type)
@@ -1782,6 +1787,7 @@ onUnmounted(() => {
                   @change="updateConfig(key, ($event.target as HTMLSelectElement).value)"
                 >
                   <option value="client">client</option>
+                  <option value="server">server</option>
                 </select>
                 <select
                   v-else-if="key === 'mode'"

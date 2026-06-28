@@ -8,7 +8,7 @@ PortWeave is a cross-platform embedded debugging toolkit for serial communicatio
 
 ## 功能特性 / Features
 
-- 串口拓扑图：通过节点和连接线组织物理串口、虚拟串口、远端 raw TCP 串口、桥接、监控、分流、过滤器、发送器和接收器。远端串口配置、安全边界、内置示例和 MCP 模板详见 [Remote Serial Graph Node](docs/remote-serial-node.md)。
+- 串口拓扑图：通过节点和连接线组织物理串口、虚拟串口、远端 raw TCP 串口、桥接、监控、分流、过滤器、脚本节点和协议节点。远端串口配置、安全边界、内置示例和 MCP 模板详见 [Remote Serial Graph Node](docs/remote-serial-node.md)。
 - 自动收发与演示工作区：示例配置基于真实功能构建，可使用虚拟串口循环运行数据，并内置串口过滤与日志、远端 raw TCP 串口演示。
 - 串口监控：自动创建虚拟监听端口，按实际时间记录收发帧。
 - Modbus 支持：支持 Modbus RTU/ASCII 主站、从站、多 Unit ID、寄存器表格和原始帧显示。

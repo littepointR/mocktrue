@@ -14,7 +14,7 @@ func TestSerialGraphScriptTransformRewritesOutput(t *testing.T) {
 	graph := startTestGraph(t, svc, SerialGraphStartRequest{
 		ID: "graph-script-transform",
 		Nodes: []SerialGraphNodeSpec{
-			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender", Type: "serial.virtual"},
 			{ID: "script", Type: "serial.script.transform", Config: map[string]any{
 				"script":         `output.hex("de ad " + input.hex());`,
 				"timeoutMs":      100,
@@ -26,11 +26,11 @@ func TestSerialGraphScriptTransformRewritesOutput(t *testing.T) {
 				"intervalMs":     0,
 				"displayMode":    "hex",
 			}},
-			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "script", TargetHandle: "in"},
-			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "script", TargetHandle: "in"},
+			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -53,18 +53,18 @@ func TestSerialGraphScriptTransformDropDoesNotEmit(t *testing.T) {
 	graph := startTestGraph(t, svc, SerialGraphStartRequest{
 		ID: "graph-script-drop",
 		Nodes: []SerialGraphNodeSpec{
-			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender", Type: "serial.virtual"},
 			{ID: "script", Type: "serial.script.transform", Config: map[string]any{
 				"script":        `drop(); output.text("should-not-emit");`,
 				"timeoutMs":     100,
 				"encoding":      "utf-8",
 				"maxStateBytes": 1024,
 			}},
-			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "script", TargetHandle: "in"},
-			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "script", TargetHandle: "in"},
+			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -76,7 +76,7 @@ func TestSerialGraphScriptTransformDropDoesNotEmit(t *testing.T) {
 		t.Fatalf("QuerySerialGraphNodeBuffer returned error: %v", err)
 	}
 	if len(page.Data) != 0 || page.Total != 0 {
-		t.Fatalf("receiver buffer len=%d total=%d, want no output", len(page.Data), page.Total)
+		t.Fatalf("endpoint buffer len=%d total=%d, want no output", len(page.Data), page.Total)
 	}
 }
 
@@ -87,7 +87,7 @@ func TestSerialGraphScriptAnalyzerWritesFrame(t *testing.T) {
 	graph := startTestGraph(t, svc, SerialGraphStartRequest{
 		ID: "graph-script-analyzer",
 		Nodes: []SerialGraphNodeSpec{
-			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender", Type: "serial.virtual"},
 			{ID: "analyzer", Type: "serial.script.analyzer", Config: map[string]any{
 				"script":      `field("sum", sum8(input.bytes()));`,
 				"timeoutMs":   100,
@@ -96,7 +96,7 @@ func TestSerialGraphScriptAnalyzerWritesFrame(t *testing.T) {
 			}},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "analyzer", TargetHandle: "in"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "analyzer", TargetHandle: "in"},
 		},
 	})
 
@@ -131,10 +131,10 @@ func TestSerialGraphScriptGeneratorAutoRunsAndStops(t *testing.T) {
 				"intervalMs":     10,
 				"encoding":       "utf-8",
 			}},
-			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "gen", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-1", Source: "gen", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -177,10 +177,10 @@ func TestSerialGraphScriptGeneratorCannotReadInputAPI(t *testing.T) {
 				"timeoutMs": 100,
 				"encoding":  "utf-8",
 			}},
-			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "gen", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-1", Source: "gen", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -248,17 +248,17 @@ func TestSerialGraphScriptTransformErrorFunctionRemainsFatal(t *testing.T) {
 	graph := startTestGraph(t, svc, SerialGraphStartRequest{
 		ID: "graph-script-transform-error-fatal",
 		Nodes: []SerialGraphNodeSpec{
-			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender", Type: "serial.virtual"},
 			{ID: "script", Type: "serial.script.transform", Config: map[string]any{
 				"script":    `error("marked"); output.text("nope");`,
 				"timeoutMs": 100,
 				"encoding":  "utf-8",
 			}},
-			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "script", TargetHandle: "in"},
-			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "script", TargetHandle: "in"},
+			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -278,7 +278,7 @@ func TestSerialGraphScriptTransformErrorFunctionRemainsFatal(t *testing.T) {
 		t.Fatalf("QuerySerialGraphNodeBuffer returned error: %v", err)
 	}
 	if len(page.Data) != 0 || page.Total != 0 {
-		t.Fatalf("receiver buffer len=%d total=%d, want no output", len(page.Data), page.Total)
+		t.Fatalf("endpoint buffer len=%d total=%d, want no output", len(page.Data), page.Total)
 	}
 }
 
@@ -294,10 +294,10 @@ func TestSerialGraphScriptGeneratorErrorFunctionRemainsFatal(t *testing.T) {
 				"timeoutMs": 100,
 				"encoding":  "utf-8",
 			}},
-			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "gen", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-1", Source: "gen", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -316,7 +316,7 @@ func TestSerialGraphScriptGeneratorErrorFunctionRemainsFatal(t *testing.T) {
 		t.Fatalf("QuerySerialGraphNodeBuffer returned error: %v", err)
 	}
 	if len(page.Data) != 0 || page.Total != 0 {
-		t.Fatalf("receiver buffer len=%d total=%d, want no output", len(page.Data), page.Total)
+		t.Fatalf("endpoint buffer len=%d total=%d, want no output", len(page.Data), page.Total)
 	}
 }
 
@@ -327,7 +327,7 @@ func TestSerialGraphScriptAnalyzerCannotWriteOutputAPI(t *testing.T) {
 	graph := startTestGraph(t, svc, SerialGraphStartRequest{
 		ID: "graph-script-analyzer-no-output-api",
 		Nodes: []SerialGraphNodeSpec{
-			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender", Type: "serial.virtual"},
 			{ID: "analyzer", Type: "serial.script.analyzer", Config: map[string]any{
 				"script":    `output.text("nope");`,
 				"timeoutMs": 100,
@@ -335,7 +335,7 @@ func TestSerialGraphScriptAnalyzerCannotWriteOutputAPI(t *testing.T) {
 			}},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "analyzer", TargetHandle: "in"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "analyzer", TargetHandle: "in"},
 		},
 	})
 
@@ -359,17 +359,17 @@ func TestSerialGraphScriptTimeoutMarksErrorAndDoesNotBlockStop(t *testing.T) {
 	graph := startTestGraph(t, svc, SerialGraphStartRequest{
 		ID: "graph-script-timeout",
 		Nodes: []SerialGraphNodeSpec{
-			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender", Type: "serial.virtual"},
 			{ID: "script", Type: "serial.script.transform", Config: map[string]any{
 				"script":    `while (true) {}`,
 				"timeoutMs": 20,
 				"onError":   "mark",
 			}},
-			{ID: "receiver", Type: "serial.receiver"},
+			{ID: "receiver", Type: "serial.virtual"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "script", TargetHandle: "in"},
-			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "in"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "script", TargetHandle: "in"},
+			{ID: "edge-2", Source: "script", SourceHandle: "out", Target: "receiver", TargetHandle: "tx"},
 		},
 	})
 
@@ -411,11 +411,11 @@ func TestSerialGraphRuntimeRejectsScriptGeneratorInput(t *testing.T) {
 	_, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
 		ID: "graph-script-generator-input",
 		Nodes: []SerialGraphNodeSpec{
-			{ID: "sender", Type: "serial.sender"},
+			{ID: "sender", Type: "serial.virtual"},
 			{ID: "gen", Type: "serial.script.generator"},
 		},
 		Edges: []SerialGraphEdgeSpec{
-			{ID: "edge-1", Source: "sender", SourceHandle: "out", Target: "gen", TargetHandle: "in"},
+			{ID: "edge-1", Source: "sender", SourceHandle: "rx", Target: "gen", TargetHandle: "in"},
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "input port not found: serial.script.generator.in") {

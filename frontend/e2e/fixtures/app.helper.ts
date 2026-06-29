@@ -7,6 +7,48 @@ export async function openSerialModule(page: Page) {
   await expect(page.locator('.serial-view')).toBeVisible();
 }
 
+export async function openSerialGraph(page: Page) {
+  await openSerialModule(page);
+  await expect(page.locator('[data-testid="sidebar-view-serial.graph"]')).toBeVisible();
+  await expect(page.locator('[data-testid="serial-graph-panel"]')).toBeVisible({ timeout: 10000 });
+}
+
+export async function addGraphNode(page: Page, type: string, nodeId: string) {
+  await page.locator(`[data-testid="serial-graph-provider-${type}"]`).click();
+  await expect(page.locator(`[data-testid="serial-graph-node-${nodeId}"]`)).toBeVisible({ timeout: 10000 });
+  await expect(page.locator(`[data-testid="serial-graph-node-tab-${nodeId}"]`)).toBeVisible({ timeout: 10000 });
+}
+
+export async function connectGraphNodes(
+  page: Page,
+  sourceNode: string,
+  sourcePort: string,
+  targetNode: string,
+  targetPort: string,
+) {
+  await page.locator(`[data-testid="serial-graph-output-${sourceNode}-${sourcePort}"]`).click();
+  await page.locator(`[data-testid="serial-graph-input-${targetNode}-${targetPort}"]`).click();
+  await expect(page.locator('[data-testid^="serial-graph-edge-line-"]')).toHaveCount(1, { timeout: 10000 });
+}
+
+export async function createSenderReceiverGraph(page: Page) {
+  await openSerialGraph(page);
+  await addGraphNode(page, 'serial.script.generator', 'node-1');
+  await addGraphNode(page, 'serial.virtual', 'node-2');
+  await connectGraphNodes(page, 'node-1', 'out', 'node-2', 'tx');
+}
+
+export async function startGraphRuntime(page: Page) {
+  await page.locator('[data-testid="serial-graph-start"]').click();
+  await expect(page.locator('[data-testid="serial-graph-runtime-status"]')).toContainText('running', { timeout: 10000 });
+}
+
+export async function activateNodeTab(page: Page, nodeId: string) {
+  const tab = page.locator(`[data-testid="serial-graph-node-tab-${nodeId}"]`);
+  await tab.click();
+  await expect(tab).toHaveClass(/serial-graph__node-tab--active/);
+}
+
 export async function openSidebarTab(page: Page, tabText: string) {
   const optionText = tabText === '串口'
     ? '打开串口'

@@ -14,7 +14,7 @@
     "e2e": "playwright test",
     "e2e:mock": "playwright test",
     "e2e:smoke": "playwright test e2e/shell_smoke.spec.ts",
-    "e2e:wails": "PORTWEAVE_E2E_MODE=wails playwright test"
+    "e2e:wails": "node scripts/e2e-wails.mjs"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.29",

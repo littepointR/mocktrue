@@ -1,72 +1,48 @@
 import { test, expect } from '@playwright/test';
-import { openSerialModule, openSidebarTab } from './fixtures/app.helper';
+import { addGraphNode, openSerialGraph } from './fixtures/app.helper';
+
+const graphPanel = '[data-testid="serial-graph-panel"]';
 
 test.describe('Functional Tests', () => {
   test.beforeEach(async ({ page }) => {
-    await openSerialModule(page);
+    await openSerialGraph(page);
   });
 
-  test('should display port config panel when serial module is active', async ({ page }) => {
-    const sidebar = page.locator('.sidebar');
-    await expect(sidebar.locator('.sidebar__item').filter({ hasText: '打开串口' })).toBeVisible();
-    await expect(sidebar.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' })).toBeVisible();
-    await expect(sidebar.locator('.sidebar__item').filter({ hasText: '添加串口桥接' })).toBeVisible();
-
-    await openSidebarTab(page, '串口');
-    const portConfigForm = page.locator('.port-config-form');
-    await expect(portConfigForm).toBeVisible();
-
-    await expect(portConfigForm).toContainText('端口');
-    await expect(portConfigForm).toContainText('波特率');
-    await expect(portConfigForm.locator('.n-base-selection')).toHaveCount(6);
-    await expect(page.getByRole('button', { name: '刷新' })).toBeVisible();
-
-    const openButton = portConfigForm.getByRole('button', { name: '打开串口' });
-    await expect(openButton).toBeVisible();
-    await expect(openButton).toBeDisabled();
+  test('should display serial graph panel when serial module is active', async ({ page }) => {
+    await expect(page.locator(graphPanel)).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-node-palette"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-provider-serial.physical"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-provider-serial.virtual"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-provider-serial.script.generator"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-provider-serial.monitor"]')).toBeVisible();
   });
 
-  test('should keep operation pane and tab content area separate', async ({ page }) => {
-    const operationPanel = page.locator('.serial-view__operation-panel');
-    const mainArea = page.locator('.serial-view__main');
-    await expect(operationPanel).toHaveCount(1);
-    await expect(mainArea).toBeVisible();
-    await expect(page.locator('.serial-view__empty')).toBeVisible();
-    await expect(page.locator('.port-config-form')).toHaveCount(0);
+  test('should keep graph canvas and node workbench separate', async ({ page }) => {
+    const canvas = page.locator('[data-testid="serial-graph-canvas"]');
+    const workbench = page.locator('[data-testid="serial-graph-node-workbench"]');
+    await expect(canvas).toBeVisible();
+    await expect(workbench).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-node-content"]')).toHaveCount(0);
 
-    const sidebar = page.locator('.sidebar');
-    await sidebar.locator('.sidebar__item').filter({ hasText: '打开串口' }).click();
-    await expect(operationPanel.locator('.port-config-form')).toBeVisible();
-    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
-    let operationBox = await operationPanel.boundingBox();
-    expect(operationBox?.width).toBeGreaterThan(250);
+    await addGraphNode(page, 'serial.script.generator', 'node-1');
 
-    await sidebar.locator('.sidebar__item').filter({ hasText: '打开串口' }).click();
-    await expect(operationPanel.locator('.port-config-form')).toHaveCount(0);
-    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
-    operationBox = await operationPanel.boundingBox();
-    expect(operationBox?.width ?? 0).toBeLessThan(2);
+    await expect(canvas).toBeVisible();
+    await expect(workbench).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-node-content"]')).toBeVisible();
 
-    await sidebar.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' }).click();
-    await expect(operationPanel.locator('.virtual-pair-panel')).toBeVisible();
-    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
-
-    await sidebar.locator('.sidebar__item').filter({ hasText: '添加虚拟串口' }).click();
-    await expect(operationPanel.locator('.virtual-pair-panel')).toHaveCount(0);
-
-    await sidebar.locator('.sidebar__item').filter({ hasText: '添加串口桥接' }).click();
-    await expect(operationPanel.locator('.bridge-panel')).toBeVisible();
-    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
-
-    await sidebar.locator('.sidebar__item').filter({ hasText: '添加串口桥接' }).click();
-    await expect(operationPanel.locator('.bridge-panel')).toHaveCount(0);
-    await expect(mainArea.locator('.serial-view__empty')).toBeVisible();
+    const canvasBox = await canvas.boundingBox();
+    const workbenchBox = await workbench.boundingBox();
+    expect(canvasBox).not.toBeNull();
+    expect(workbenchBox).not.toBeNull();
+    expect(canvasBox!.height).toBeGreaterThanOrEqual(120);
+    expect(workbenchBox!.height).toBeGreaterThan(100);
   });
 
   test('should have proper layout dimensions', async ({ page }) => {
     await expect(page.locator('.serial-view__sidebar')).toHaveCount(0);
 
     const mainArea = page.locator('.serial-view__main');
+    await expect(mainArea).toBeVisible();
     const mainBox = await mainArea.boundingBox();
     expect(mainBox).toBeTruthy();
     expect(mainBox!.width).toBeGreaterThan(700);
@@ -81,10 +57,10 @@ test.describe('Functional Tests', () => {
     expect(borderColor).toBe('rgb(45, 45, 45)'); // #2d2d2d
   });
 
-  test('should have window control button safe area', async ({ page }) => {
-    const appShell = page.locator('.app-shell');
-    const paddingTop = await appShell.evaluate(el => getComputedStyle(el).paddingTop);
-    expect(paddingTop).toBe('50px');
+  test('should render titlebar without obsolete macOS padding shim', async ({ page }) => {
+    await expect(page.locator('.app-shell__titlebar')).toBeVisible();
+    const paddingTop = await page.locator('.app-shell').evaluate(el => getComputedStyle(el).paddingTop);
+    expect(paddingTop).toBe('0px');
   });
 
   test('should be responsive to window resize', async ({ page }) => {
@@ -102,16 +78,14 @@ test.describe('Functional Tests', () => {
     expect(sidebarBox?.width).toBeCloseTo(200, 5);
   });
 
-  test('should display all form fields', async ({ page }) => {
-    await openSidebarTab(page, '串口');
-    await expect(page.locator('.sidebar__item').filter({ hasText: '打开串口' })).toBeVisible();
-    await expect(page.locator('text=端口')).toBeVisible();
-    await expect(page.locator('text=波特率')).toBeVisible();
-    await expect(page.locator('text=数据位')).toBeVisible();
-    await expect(page.locator('text=停止位')).toBeVisible();
-    await expect(page.locator('text=校验')).toBeVisible();
-    await expect(page.locator('text=流控')).toBeVisible();
-
-    await expect(page.getByRole('button', { name: '刷新' })).toBeVisible();
+  test('should display serial node configuration fields after adding a serial node', async ({ page }) => {
+    await addGraphNode(page, 'serial.physical', 'node-1');
+    await expect(page.locator('[data-testid="serial-graph-node-content"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-config-portName"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-config-baudRate"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-config-dataBits"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-config-stopBits"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-config-parity"]')).toBeVisible();
+    await expect(page.locator('[data-testid="serial-graph-config-flowMode"]')).toBeVisible();
   });
 });

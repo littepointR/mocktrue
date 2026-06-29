@@ -70,6 +70,15 @@ func newFake(id string, deps ...string) *fakeModule {
 	return &fakeModule{id: id, deps: deps}
 }
 
+func mustRegister(t *testing.T, r *ModuleRegistry, modules ...Module) {
+	t.Helper()
+	for _, m := range modules {
+		if err := r.Register(m); err != nil {
+			t.Fatalf("Register(%q) failed: %v", m.ID(), err)
+		}
+	}
+}
+
 type registryWrappedService struct {
 	name string
 }
@@ -150,9 +159,7 @@ func TestInitAllRollsBackOnFailure(t *testing.T) {
 	b := newFake("b", "c")
 	b.initErr = errors.New("boom")
 	a := newFake("a", "b")
-	_ = r.Register(a)
-	_ = r.Register(b)
-	_ = r.Register(c)
+	mustRegister(t, r, a, b, c)
 
 	err := r.InitAll(context.Background(), Deps{})
 	if err == nil {
@@ -171,9 +178,7 @@ func TestStartAllRollsBackOnFailure(t *testing.T) {
 	b := newFake("b", "c")
 	b.startErr = errors.New("boom")
 	a := newFake("a", "b")
-	_ = r.Register(a)
-	_ = r.Register(b)
-	_ = r.Register(c)
+	mustRegister(t, r, a, b, c)
 
 	if err := r.InitAll(context.Background(), Deps{}); err != nil {
 		t.Fatalf("InitAll failed: %v", err)
@@ -194,9 +199,7 @@ func TestStopAllContinuesOnPartialFailure(t *testing.T) {
 	b := newFake("b", "c")
 	b.stopErr = errors.New("boom")
 	a := newFake("a", "b")
-	_ = r.Register(a)
-	_ = r.Register(b)
-	_ = r.Register(c)
+	mustRegister(t, r, a, b, c)
 
 	_ = r.InitAll(context.Background(), Deps{})
 	_ = r.StartAll(context.Background())

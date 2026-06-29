@@ -23,5 +23,6 @@ export type {
     SerialGraphSendRequest,
     SerialGraphStartRequest,
     VirtualPairInfo,
-    VirtualPortInfo
+    VirtualPortInfo,
+    VirtualSerialBackendStatus
 } from "./models.js";

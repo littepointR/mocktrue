@@ -24,9 +24,8 @@ test.describe('Settings demo picker', () => {
     await expect(page.getByTestId('serial-graph-name')).toHaveValue('远端串口演示')
 
     const canvas = page.getByTestId('serial-graph-canvas')
-    await expect(canvas).toContainText('发送器')
+    await expect(canvas).toContainText('脚本生成')
     await expect(canvas).toContainText('远端串口')
-    await expect(canvas).toContainText('接收器')
     await expect(canvas).toContainText('串口监控')
 
     const selectedNodeContent = page.getByTestId('serial-graph-node-content')

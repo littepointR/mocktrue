@@ -9,6 +9,9 @@ import * as monitor$0 from "./monitor/models.js";
 import * as port$0 from "./port/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as virtualserial$0 from "./virtualserial/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as time$0 from "../../../../../../time/models.js";
 
 /**
@@ -186,3 +189,9 @@ export interface VirtualPortInfo {
     "ID": string;
     "Port": string;
 }
+
+/**
+ * VirtualSerialBackendStatus describes the platform virtual serial backend
+ * currently used by the service.
+ */
+export type VirtualSerialBackendStatus = virtualserial$0.BackendStatus;

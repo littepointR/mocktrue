@@ -181,6 +181,14 @@ export function GetSerialGraphStatus(id: string): $CancellablePromise<$models.Se
 }
 
 /**
+ * GetVirtualSerialBackendStatus reports whether OS-backed virtual serial port
+ * creation is available on the current platform.
+ */
+export function GetVirtualSerialBackendStatus(): $CancellablePromise<$models.VirtualSerialBackendStatus> {
+    return $Call.ByID(4264230071);
+}
+
+/**
  * ListBridges returns all active bridges.
  */
 export function ListBridges(): $CancellablePromise<$models.BridgeInfo[] | null> {

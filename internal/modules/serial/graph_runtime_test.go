@@ -1931,16 +1931,13 @@ func TestSerialGraphRuntimeFecbusSlaveAutoResponds(t *testing.T) {
 }
 
 func TestSerialGraphRuntimeModbusMasterAutoSendsThroughVirtualPort(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping socat integration test in short mode")
-	}
 	svc := NewService(nil)
 	defer svc.cleanup()
 	graph, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
 		ID: "graph-modbus-auto-virtual",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.modbus.master", Config: graphModbusMasterConfig(map[string]any{"autoSend": true, "intervalMs": 10, "quantity": 2})},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("portweave-graph-modbus-auto-vp")},
+			{ID: "vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 		},
@@ -1951,7 +1948,7 @@ func TestSerialGraphRuntimeModbusMasterAutoSendsThroughVirtualPort(t *testing.T)
 		},
 	})
 	if err != nil {
-		t.Skipf("virtual serial unavailable: %v", err)
+		t.Fatalf("StartSerialGraph returned error: %v", err)
 	}
 
 	page := waitGraphBuffer(t, svc, graph.ID, "receiver", 9)
@@ -1972,16 +1969,13 @@ func TestSerialGraphRuntimeModbusMasterAutoSendsThroughVirtualPort(t *testing.T)
 }
 
 func TestSerialGraphRuntimeFecbusMasterAutoSendsThroughVirtualPort(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping socat integration test in short mode")
-	}
 	svc := NewService(nil)
 	defer svc.cleanup()
 	graph, err := svc.StartSerialGraph(context.Background(), SerialGraphStartRequest{
 		ID: "graph-fecbus-auto-virtual",
 		Nodes: []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig(map[string]any{"autoSend": true, "intervalMs": 10})},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig("portweave-graph-fecbus-auto-vp")},
+			{ID: "vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 		},
@@ -1992,7 +1986,7 @@ func TestSerialGraphRuntimeFecbusMasterAutoSendsThroughVirtualPort(t *testing.T)
 		},
 	})
 	if err != nil {
-		t.Skipf("virtual serial unavailable: %v", err)
+		t.Fatalf("StartSerialGraph returned error: %v", err)
 	}
 
 	page := waitGraphBuffer(t, svc, graph.ID, "receiver", 13)
@@ -2330,7 +2324,7 @@ func TestSerialGraphRuntimeDemoTopologiesStressAllDemos(t *testing.T) {
 			spec := demoLoadGraphStressCase(demoID, totalBytes)
 			graph, err := svc.StartSerialGraph(context.Background(), spec.Request)
 			if err != nil {
-				t.Skipf("virtual serial unavailable: %v", err)
+				t.Fatalf("StartSerialGraph returned error: %v", err)
 			}
 			stopped := false
 			defer func() {
@@ -2458,10 +2452,6 @@ func startTestGraph(t *testing.T, svc *Service, req SerialGraphStartRequest) *Se
 }
 
 func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase {
-	portToken := strings.NewReplacer("-", "_").Replace(demoID)
-	portName := func(name string) string {
-		return fmt.Sprintf("portweave-load-%s-%s-%d", portToken, name, time.Now().UnixNano())
-	}
 	request := func(nodes []SerialGraphNodeSpec, edges []SerialGraphEdgeSpec) SerialGraphStartRequest {
 		return SerialGraphStartRequest{ID: fmt.Sprintf("load-%s", demoID), Nodes: nodes, Edges: edges}
 	}
@@ -2485,7 +2475,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "serial-open-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("open"))},
+			{ID: "vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
@@ -2500,13 +2490,13 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "virtual-port-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "sensor-sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "sensor-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("sensor"))},
+			{ID: "sensor-vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "sensor-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "gateway-sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "gateway-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("gateway"))},
+			{ID: "gateway-vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "gateway-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "logger-sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "logger-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("logger"))},
+			{ID: "logger-vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "logger-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 		}
 		edges := []SerialGraphEdgeSpec{
@@ -2529,9 +2519,9 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "bridge-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "sender-a", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "vport-a", Type: "serial.virtual", Config: graphVirtualConfig(portName("bridge-a"))},
+			{ID: "vport-a", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "sender-b", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "vport-b", Type: "serial.virtual", Config: graphVirtualConfig(portName("bridge-b"))},
+			{ID: "vport-b", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "bridge", Type: "serial.bridge"},
 			{ID: "receiver-a", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "receiver-b", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
@@ -2555,7 +2545,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "monitor-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("monitor"))},
+			{ID: "vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 		}
@@ -2573,7 +2563,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "modbus-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("modbus"))},
+			{ID: "vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
@@ -2594,7 +2584,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "fecbus-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig()},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("fecbus"))},
+			{ID: "vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
@@ -2614,7 +2604,7 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "serial-graph-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("graph"))},
+			{ID: "vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "modbus", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
 			{ID: "monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
@@ -2634,23 +2624,23 @@ func demoLoadGraphStressCase(demoID string, totalBytes int) demoGraphStressCase 
 	case "full-workspace-demo":
 		nodes := []SerialGraphNodeSpec{
 			{ID: "main-sender", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "main-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("main"))},
+			{ID: "main-vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "main-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "main-monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 			{ID: "bridge-sender-a", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "bridge-vport-a", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-a"))},
+			{ID: "bridge-vport-a", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "bridge-sender-b", Type: "serial.virtual", Config: graphEndpointSourceConfig()},
-			{ID: "bridge-vport-b", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-b"))},
+			{ID: "bridge-vport-b", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "bridge", Type: "serial.bridge"},
 			{ID: "bridge-receiver-a", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "bridge-receiver-b", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "modbus-master", Type: "serial.modbus.master", Config: graphModbusMasterConfig()},
-			{ID: "modbus-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-modbus"))},
+			{ID: "modbus-vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "modbus-slave", Type: "serial.modbus.slave", Config: graphModbusSlaveConfig()},
 			{ID: "modbus-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 			{ID: "modbus-monitor", Type: "serial.monitor", Config: graphMonitorConfig()},
 			{ID: "fecbus-master", Type: "serial.fecbus.master", Config: graphFecbusMasterConfig()},
-			{ID: "fecbus-vport", Type: "serial.virtual", Config: graphVirtualConfig(portName("full-fecbus"))},
+			{ID: "fecbus-vport", Type: "serial.virtual", Config: graphInProcessVirtualConfig()},
 			{ID: "fecbus-slave", Type: "serial.fecbus.slave", Config: graphFecbusSlaveConfig()},
 			{ID: "fecbus-receiver", Type: "serial.virtual", Config: graphEndpointSinkConfig()},
 		}
@@ -3017,9 +3007,8 @@ func graphEndpointSourceConfig() map[string]any {
 	return map[string]any{"mode": "ascii", "encoding": "utf-8", "payload": "load", "autoSend": false, "intervalMs": 0}
 }
 
-func graphVirtualConfig(portName string) map[string]any {
+func graphInProcessVirtualConfig() map[string]any {
 	return map[string]any{
-		"portName":  portName,
 		"baudRate":  115200,
 		"dataBits":  8,
 		"stopBits":  "1",

@@ -108,8 +108,9 @@ describe('demoWorkspaces', () => {
     const secondGraph = activeGraph(second?.serial.graph)
     const firstVirtual = firstGraph.nodes.find(node => node.type === 'serial.virtual')
     const secondVirtual = secondGraph.nodes.find(node => node.type === 'serial.virtual')
-    expect(firstVirtual?.config.portName).toBeTruthy()
-    expect(firstVirtual?.config.portName).not.toBe(secondVirtual?.config.portName)
+    expect(firstGraph.id).not.toBe(secondGraph.id)
+    expect(firstVirtual?.config).toEqual(expect.not.objectContaining({ portName: expect.anything() }))
+    expect(secondVirtual?.config).toEqual(expect.not.objectContaining({ portName: expect.anything() }))
   })
 
   it('builds a full example from normal topology resources only', () => {
@@ -428,10 +429,7 @@ describe('demoWorkspaces', () => {
         )
         && Number(node.config.intervalMs) >= 10
       ))
-      const virtualPorts = graph.nodes.filter(node => (
-        node.type === 'serial.virtual'
-        && String(node.config.portName ?? '').trim().length > 0
-      ))
+      const virtualPorts = graph.nodes.filter(node => node.type === 'serial.virtual')
       const observableNodes = graph.nodes.filter(node => node.type === 'serial.virtual' || node.type === 'serial.monitor')
       const hasLoopingVirtualPath = autoNodes.some(sender => (
         virtualPorts.some(virtualPort => {
@@ -450,6 +448,7 @@ describe('demoWorkspaces', () => {
 
       expect(autoNodes.length, `${demo.id} auto nodes`).toBeGreaterThan(0)
       expect(virtualPorts.length, `${demo.id} virtual ports`).toBeGreaterThan(0)
+      expect(virtualPorts.every(node => String(node.config.portName ?? '').trim() === ''), `${demo.id} graph-only virtual ports`).toBe(true)
       expect(observableNodes.length, `${demo.id} observable nodes`).toBeGreaterThan(0)
       expect(hasLoopingVirtualPath, `${demo.id} auto node -> virtual -> observable path`).toBe(true)
     }
@@ -526,6 +525,7 @@ describe('demoWorkspaces', () => {
 
       expect(snapshot?.serial.virtualPorts, demo.id).toEqual([])
       expect(snapshot?.serial.bridges, demo.id).toEqual([])
+      expect(graphPortNames.size, `${demo.id} graph-owned virtual port names`).toBe(0)
       expect(duplicatedVirtualPorts, `${demo.id} virtual ports`).toEqual([])
       expect(duplicatedBridgePorts, `${demo.id} bridge ports`).toEqual([])
     }

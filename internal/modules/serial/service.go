@@ -49,6 +49,17 @@ func WithPortBackend(backend port.Backend) ServiceOption {
 	}
 }
 
+// WithVirtualBackend injects the OS-backed virtual serial backend used for
+// creating virtual pairs and user-facing virtual ports. A nil backend is
+// ignored so production defaults remain safe.
+func WithVirtualBackend(backend virtualserial.Backend) ServiceOption {
+	return func(s *Service) {
+		if backend != nil {
+			s.vmgr = virtualserial.NewManager(virtualserial.WithBackend(backend))
+		}
+	}
+}
+
 // NewService constructs a Service with the given event bus.
 func NewService(bus *eventbus.EventBus, options ...ServiceOption) *Service {
 	svc := &Service{}
@@ -137,10 +148,18 @@ func (s *Service) EnumeratePorts(ctx context.Context) ([]port.PortInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	seen := make(map[string]bool, len(ports))
+	for _, existing := range ports {
+		seen[existing.Name] = true
+	}
 	for _, pair := range s.ListVirtualPorts() {
+		if seen[pair.Port] {
+			continue
+		}
 		ports = append(ports,
 			port.PortInfo{Name: pair.Port, FriendlyName: pair.Port},
 		)
+		seen[pair.Port] = true
 	}
 	return ports, nil
 }
@@ -640,6 +659,25 @@ func (s *Service) bridgePortInUse(portName string) bool {
 	return false
 }
 
+func (s *Service) graphVirtualPortInUse(portName string) bool {
+	if portName == "" {
+		return false
+	}
+	s.mu.RLock()
+	graphs := make([]*serialGraphRuntime, 0, len(s.graphs))
+	for _, runtime := range s.graphs {
+		graphs = append(graphs, runtime)
+	}
+	s.mu.RUnlock()
+
+	for _, runtime := range graphs {
+		if runtime.ownsVirtualPortName(portName) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) cleanupAutoMonitorVirtual(monitorID string) error {
 	s.mu.RLock()
 	virtualID := s.autoMonitorVirtuals[monitorID]
@@ -721,6 +759,24 @@ type VirtualPairInfo struct {
 	Port2 string
 }
 
+// VirtualSerialBackendStatus describes the platform virtual serial backend
+// currently used by the service.
+type VirtualSerialBackendStatus = virtualserial.BackendStatus
+
+// GetVirtualSerialBackendStatus reports whether OS-backed virtual serial port
+// creation is available on the current platform.
+func (s *Service) GetVirtualSerialBackendStatus(ctx context.Context) VirtualSerialBackendStatus {
+	if s.vmgr == nil {
+		return virtualserial.BackendStatus{
+			Name:      "unsupported",
+			Available: false,
+			Message:   "virtual serial backend is not configured",
+			Reason:    "missing virtual serial manager",
+		}
+	}
+	return s.vmgr.BackendStatus(ctx)
+}
+
 // CreateVirtualPort creates a user-facing virtual serial port.
 func (s *Service) CreateVirtualPort(ctx context.Context, id, portName string) (*VirtualPortInfo, error) {
 	if id == "" {
@@ -750,6 +806,9 @@ func (s *Service) ListVirtualPorts() []VirtualPortInfo {
 	pairs := s.vmgr.ListPairs()
 	result := make([]VirtualPortInfo, 0, len(pairs))
 	for _, p := range pairs {
+		if !p.IsUserFacingPort() {
+			continue
+		}
 		result = append(result, VirtualPortInfo{
 			ID:   p.ID,
 			Port: p.Port1,

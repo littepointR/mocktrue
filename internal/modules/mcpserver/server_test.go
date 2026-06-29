@@ -1131,6 +1131,9 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 	if got := providerDefaults["serial.modbus.slave"]["unitIds"]; got != "1" {
 		t.Fatalf("serial.modbus.slave unitIds default = %#v, want 1", got)
 	}
+	if got := providerDefaults["serial.virtual"]["portName"]; got != "" {
+		t.Fatalf("serial.virtual portName default = %#v, want graph-only empty default", got)
+	}
 	if got := providerDefaults["serial.filter"]; !reflect.DeepEqual(got, map[string]any{
 		"mode":          "plain",
 		"expression":    "",

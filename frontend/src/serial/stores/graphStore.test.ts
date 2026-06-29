@@ -292,6 +292,9 @@ describe('serial graph store', () => {
 
     await expect(store.startRuntime()).rejects.toThrow('backend unavailable')
 
+    expect(store.runtimeStatus).toBe('error')
+    expect(store.runtimeError).toBe('backend unavailable')
+    expect(store.runtimeGraphId).toBeNull()
     expect(store.operationLogs).toEqual([
       expect.objectContaining({
         level: 'error',
@@ -878,10 +881,16 @@ describe('serial graph store', () => {
     await store.startRuntime()
     bindings.StopSerialGraph.mockRejectedValueOnce(new Error('stop denied'))
     await expect(store.stopRuntime()).rejects.toThrow('stop denied')
+    expect(store.runtimeStatus).toBe('running')
+    expect(store.runtimeGraphId).toBe('graph-1')
+    expect(store.runtimeError).toBe('stop denied')
     expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
       action: 'stop-error',
       details: 'stop denied',
     }))
+    await store.stopRuntime()
+    expect(bindings.StopSerialGraph).toHaveBeenLastCalledWith('graph-1')
+    expect(store.runtimeStatus).toBe('stopped')
 
     bindings.SendSerialGraphNode.mockRejectedValueOnce(new Error('send denied'))
     await expect(store.sendNode(sender.id, 'hello')).rejects.toThrow('send denied')

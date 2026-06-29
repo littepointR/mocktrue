@@ -5,9 +5,23 @@ import VirtualPairPanel from './VirtualPairPanel.vue'
 
 const virtualApi = vi.hoisted(() => {
   let ports: Array<{ ID: string; Port: string }> = []
+  let backendStatus = {
+    Name: 'fake',
+    Available: true,
+    Message: 'ready',
+    Reason: '',
+    RequiresAdmin: false,
+  }
   return {
-    reset(nextPorts: Array<{ ID: string; Port: string }> = []) {
+    reset(nextPorts: Array<{ ID: string; Port: string }> = [], nextStatus = {
+      Name: 'fake',
+      Available: true,
+      Message: 'ready',
+      Reason: '',
+      RequiresAdmin: false,
+    }) {
       ports = [...nextPorts]
+      backendStatus = { ...nextStatus }
     },
     CreateVirtualPort: vi.fn(async (id: string, portName: string) => {
       ports.push({ ID: id, Port: portName })
@@ -16,6 +30,7 @@ const virtualApi = vi.hoisted(() => {
       ports = ports.filter(port => port.ID !== id)
     }),
     ListVirtualPorts: vi.fn(async () => [...ports]),
+    GetVirtualSerialBackendStatus: vi.fn(async () => ({ ...backendStatus })),
     CreateBridge: vi.fn(),
     DeleteBridge: vi.fn(),
     ListBridges: vi.fn(async () => []),
@@ -37,7 +52,10 @@ describe('VirtualPairPanel', () => {
     const wrapper = mount(VirtualPairPanel)
     await flushPromises()
 
+    expect(virtualApi.GetVirtualSerialBackendStatus).toHaveBeenCalledTimes(1)
     expect(virtualApi.ListVirtualPorts).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('fake')
+    expect(wrapper.text()).toContain('ready')
     expect(wrapper.text()).toContain('已有虚拟串口 (1)')
     expect(wrapper.text()).toContain('vport-existing')
     expect(wrapper.text()).toContain('ttyV1')
@@ -62,6 +80,7 @@ describe('VirtualPairPanel', () => {
 
     await wrapper.findAll('button').find(button => button.text() === '刷新')?.trigger('click')
     await flushPromises()
+    expect(virtualApi.GetVirtualSerialBackendStatus).toHaveBeenCalledTimes(2)
     expect(virtualApi.ListVirtualPorts).toHaveBeenCalledTimes(2)
 
     await wrapper.find('[data-testid="confirm-delete"]').trigger('click')
@@ -79,12 +98,35 @@ describe('VirtualPairPanel', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).not.toContain('boom')
   })
+
+  it('shows unavailable backend status and disables creation', async () => {
+    virtualApi.reset([], {
+      Name: 'com0com',
+      Available: false,
+      Message: 'com0com setupc.exe was not found',
+      Reason: 'checked PORTWEAVE_COM0COM_SETUPC',
+      RequiresAdmin: true,
+    })
+    const wrapper = mount(VirtualPairPanel)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('com0com')
+    expect(wrapper.text()).toContain('com0com setupc.exe was not found')
+    expect(wrapper.text()).toContain('需要管理员权限')
+
+    const inputs = wrapper.findAll('input')
+    await inputs[0].setValue('vport-new')
+    await inputs[1].setValue('ttyNEW')
+    const createButton = wrapper.findAll('button').find(button => button.text() === '创建')
+    expect(createButton?.attributes('disabled')).toBeDefined()
+  })
 })
 
 const naiveStubs = vi.hoisted(() => ({
   NAlert: {
+    props: { closable: Boolean },
     emits: ['close'],
-    template: '<div role="alert"><slot /><button type="button" data-testid="alert-close" @click="$emit(\'close\')">close</button></div>',
+    template: '<div role="alert"><slot /><button v-if="closable" type="button" data-testid="alert-close" @click="$emit(\'close\')">close</button></div>',
   },
   NButton: {
     props: ['disabled', 'loading'],

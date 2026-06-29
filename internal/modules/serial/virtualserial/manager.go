@@ -2,10 +2,7 @@ package virtualserial
 
 import (
 	"context"
-	"fmt"
-	"os/exec"
 	"sync"
-	"time"
 
 	"github.com/littepointR/portweave/internal/core/errors"
 )
@@ -14,60 +11,73 @@ import (
 type Manager struct {
 	pairs   map[string]*VirtualPair // key: pairID
 	bridges map[string]*Bridge      // key: bridgeID
+	backend Backend
 	mu      sync.RWMutex
 }
 
+// ManagerOption customizes a virtual serial manager.
+type ManagerOption func(*Manager)
+
+// WithBackend injects the OS virtual serial backend. A nil backend is ignored.
+func WithBackend(backend Backend) ManagerOption {
+	return func(m *Manager) {
+		if backend != nil {
+			m.backend = backend
+		}
+	}
+}
+
 // NewManager creates a virtual serial manager.
-func NewManager() *Manager {
-	return &Manager{
+func NewManager(options ...ManagerOption) *Manager {
+	m := &Manager{
 		pairs:   make(map[string]*VirtualPair),
 		bridges: make(map[string]*Bridge),
 	}
+	for _, option := range options {
+		option(m)
+	}
+	if m.backend == nil {
+		m.backend = DefaultBackend()
+	}
+	return m
+}
+
+// BackendStatus returns the active virtual serial backend status.
+func (m *Manager) BackendStatus(ctx context.Context) BackendStatus {
+	m.mu.RLock()
+	backend := m.backend
+	m.mu.RUnlock()
+	if backend == nil {
+		backend = newUnsupportedBackend(
+			"unsupported",
+			"virtual serial backend is not configured",
+			"missing backend",
+		)
+	}
+	return backend.Status(ctx)
 }
 
 // CreatePair creates a new virtual serial pair with custom names.
 func (m *Manager) CreatePair(ctx context.Context, pairID, port1Name, port2Name string) (*VirtualPair, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_ = ctx
 
 	if _, exists := m.pairs[pairID]; exists {
 		return nil, errors.New(errors.CodeConflict, "pair ID already exists")
 	}
-
-	// Create socat command with custom port names
-	port1Path := fmt.Sprintf("/tmp/%s", port1Name)
-	port2Path := fmt.Sprintf("/tmp/%s", port2Name)
-
-	// Remove old symlinks if they exist
-	_ = exec.Command("rm", "-f", port1Path, port2Path).Run()
-
-	cmd := exec.Command("socat", "-d", "-d",
-		fmt.Sprintf("pty,raw,echo=0,link=%s", port1Path),
-		fmt.Sprintf("pty,raw,echo=0,link=%s", port2Path))
-
-	if err := cmd.Start(); err != nil {
-		return nil, errors.Wrap(errors.CodeIO, "start socat", err)
+	if m.backend == nil {
+		m.backend = DefaultBackend()
 	}
 
-	// Wait for symlinks to appear
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if fileExists(port1Path) && fileExists(port2Path) {
-			pair := &VirtualPair{
-				ID:    pairID,
-				Port1: port1Path,
-				Port2: port2Path,
-				cmd:   cmd,
-			}
-			m.pairs[pairID] = pair
-			return pair, nil
-		}
-		time.Sleep(50 * time.Millisecond)
+	pair, err := m.backend.CreatePair(ctx, pairID, port1Name, port2Name)
+	if err != nil {
+		return nil, err
 	}
-
-	_ = cmd.Process.Kill()
-	return nil, errors.New(errors.CodeIO, "timeout waiting for socat symlinks")
+	if pair == nil {
+		return nil, errors.New(errors.CodeInternal, "virtual serial backend returned nil pair")
+	}
+	m.pairs[pairID] = pair
+	return pair, nil
 }
 
 // DeletePair removes a virtual serial pair.
@@ -80,7 +90,9 @@ func (m *Manager) DeletePair(pairID string) error {
 		return errors.New(errors.CodeNotFound, "pair not found")
 	}
 
-	pair.Stop()
+	if err := pair.Stop(); err != nil {
+		return err
+	}
 	delete(m.pairs, pairID)
 	return nil
 }
@@ -91,11 +103,24 @@ func (m *Manager) CreatePort(ctx context.Context, portID, portName string) (*Vir
 	if portName == "" {
 		return nil, errors.New(errors.CodeInvalid, "port name must not be empty")
 	}
-	pair, err := m.CreatePair(ctx, portID, portName, portName+"-peer")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.pairs[portID]; exists {
+		return nil, errors.New(errors.CodeConflict, "pair ID already exists")
+	}
+	if m.backend == nil {
+		m.backend = DefaultBackend()
+	}
+	pair, err := m.backend.CreatePort(ctx, portID, portName)
 	if err != nil {
 		return nil, err
 	}
+	if pair == nil {
+		return nil, errors.New(errors.CodeInternal, "virtual serial backend returned nil pair")
+	}
 	pair.port2Hidden = true
+	m.pairs[portID] = pair
 	return pair, nil
 }
 
@@ -187,12 +212,7 @@ func (m *Manager) Cleanup() {
 	m.bridges = make(map[string]*Bridge)
 
 	for _, pair := range m.pairs {
-		pair.Stop()
+		_ = pair.Stop()
 	}
 	m.pairs = make(map[string]*VirtualPair)
-}
-
-func fileExists(path string) bool {
-	_, err := exec.Command("test", "-e", path).CombinedOutput()
-	return err == nil
 }

@@ -3,9 +3,9 @@ package port
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"time"
 
+	"github.com/littepointR/portweave/internal/modules/serial/virtualserial"
 	serial "go.bug.st/serial"
 )
 
@@ -79,50 +79,27 @@ func OpenForTest(portName string, baudRate int) (Port, error) {
 	return Open(SerialConfig{PortName: portName, BaudRate: baudRate})
 }
 
-// VirtualPair holds the two ends of a socat-created virtual serial pair.
+// VirtualPair holds the two ends of an OS-backed virtual serial pair.
 type VirtualPair struct {
-	Port1 string
-	Port2 string
-	cmd   *exec.Cmd
+	Port1  string
+	Port2  string
+	handle *virtualserial.VirtualPair
 }
 
-// StartVirtualPair creates a socat virtual serial pair. Returns the two port
-// paths. Caller must call Stop() when done.
+// StartVirtualPair creates an OS-backed virtual serial pair. Returns the two
+// port names. Caller must call Stop() when done.
 func StartVirtualPair(ctx context.Context) (*VirtualPair, error) {
-	// Remove old symlinks if they exist
-	_ = exec.Command("rm", "-f", "/tmp/ttyV0", "/tmp/ttyV1").Run()
-
-	cmd := exec.CommandContext(ctx, "socat", "-d", "-d",
-		"pty,raw,echo=0,link=/tmp/ttyV0",
-		"pty,raw,echo=0,link=/tmp/ttyV1")
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("socat start failed: %w", err)
+	pair, err := virtualserial.NewVirtualPair(ctx)
+	if err != nil {
+		return nil, err
 	}
-
-	// Wait for symlinks to appear
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := exec.Command("test", "-e", "/tmp/ttyV0").CombinedOutput(); err == nil {
-			if _, err := exec.Command("test", "-e", "/tmp/ttyV1").CombinedOutput(); err == nil {
-				return &VirtualPair{
-					Port1: "/tmp/ttyV0",
-					Port2: "/tmp/ttyV1",
-					cmd:   cmd,
-				}, nil
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	_ = cmd.Process.Kill()
-	return nil, fmt.Errorf("timeout waiting for socat symlinks to appear")
+	return &VirtualPair{Port1: pair.Port1, Port2: pair.Port2, handle: pair}, nil
 }
 
-// Stop kills the socat process and cleans up.
+// Stop releases the virtual serial pair resources.
 func (vp *VirtualPair) Stop() {
-	if vp.cmd != nil && vp.cmd.Process != nil {
-		_ = vp.cmd.Process.Kill()
-		_ = vp.cmd.Wait()
+	if vp.handle != nil {
+		_ = vp.handle.Stop()
 	}
 }
 

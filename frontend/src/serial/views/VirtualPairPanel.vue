@@ -13,11 +13,13 @@ const newPortName = ref('')
 const loading = ref(false)
 
 onMounted(() => {
+  store.refreshBackendStatus()
   store.refreshVirtualPorts()
 })
 
 async function handleCreateVirtualPort() {
   if (!newPortId.value || !newPortName.value) return
+  if (store.backendStatus && !store.backendStatus.Available) return
 
   loading.value = true
   try {
@@ -38,14 +40,34 @@ function generateDefaultId() {
   newPortId.value = `vport-${timestamp}`
   newPortName.value = `tty${timestamp}`
 }
+
+function refreshPanel() {
+  store.refreshBackendStatus()
+  store.refreshVirtualPorts()
+}
 </script>
 
 <template>
   <div class="virtual-pair-panel">
     <div class="panel-header">
       <h3>虚拟串口</h3>
-      <NButton size="small" @click="store.refreshVirtualPorts()">刷新</NButton>
+      <NButton size="small" @click="refreshPanel">刷新</NButton>
     </div>
+
+    <NAlert
+      v-if="store.backendStatus"
+      :type="store.backendStatus.Available ? 'success' : 'warning'"
+      style="margin: 8px 0"
+    >
+      <div class="backend-status">
+        <span>{{ store.backendStatus.Name }}</span>
+        <span>{{ store.backendStatus.Message }}</span>
+        <span v-if="store.backendStatus.RequiresAdmin">需要管理员权限</span>
+      </div>
+      <div v-if="store.backendStatus.Reason" class="backend-reason">
+        {{ store.backendStatus.Reason }}
+      </div>
+    </NAlert>
 
     <NAlert v-if="store.error" type="error" closable @close="store.clearError()" style="margin: 8px 0">
       {{ store.error }}
@@ -65,7 +87,7 @@ function generateDefaultId() {
             type="primary"
             size="small"
             :loading="loading"
-            :disabled="!newPortId || !newPortName"
+            :disabled="!newPortId || !newPortName || Boolean(store.backendStatus && !store.backendStatus.Available)"
             @click="handleCreateVirtualPort"
           >
             创建
@@ -143,5 +165,17 @@ function generateDefaultId() {
   padding: 2px 6px;
   border-radius: 3px;
   border: 1px solid #2d2d2d;
+}
+.backend-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.backend-reason {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #858585;
+  word-break: break-word;
 }
 </style>

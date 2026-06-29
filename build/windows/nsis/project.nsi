@@ -93,6 +93,14 @@ Section
     
     !insertmacro wails.files
 
+    !if /FileExists "..\com0com\resources\setupc.exe"
+        DetailPrint "Installing bundled com0com resources"
+        SetOutPath "$INSTDIR\com0com"
+        File /r "..\com0com\resources\*.*"
+    !else
+        DetailPrint "No bundled com0com resources found; skipping"
+    !endif
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 

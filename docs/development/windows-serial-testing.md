@@ -36,6 +36,28 @@ go test -tags integration ./tests/go/integration -run TestWindowsVirtualCOMPairR
 
 If the environment variables are not set, the test skips. This test is intentionally opt-in because com0com may require administrator privileges, driver installation, and machine-specific setup.
 
+## Optional bundled com0com resources
+
+Windows NSIS packages can include com0com installation resources without committing third-party binaries to the repository. Before packaging, place `setupc.exe` and any required driver files under:
+
+```text
+build/windows/com0com/resources/
+```
+
+When `build/windows/com0com/resources/setupc.exe` exists, the NSIS installer copies the full `resources` directory contents to:
+
+```text
+$INSTDIR\com0com
+```
+
+At runtime, PortWeave looks for `setupc.exe` in the installed `com0com` directory first. Development builds can override the lookup with:
+
+```powershell
+$env:PORTWEAVE_COM0COM_SETUPC = "C:\path\to\setupc.exe"
+```
+
+Installing or changing com0com virtual port pairs normally requires an elevated process because the driver and device configuration are machine-level resources. If no bundled `setupc.exe` is installed and `PORTWEAVE_COM0COM_SETUPC` is not set, the application reports com0com support as unavailable instead of attempting installation.
+
 ## POSIX virtual serial tests
 
 macOS/Linux socat-backed integration tests are compiled only with:

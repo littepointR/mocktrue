@@ -171,10 +171,11 @@ Visual templates return a summarized config including `header_hex`, optional len
 ```json
 {
   "id": "serial-observability-filter-logging",
-  "graph_id": "serial-observability-mcp-demo",
-  "port_name": "portweave-mcp-demo"
+  "graph_id": "serial-observability-mcp-demo"
 }
 ```
+
+Leave `port_name` omitted or empty for an in-graph no-hardware virtual endpoint; set it only when you intentionally want an OS-backed virtual serial port.
 
 2. Call `serial_graph_validate` with the returned `nodes` and `edges`.
 3. Call `serial_graph_start` with the returned start arguments.

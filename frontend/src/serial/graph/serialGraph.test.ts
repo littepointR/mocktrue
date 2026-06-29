@@ -83,6 +83,14 @@ describe('serial graph model', () => {
     expect(state.graphs[0].edges).toEqual([])
   })
 
+  it('defaults virtual serial nodes to graph-only endpoints', () => {
+    const provider = serialGraphProviders.find(item => item.type === 'serial.virtual')
+    const virtual = createSerialGraphNode('virtual', 'serial.virtual', { x: 0, y: 0 })
+
+    expect(provider?.defaultConfig.portName).toBe('')
+    expect(virtual.config).toEqual(expect.objectContaining({ portName: '' }))
+  })
+
   it('does not expose legacy serial monitor mode configuration', () => {
     const provider = serialGraphProviders.find(item => item.type === 'serial.monitor')
     const monitor = createSerialGraphNode('monitor', 'serial.monitor', { x: 0, y: 0 })

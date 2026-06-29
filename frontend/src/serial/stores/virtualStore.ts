@@ -4,6 +4,7 @@ import {
   CreateVirtualPort,
   DeleteVirtualPort,
   ListVirtualPorts,
+  GetVirtualSerialBackendStatus,
   CreateBridge,
   DeleteBridge,
   ListBridges,
@@ -22,13 +23,36 @@ export interface Bridge {
   BaudRate: number
 }
 
+export interface VirtualSerialBackendStatus {
+  Name: string
+  Available: boolean
+  Message: string
+  Reason: string
+  RequiresAdmin: boolean
+}
+
 export const useVirtualStore = defineStore('virtual', () => {
   // State
   const virtualPorts = ref<VirtualPort[]>([])
   const bridges = ref<Bridge[]>([])
+  const backendStatus = ref<VirtualSerialBackendStatus | null>(null)
   const error = ref<string | null>(null)
 
   // Actions
+  async function refreshBackendStatus() {
+    try {
+      backendStatus.value = await GetVirtualSerialBackendStatus() as VirtualSerialBackendStatus
+    } catch (e: any) {
+      backendStatus.value = {
+        Name: 'unknown',
+        Available: false,
+        Message: e?.message ?? 'Failed to query virtual serial backend',
+        Reason: '',
+        RequiresAdmin: false,
+      }
+    }
+  }
+
   async function refreshVirtualPorts() {
     try {
       const list = await ListVirtualPorts()
@@ -112,7 +136,9 @@ export const useVirtualStore = defineStore('virtual', () => {
   return {
     virtualPorts,
     bridges,
+    backendStatus,
     error,
+    refreshBackendStatus,
     refreshVirtualPorts,
     refreshBridges,
     createVirtualPort,

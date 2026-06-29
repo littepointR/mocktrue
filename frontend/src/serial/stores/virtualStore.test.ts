@@ -6,6 +6,7 @@ const bindings = vi.hoisted(() => ({
   CreateVirtualPort: vi.fn(),
   DeleteVirtualPort: vi.fn(),
   ListVirtualPorts: vi.fn(),
+  GetVirtualSerialBackendStatus: vi.fn(),
   CreateBridge: vi.fn(),
   DeleteBridge: vi.fn(),
   ListBridges: vi.fn(),
@@ -20,6 +21,13 @@ describe('virtual store', () => {
     vi.clearAllMocks()
     bindings.ListVirtualPorts.mockResolvedValue([])
     bindings.ListBridges.mockResolvedValue([])
+    bindings.GetVirtualSerialBackendStatus.mockResolvedValue({
+      Name: 'fake',
+      Available: true,
+      Message: 'ready',
+      Reason: '',
+      RequiresAdmin: false,
+    })
     bindings.CreateVirtualPort.mockResolvedValue(undefined)
     bindings.DeleteVirtualPort.mockResolvedValue(undefined)
     bindings.CreateBridge.mockResolvedValue(undefined)
@@ -39,6 +47,36 @@ describe('virtual store', () => {
     expect(store.virtualPorts).toEqual([])
     expect(store.bridges).toEqual([])
     expect(store.error).toBeNull()
+  })
+
+  it('refreshes backend status and stores fallback errors', async () => {
+    bindings.GetVirtualSerialBackendStatus.mockResolvedValueOnce({
+      Name: 'com0com',
+      Available: false,
+      Message: 'missing',
+      Reason: 'not installed',
+      RequiresAdmin: true,
+    })
+    const store = useVirtualStore()
+
+    await store.refreshBackendStatus()
+    expect(store.backendStatus).toEqual({
+      Name: 'com0com',
+      Available: false,
+      Message: 'missing',
+      Reason: 'not installed',
+      RequiresAdmin: true,
+    })
+
+    bindings.GetVirtualSerialBackendStatus.mockRejectedValueOnce(new Error('offline'))
+    await store.refreshBackendStatus()
+    expect(store.backendStatus).toEqual({
+      Name: 'unknown',
+      Available: false,
+      Message: 'offline',
+      Reason: '',
+      RequiresAdmin: false,
+    })
   })
 
   it('creates and deletes virtual ports while refreshing cached state', async () => {

@@ -2,68 +2,49 @@ package virtualserial
 
 import (
 	"context"
-	"os/exec"
 	"sync"
-	"time"
-
-	"github.com/littepointR/portweave/internal/core/errors"
 )
 
-// VirtualPair holds the two ends of a socat-created virtual serial pair.
+// VirtualPair holds the two ends of an OS-backed virtual serial pair.
 type VirtualPair struct {
 	ID          string
 	Port1       string
 	Port2       string
 	port2Hidden bool
-	cmd         *exec.Cmd
+	handle      pairHandle
 	mu          sync.Mutex
+	stopped     bool
 }
 
-// NewVirtualPair creates a socat virtual serial pair. Returns the two port
-// paths. Caller must call Stop() when done.
+// NewVirtualPair creates a default virtual serial pair. Caller must call Stop()
+// when done.
 func NewVirtualPair(ctx context.Context) (*VirtualPair, error) {
-	// Remove old symlinks if they exist
-	_ = exec.Command("rm", "-f", "/tmp/ttyV0", "/tmp/ttyV1").Run()
-
-	cmd := exec.CommandContext(ctx, "socat", "-d", "-d",
-		"pty,raw,echo=0,link=/tmp/ttyV0",
-		"pty,raw,echo=0,link=/tmp/ttyV1")
-	if err := cmd.Start(); err != nil {
-		return nil, errors.Wrap(errors.CodeIO, "start socat", err)
-	}
-
-	// Wait for symlinks to appear
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := exec.Command("test", "-e", "/tmp/ttyV0").CombinedOutput(); err == nil {
-			if _, err := exec.Command("test", "-e", "/tmp/ttyV1").CombinedOutput(); err == nil {
-				return &VirtualPair{
-					ID:    "default",
-					Port1: "/tmp/ttyV0",
-					Port2: "/tmp/ttyV1",
-					cmd:   cmd,
-				}, nil
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	_ = cmd.Process.Kill()
-	return nil, errors.New(errors.CodeIO, "timeout waiting for socat symlinks to appear")
+	return DefaultBackend().CreatePair(ctx, "default", "ttyV0", "ttyV1")
 }
 
-// Stop kills the socat process and cleans up.
-func (vp *VirtualPair) Stop() {
+// Stop releases the OS resources backing the pair.
+func (vp *VirtualPair) Stop() error {
 	vp.mu.Lock()
 	defer vp.mu.Unlock()
-	if vp.cmd != nil && vp.cmd.Process != nil {
-		_ = vp.cmd.Process.Kill()
-		_ = vp.cmd.Wait()
+	if vp.stopped {
+		return nil
 	}
-	_ = exec.Command("rm", "-f", vp.Port1, vp.Port2).Run()
+	if vp.handle != nil {
+		if err := vp.handle.Stop(); err != nil {
+			return err
+		}
+	}
+	vp.stopped = true
+	return nil
 }
 
 // PortNames returns the two port paths.
 func (vp *VirtualPair) PortNames() (string, string) {
 	return vp.Port1, vp.Port2
+}
+
+// IsUserFacingPort reports whether this pair represents a single public
+// virtual port backed by a hidden peer.
+func (vp *VirtualPair) IsUserFacingPort() bool {
+	return vp.port2Hidden
 }

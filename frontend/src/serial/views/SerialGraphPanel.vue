@@ -280,15 +280,26 @@ function updateScript(value: string) {
 async function startRuntime() {
   const graphId = panelGraphDocumentId()
   if (!graphId) return
-  await store.startRuntimeForGraph(graphId)
-  startRuntimePolling()
+  try {
+    await store.startRuntimeForGraph(graphId)
+    startRuntimePolling()
+  } catch {
+    stopRuntimePolling()
+  }
 }
 
 async function stopRuntime() {
   const graphId = panelGraphDocumentId()
   if (!graphId) return
   stopRuntimePolling()
-  await store.stopRuntimeForGraph(graphId)
+  try {
+    await store.stopRuntimeForGraph(graphId)
+  } catch {
+    // The store records the error state and operation log for the UI.
+    if (runtimeRunning.value) {
+      startRuntimePolling()
+    }
+  }
 }
 
 function setGraphViewMode(mode: GraphViewMode) {
@@ -1218,6 +1229,14 @@ onUnmounted(() => {
           {{ panelRuntime.runtimeStatus }}
         </span>
         <span
+          v-if="panelRuntime.runtimeError"
+          class="serial-graph__runtime-error"
+          data-testid="serial-graph-runtime-error"
+          :title="panelRuntime.runtimeError"
+        >
+          {{ panelRuntime.runtimeError }}
+        </span>
+        <span
           class="serial-graph__validation"
           :class="{ 'serial-graph__validation--error': panelValidation.errors.length > 0 }"
         >
@@ -2066,6 +2085,13 @@ onUnmounted(() => {
 }
 .serial-graph__runtime--error {
   color: var(--app-danger, #f85149);
+}
+.serial-graph__runtime-error {
+  max-width: min(420px, 35vw);
+  overflow: hidden;
+  color: var(--app-danger, #f85149);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .serial-graph__validation {
   margin-left: auto;

@@ -62,10 +62,10 @@ Rules:
 - Inputs: `tx` (`bytes`).
 - Outputs: `rx` (`bytes`).
 - Resource owner: yes, resource key `portName`.
-- Key config defaults: same serial defaults as `serial.physical`, with `portName = portweave-vport` before demos override it.
-- Runtime observations: generated endpoint/resource, buffer, counters, status.
+- Key config defaults: same serial defaults as `serial.physical`. Leave `portName` empty for an in-graph endpoint, or set it to create an OS-backed virtual serial port when the platform supports one.
+- Runtime observations: endpoint/resource when external, buffer, counters, status.
 - Recommended demos: `serial-open-demo`, `virtual-port-demo`, `serial-observability-demo`, `full-workspace-demo`.
-- Common mistakes: reusing the same `portName` in one graph or expecting demo snapshots to pre-create OS virtual ports before runtime start.
+- Common mistakes: reusing the same non-empty `portName` in one graph or expecting demo snapshots to pre-create OS virtual ports before runtime start.
 
 ### `serial.remote`
 

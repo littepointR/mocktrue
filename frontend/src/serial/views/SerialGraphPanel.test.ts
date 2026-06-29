@@ -140,6 +140,30 @@ describe('SerialGraphPanel', () => {
     wrapper.unmount()
   })
 
+  it('shows start failures without bubbling native click errors', async () => {
+    const store = useSerialGraphStore()
+    addVirtual(store)
+    const startError = new Error('io: start graph virtual node vport: start socat: executable file not found')
+    bindings.StartSerialGraph.mockRejectedValueOnce(startError)
+    bindings.GetSerialGraphStatus.mockClear()
+    const wrapper = mount(SerialGraphPanel)
+
+    await expect(wrapper.find('[data-testid="serial-graph-start"]').trigger('click')).resolves.toBeUndefined()
+    await flushPromises()
+
+    expect(store.runtimeStatus).toBe('error')
+    expect(store.runtimeError).toBe(startError.message)
+    expect(wrapper.find('[data-testid="serial-graph-runtime-status"]').text()).toBe('error')
+    expect(wrapper.find('[data-testid="serial-graph-runtime-error"]').text()).toContain('start socat')
+    expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
+      action: 'start-error',
+      details: startError.message,
+    }))
+    expect(bindings.GetSerialGraphStatus).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
   it('shows selected node docs help that points to the current node catalog anchor', async () => {
     const store = useSerialGraphStore()
     const remote = store.addNode('serial.remote')
@@ -1650,6 +1674,31 @@ describe('SerialGraphPanel', () => {
     expect(bindings.ResetSerialGraphNodeCounters).toHaveBeenCalledWith('graph-1', receiver.id)
     expect(bindings.StopSerialGraph).toHaveBeenCalledWith('graph-1')
     expect(wrapper.find('[data-testid="serial-graph-runtime-status"]').text()).toBe('stopped')
+  })
+
+  it('keeps stop retry available when backend stop fails', async () => {
+    const store = useSerialGraphStore()
+    addVirtual(store)
+    bindings.StopSerialGraph.mockRejectedValueOnce(new Error('stop denied'))
+    const wrapper = mount(SerialGraphPanel)
+
+    await wrapper.find('[data-testid="serial-graph-start"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="serial-graph-stop"]').trigger('click')
+    await flushPromises()
+
+    expect(store.runtimeStatus).toBe('running')
+    expect(store.operationLogs.at(-1)).toEqual(expect.objectContaining({
+      action: 'stop-error',
+      details: 'stop denied',
+    }))
+    const stopButton = wrapper.find('[data-testid="serial-graph-stop"]')
+    expect(stopButton.attributes('disabled')).toBeUndefined()
+
+    await stopButton.trigger('click')
+    await flushPromises()
+    expect(bindings.StopSerialGraph).toHaveBeenCalledTimes(2)
+    expect(store.runtimeStatus).toBe('stopped')
   })
 
   it('drags node cards, clears canvas selection, and deletes nodes from card controls', async () => {

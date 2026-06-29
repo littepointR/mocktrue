@@ -38,7 +38,7 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'virtual-port-demo',
     title: '虚拟串口演示',
-    description: '展示多个自动创建的单端虚拟串口，适合验证虚拟串口资源管理。',
+    description: '展示多个图内虚拟串口端点，适合无硬件验证字节流。',
     difficulty: 'beginner',
     tags: ['serial', 'virtual-port', 'resources'],
     requiresHardware: false,
@@ -58,7 +58,7 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
   {
     id: 'monitor-demo',
     title: '串口监控演示',
-    description: '展示串口监听操作和可监听的虚拟串口配置。',
+    description: '展示串口监听操作和图内虚拟串口端点。',
     difficulty: 'beginner',
     tags: ['serial', 'monitor', 'virtual-port'],
     requiresHardware: false,
@@ -171,8 +171,7 @@ function demoMetadata(demo: DemoWorkspaceDefinition): DemoWorkspace {
 
 function createSerialOpenDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `portweave-demo-open-${suffix}`
-  const graph = serialOpenGraphState(suffix, `${portName}-graph`)
+  const graph = serialOpenGraphState(suffix)
 
   return snapshot({
     graph,
@@ -182,8 +181,7 @@ function createSerialOpenDemo(): WorkspaceSnapshot {
 
 function createVirtualPortDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portNames = ['sensor', 'gateway', 'logger'].map(name => `portweave-demo-${name}-${suffix}`)
-  const graph = virtualPortGraphState(suffix, portNames)
+  const graph = virtualPortGraphState(suffix)
 
   return snapshot({
     graph,
@@ -193,9 +191,7 @@ function createVirtualPortDemo(): WorkspaceSnapshot {
 
 function createBridgeDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portA = `portweave-demo-bridge-a-${suffix}`
-  const portB = `portweave-demo-bridge-b-${suffix}`
-  const graph = bridgeGraphState(suffix, portA, portB)
+  const graph = bridgeGraphState(suffix)
 
   return snapshot({
     graph,
@@ -205,8 +201,7 @@ function createBridgeDemo(): WorkspaceSnapshot {
 
 function createMonitorDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const sourcePort = `portweave-demo-monitor-${suffix}`
-  const graph = monitorGraphState(suffix, `${sourcePort}-graph`)
+  const graph = monitorGraphState(suffix)
 
   return snapshot({
     graph,
@@ -216,8 +211,7 @@ function createMonitorDemo(): WorkspaceSnapshot {
 
 function createScriptTransformDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `portweave-demo-script-transform-${suffix}`
-  const graph = scriptTransformGraphState(suffix, portName)
+  const graph = scriptTransformGraphState(suffix)
 
   return snapshot({
     graph,
@@ -227,8 +221,7 @@ function createScriptTransformDemo(): WorkspaceSnapshot {
 
 function createScriptAnalyzerDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `portweave-demo-script-analyzer-${suffix}`
-  const graph = scriptAnalyzerGraphState(suffix, portName)
+  const graph = scriptAnalyzerGraphState(suffix)
 
   return snapshot({
     graph,
@@ -238,8 +231,7 @@ function createScriptAnalyzerDemo(): WorkspaceSnapshot {
 
 function createModbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const requestPort = `portweave-demo-modbus-${suffix}`
-  const graph = modbusGraphState(suffix, requestPort)
+  const graph = modbusGraphState(suffix)
 
   return snapshot({
     graph,
@@ -249,8 +241,7 @@ function createModbusDemo(): WorkspaceSnapshot {
 
 function createFecbusDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const requestPort = `portweave-demo-fecbus-${suffix}`
-  const graph = fecbusGraphState(suffix, requestPort)
+  const graph = fecbusGraphState(suffix)
 
   return snapshot({
     graph,
@@ -260,8 +251,7 @@ function createFecbusDemo(): WorkspaceSnapshot {
 
 function createSerialGraphDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `portweave-demo-graph-${suffix}`
-  const graph = serialGraphState(suffix, portName)
+  const graph = serialGraphState(suffix)
 
   return snapshot({
     graph,
@@ -271,8 +261,7 @@ function createSerialGraphDemo(): WorkspaceSnapshot {
 
 function createSerialObservabilityDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const portName = `portweave-demo-observability-${suffix}`
-  const graph = serialObservabilityGraphState(suffix, portName)
+  const graph = serialObservabilityGraphState(suffix)
 
   return snapshot({
     graph,
@@ -292,13 +281,7 @@ function createRemoteSerialDemo(): WorkspaceSnapshot {
 
 function createFullWorkspaceDemo(): WorkspaceSnapshot {
   const suffix = nextDemoSuffix()
-  const terminalPort = `portweave-demo-terminal-${suffix}`
-  const bridgePortA = `portweave-demo-full-a-${suffix}`
-  const bridgePortB = `portweave-demo-full-b-${suffix}`
-  const scriptPort = `portweave-demo-full-script-${suffix}`
-  const modbusPort = `portweave-demo-full-modbus-${suffix}`
-  const fecbusPort = `portweave-demo-full-fecbus-${suffix}`
-  const graph = fullWorkspaceGraphState(suffix, terminalPort, bridgePortA, bridgePortB, scriptPort, modbusPort, fecbusPort)
+  const graph = fullWorkspaceGraphState(suffix)
 
   return snapshot({
     settings: {
@@ -571,11 +554,11 @@ function graphTabId(id: string): string {
   return `graph:${id}`
 }
 
-function serialGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+function serialGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-vport-${suffix}`
   const nodes: SerialGraphNode[] = [
     graphNode(suffix, 'generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`PortWeave graph ${suffix}\r\n`)),
-    graphNode(suffix, 'vport', 'serial.virtual', 264, 32, virtualConfig(portName)),
+    graphNode(suffix, 'vport', 'serial.virtual', 264, 32, virtualEndpointConfig()),
     graphNode(suffix, 'modbus', 'serial.modbus.master', 528, 168, modbusMasterConfig()),
     graphNode(suffix, 'monitor', 'serial.monitor', 528, 304, monitorConfig()),
   ]
@@ -587,11 +570,11 @@ function serialGraphState(suffix: string, portName: string): SerialGraphWorkspac
   ], selectedNodeId)
 }
 
-function serialObservabilityGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+function serialObservabilityGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-observability-monitor-expression-${suffix}`
   const nodes: SerialGraphNode[] = [
     graphNode(suffix, 'observability-generator', 'serial.script.generator', 32, 168, scriptGeneratorConfig('TEMP=42 STATUS OK\r\n')),
-    graphNode(suffix, 'observability-vport', 'serial.virtual', 280, 168, virtualConfig(portName)),
+    graphNode(suffix, 'observability-vport', 'serial.virtual', 280, 168, virtualEndpointConfig()),
     graphNode(suffix, 'observability-filter-plain', 'serial.filter', 528, 32, filterConfig('plain', 'STATUS OK')),
     graphNode(suffix, 'observability-filter-regex', 'serial.filter', 528, 168, filterConfig('regex', /TEMP=\d+/.source)),
     graphNode(suffix, 'observability-filter-expression', 'serial.filter', 528, 304, filterConfig('expression', 'len >= 4 and text contains "OK"')),
@@ -629,11 +612,11 @@ function remoteSerialGraphState(suffix: string): SerialGraphWorkspaceState {
   ], serverId)
 }
 
-function serialOpenGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+function serialOpenGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-open-vport-${suffix}`
   const nodes = [
     graphNode(suffix, 'open-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`open demo ${suffix}\r\n`)),
-    graphNode(suffix, 'open-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'open-vport', 'serial.virtual', 280, 32, virtualEndpointConfig()),
   ]
 
   return graphState(suffix, '串口收发演示', nodes, [
@@ -641,17 +624,18 @@ function serialOpenGraphState(suffix: string, portName: string): SerialGraphWork
   ], selectedNodeId)
 }
 
-function virtualPortGraphState(suffix: string, portNames: string[]): SerialGraphWorkspaceState {
+function virtualPortGraphState(suffix: string): SerialGraphWorkspaceState {
   const nodes: SerialGraphNode[] = []
   const edges: SerialGraphEdge[] = []
-  portNames.forEach((portName, index) => {
+  const branches = ['sensor', 'gateway', 'logger']
+  branches.forEach((_name, index) => {
     const y = 32 + index * 136
     const key = `vport-${index + 1}`
     const generatorId = `graph-${key}-generator-${suffix}`
     const vportId = `graph-${key}-port-${suffix}`
     nodes.push(
       graphNode(suffix, `${key}-generator`, 'serial.script.generator', 32, y, scriptGeneratorConfig(`virtual ${index + 1} ${suffix}\r\n`)),
-      graphNode(suffix, `${key}-port`, 'serial.virtual', 280, y, virtualConfig(portName)),
+      graphNode(suffix, `${key}-port`, 'serial.virtual', 280, y, virtualEndpointConfig()),
     )
     edges.push(
       graphEdge(suffix, `${key}-generator-port`, generatorId, 'out', vportId, 'tx')
@@ -661,13 +645,13 @@ function virtualPortGraphState(suffix: string, portNames: string[]): SerialGraph
   return graphState(suffix, '虚拟串口演示', nodes, edges, `graph-vport-1-port-${suffix}`)
 }
 
-function bridgeGraphState(suffix: string, portA: string, portB: string): SerialGraphWorkspaceState {
+function bridgeGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-bridge-${suffix}`
   const nodes = [
     graphNode(suffix, 'bridge-generator-a', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`bridge A ${suffix}\r\n`)),
-    graphNode(suffix, 'bridge-vport-a', 'serial.virtual', 280, 32, virtualConfig(portA)),
+    graphNode(suffix, 'bridge-vport-a', 'serial.virtual', 280, 32, virtualEndpointConfig()),
     graphNode(suffix, 'bridge-generator-b', 'serial.script.generator', 32, 200, scriptGeneratorConfig(`bridge B ${suffix}\r\n`)),
-    graphNode(suffix, 'bridge-vport-b', 'serial.virtual', 280, 200, virtualConfig(portB)),
+    graphNode(suffix, 'bridge-vport-b', 'serial.virtual', 280, 200, virtualEndpointConfig()),
     graphNode(suffix, 'bridge', 'serial.bridge', 528, 116),
     graphNode(suffix, 'bridge-monitor-a', 'serial.monitor', 776, 32, monitorConfig()),
     graphNode(suffix, 'bridge-monitor-b', 'serial.monitor', 776, 200, monitorConfig()),
@@ -683,11 +667,11 @@ function bridgeGraphState(suffix: string, portA: string, portB: string): SerialG
   ], selectedNodeId)
 }
 
-function monitorGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+function monitorGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-monitor-${suffix}`
   const nodes = [
     graphNode(suffix, 'monitor-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`monitor demo ${suffix}\r\n`)),
-    graphNode(suffix, 'monitor-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'monitor-vport', 'serial.virtual', 280, 32, virtualEndpointConfig()),
     graphNode(suffix, 'monitor', 'serial.monitor', 528, 32, monitorConfig()),
   ]
 
@@ -697,11 +681,11 @@ function monitorGraphState(suffix: string, portName: string): SerialGraphWorkspa
   ], selectedNodeId)
 }
 
-function scriptTransformGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+function scriptTransformGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-script-transform-${suffix}`
   const nodes = [
     graphNode(suffix, 'script-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig()),
-    graphNode(suffix, 'script-transform-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'script-transform-vport', 'serial.virtual', 280, 32, virtualEndpointConfig()),
     graphNode(suffix, 'script-transform', 'serial.script.transform', 528, 32, scriptTransformConfig()),
     graphNode(suffix, 'script-transform-monitor', 'serial.monitor', 776, 32, monitorConfig()),
   ]
@@ -713,11 +697,11 @@ function scriptTransformGraphState(suffix: string, portName: string): SerialGrap
   ], selectedNodeId)
 }
 
-function scriptAnalyzerGraphState(suffix: string, portName: string): SerialGraphWorkspaceState {
+function scriptAnalyzerGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-script-analyzer-${suffix}`
   const nodes = [
     graphNode(suffix, 'script-analyzer-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig()),
-    graphNode(suffix, 'script-analyzer-vport', 'serial.virtual', 280, 32, virtualConfig(portName)),
+    graphNode(suffix, 'script-analyzer-vport', 'serial.virtual', 280, 32, virtualEndpointConfig()),
     graphNode(suffix, 'script-analyzer-monitor', 'serial.monitor', 528, 32, monitorConfig()),
     graphNode(suffix, 'script-analyzer', 'serial.script.analyzer', 528, 168, scriptAnalyzerConfig()),
   ]
@@ -729,13 +713,13 @@ function scriptAnalyzerGraphState(suffix: string, portName: string): SerialGraph
   ], selectedNodeId)
 }
 
-function modbusGraphState(suffix: string, requestPortName: string): SerialGraphWorkspaceState {
+function modbusGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-modbus-master-${suffix}`
   const requestPortId = `graph-modbus-vport-${suffix}`
   const slaveId = `graph-modbus-slave-${suffix}`
   const nodes = [
     graphNode(suffix, 'modbus-master', 'serial.modbus.master', 32, 32, modbusMasterConfig({ autoSend: true })),
-    graphNode(suffix, 'modbus-vport', 'serial.virtual', 280, 32, virtualConfig(requestPortName)),
+    graphNode(suffix, 'modbus-vport', 'serial.virtual', 280, 32, virtualEndpointConfig()),
     graphNode(suffix, 'modbus-slave', 'serial.modbus.slave', 528, 32, modbusSlaveConfig()),
     graphNode(suffix, 'modbus-monitor', 'serial.monitor', 776, 32, monitorConfig()),
   ]
@@ -748,13 +732,13 @@ function modbusGraphState(suffix: string, requestPortName: string): SerialGraphW
   ], selectedNodeId)
 }
 
-function fecbusGraphState(suffix: string, requestPortName: string): SerialGraphWorkspaceState {
+function fecbusGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-fecbus-master-${suffix}`
   const requestPortId = `graph-fecbus-vport-${suffix}`
   const slaveId = `graph-fecbus-slave-${suffix}`
   const nodes = [
     graphNode(suffix, 'fecbus-master', 'serial.fecbus.master', 32, 32, fecbusMasterConfig({ autoSend: true })),
-    graphNode(suffix, 'fecbus-vport', 'serial.virtual', 280, 32, virtualConfig(requestPortName)),
+    graphNode(suffix, 'fecbus-vport', 'serial.virtual', 280, 32, virtualEndpointConfig()),
     graphNode(suffix, 'fecbus-slave', 'serial.fecbus.slave', 528, 32, fecbusSlaveConfig()),
     graphNode(suffix, 'fecbus-monitor', 'serial.monitor', 776, 32, monitorConfig()),
   ]
@@ -766,15 +750,7 @@ function fecbusGraphState(suffix: string, requestPortName: string): SerialGraphW
   ], selectedNodeId)
 }
 
-function fullWorkspaceGraphState(
-  suffix: string,
-  terminalPort: string,
-  bridgePortA: string,
-  bridgePortB: string,
-  scriptPort: string,
-  modbusPort: string,
-  fecbusPort: string
-): SerialGraphWorkspaceState {
+function fullWorkspaceGraphState(suffix: string): SerialGraphWorkspaceState {
   const selectedNodeId = `graph-full-vport-${suffix}`
   const fullGeneratorId = `graph-full-generator-${suffix}`
   const fullBridgeGeneratorAId = `graph-full-bridge-generator-a-${suffix}`
@@ -791,31 +767,31 @@ function fullWorkspaceGraphState(
   const fecbusSlaveId = `graph-full-fecbus-slave-${suffix}`
   const nodes = [
     graphNode(suffix, 'full-generator', 'serial.script.generator', 32, 32, scriptGeneratorConfig(`full workspace ${suffix}\r\n`)),
-    graphNode(suffix, 'full-vport', 'serial.virtual', 280, 32, virtualConfig(terminalPort)),
+    graphNode(suffix, 'full-vport', 'serial.virtual', 280, 32, virtualEndpointConfig()),
     graphNode(suffix, 'full-filter', 'serial.filter', 528, 32, filterConfig('plain', 'full workspace')),
     graphNode(suffix, 'full-monitor', 'serial.monitor', 776, 32, monitorConfig()),
 
     graphNode(suffix, 'full-bridge-generator-a', 'serial.script.generator', 32, 344, scriptGeneratorConfig(`full bridge A ${suffix}\r\n`)),
-    graphNode(suffix, 'full-bridge-vport-a', 'serial.virtual', 280, 344, virtualConfig(bridgePortA)),
+    graphNode(suffix, 'full-bridge-vport-a', 'serial.virtual', 280, 344, virtualEndpointConfig()),
     graphNode(suffix, 'full-bridge-generator-b', 'serial.script.generator', 32, 512, scriptGeneratorConfig(`full bridge B ${suffix}\r\n`)),
-    graphNode(suffix, 'full-bridge-vport-b', 'serial.virtual', 280, 512, virtualConfig(bridgePortB)),
+    graphNode(suffix, 'full-bridge-vport-b', 'serial.virtual', 280, 512, virtualEndpointConfig()),
     graphNode(suffix, 'full-bridge', 'serial.bridge', 528, 428),
     graphNode(suffix, 'full-bridge-monitor-a', 'serial.monitor', 776, 344, monitorConfig()),
     graphNode(suffix, 'full-bridge-monitor-b', 'serial.monitor', 776, 512, monitorConfig()),
 
     graphNode(suffix, 'full-script-generator', 'serial.script.generator', 1040, 656, scriptGeneratorConfig()),
-    graphNode(suffix, 'full-script-vport', 'serial.virtual', 1288, 656, virtualConfig(scriptPort)),
+    graphNode(suffix, 'full-script-vport', 'serial.virtual', 1288, 656, virtualEndpointConfig()),
     graphNode(suffix, 'full-script-transform', 'serial.script.transform', 1536, 656, scriptTransformConfig()),
     graphNode(suffix, 'full-script-monitor', 'serial.monitor', 1784, 656, monitorConfig()),
     graphNode(suffix, 'full-script-analyzer', 'serial.script.analyzer', 1784, 792, scriptAnalyzerConfig()),
 
     graphNode(suffix, 'full-modbus-master', 'serial.modbus.master', 1040, 32, modbusMasterConfig({ autoSend: true })),
-    graphNode(suffix, 'full-modbus-vport', 'serial.virtual', 1288, 32, virtualConfig(modbusPort)),
+    graphNode(suffix, 'full-modbus-vport', 'serial.virtual', 1288, 32, virtualEndpointConfig()),
     graphNode(suffix, 'full-modbus-slave', 'serial.modbus.slave', 1536, 32, modbusSlaveConfig()),
     graphNode(suffix, 'full-modbus-monitor', 'serial.monitor', 1784, 32, monitorConfig()),
 
     graphNode(suffix, 'full-fecbus-master', 'serial.fecbus.master', 1040, 344, fecbusMasterConfig({ autoSend: true })),
-    graphNode(suffix, 'full-fecbus-vport', 'serial.virtual', 1288, 344, virtualConfig(fecbusPort)),
+    graphNode(suffix, 'full-fecbus-vport', 'serial.virtual', 1288, 344, virtualEndpointConfig()),
     graphNode(suffix, 'full-fecbus-slave', 'serial.fecbus.slave', 1536, 344, fecbusSlaveConfig()),
     graphNode(suffix, 'full-fecbus-monitor', 'serial.monitor', 1784, 344, monitorConfig()),
   ]
@@ -900,9 +876,10 @@ function graphEdge(
   }
 }
 
-function virtualConfig(portName: string): Record<string, unknown> {
+function virtualEndpointConfig(): Record<string, unknown> {
+  // Built-in demos must remain no-hardware and cross-platform. A portName would
+  // request an OS-backed virtual port, which depends on platform-specific tools.
   return {
-    portName,
     baudRate: 115200,
     dataBits: 8,
     stopBits: '1',

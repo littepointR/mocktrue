@@ -489,6 +489,7 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
     const graphValidation = validateGraph(graph)
     if (!graphValidation.valid) {
       const details = graphValidation.errors.join('; ')
+      markRuntimeErrorForGraph(graph.id, details, true)
       appendGraphOperationLogForGraph(graph.id, 'start-error', 'error', '拓扑启动失败', details)
       throw new Error(details)
     }
@@ -517,7 +518,9 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
       appendGraphOperationLogForGraph(graph.id, 'start', 'info', '拓扑已启动', `runtime ${info.ID}`)
       return info
     } catch (error) {
-      appendGraphOperationLogForGraph(graph.id, 'start-error', 'error', '拓扑启动失败', errorMessage(error))
+      const details = errorMessage(error)
+      markRuntimeErrorForGraph(graph.id, details, true)
+      appendGraphOperationLogForGraph(graph.id, 'start-error', 'error', '拓扑启动失败', details)
       throw error
     }
   }
@@ -544,7 +547,16 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
       }
       appendGraphOperationLogForGraph(graph.id, 'stop', 'info', '拓扑已停止', `runtime ${runtimeGraphId}`)
     } catch (error) {
-      appendGraphOperationLogForGraph(graph.id, 'stop-error', 'error', '拓扑停止失败', errorMessage(error))
+      const details = errorMessage(error)
+      runtimeStates.value = {
+        ...runtimeStates.value,
+        [graph.id]: {
+          ...runtime,
+          runtimeStatus: 'running',
+          runtimeError: details,
+        },
+      }
+      appendGraphOperationLogForGraph(graph.id, 'stop-error', 'error', '拓扑停止失败', details)
       throw error
     }
   }
@@ -1033,6 +1045,19 @@ export const useSerialGraphStore = defineStore('serialGraph', () => {
           : node
       }),
     }))
+  }
+
+  function markRuntimeErrorForGraph(graphId: string, message: string, clearRuntimeGraphId: boolean) {
+    const runtime = runtimeFor(graphId)
+    runtimeStates.value = {
+      ...runtimeStates.value,
+      [graphId]: {
+        ...runtime,
+        runtimeGraphId: clearRuntimeGraphId ? null : runtime.runtimeGraphId,
+        runtimeStatus: 'error',
+        runtimeError: message,
+      },
+    }
   }
 
   function ensureActiveGraph(): SerialGraphDocument {

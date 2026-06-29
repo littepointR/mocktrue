@@ -11,6 +11,7 @@ import (
 	"github.com/littepointR/portweave/internal/modules/serial/monitor"
 	"github.com/littepointR/portweave/internal/modules/serial/port"
 	"github.com/littepointR/portweave/internal/modules/serial/porttest"
+	"github.com/littepointR/portweave/internal/modules/serial/virtualserial"
 	goserial "go.bug.st/serial"
 )
 
@@ -186,6 +187,47 @@ func TestServiceCreateVirtualPortRejectsEmptyInputs(t *testing.T) {
 	}
 }
 
+func TestServiceVirtualBackendInjectionAndStatus(t *testing.T) {
+	t.Parallel()
+	backend := &serviceVirtualBackend{
+		status: virtualserial.BackendStatus{
+			Name:          "fake",
+			Available:     true,
+			Message:       "ready",
+			RequiresAdmin: true,
+		},
+	}
+	svc := NewService(eventbus.New(), WithVirtualBackend(backend))
+
+	status := svc.GetVirtualSerialBackendStatus(context.Background())
+	if status.Name != "fake" || !status.Available || !status.RequiresAdmin {
+		t.Fatalf("status = %+v", status)
+	}
+
+	pair, err := svc.CreateVirtualPair(context.Background(), "pair-1", "A", "B")
+	if err != nil {
+		t.Fatalf("CreateVirtualPair: %v", err)
+	}
+	if pair.Port1 != "A" || pair.Port2 != "B" {
+		t.Fatalf("pair = %+v", pair)
+	}
+	if got := len(svc.ListVirtualPorts()); got != 0 {
+		t.Fatalf("ListVirtualPorts after pair = %d, want 0", got)
+	}
+
+	vport, err := svc.CreateVirtualPort(context.Background(), "port-1", "COM10")
+	if err != nil {
+		t.Fatalf("CreateVirtualPort: %v", err)
+	}
+	if vport.Port != "COM10" {
+		t.Fatalf("virtual port = %+v", vport)
+	}
+	ports := svc.ListVirtualPorts()
+	if len(ports) != 1 || ports[0].ID != "port-1" || ports[0].Port != "COM10" {
+		t.Fatalf("ListVirtualPorts = %+v", ports)
+	}
+}
+
 func TestServiceSendRejectsInvalidRequestsAndHexMode(t *testing.T) {
 	svc := NewService(eventbus.New())
 	if _, err := svc.Send(SendRequest{Content: "x"}); err == nil {
@@ -214,6 +256,24 @@ func TestServiceSendRejectsInvalidRequestsAndHexMode(t *testing.T) {
 	if written != 2 {
 		t.Fatalf("Send hex wrote %d bytes, want 2", written)
 	}
+}
+
+type serviceVirtualBackend struct {
+	status virtualserial.BackendStatus
+}
+
+func (b *serviceVirtualBackend) Name() string { return "fake" }
+
+func (b *serviceVirtualBackend) Status(context.Context) virtualserial.BackendStatus {
+	return b.status
+}
+
+func (b *serviceVirtualBackend) CreatePair(_ context.Context, pairID, port1Name, port2Name string) (*virtualserial.VirtualPair, error) {
+	return &virtualserial.VirtualPair{ID: pairID, Port1: port1Name, Port2: port2Name}, nil
+}
+
+func (b *serviceVirtualBackend) CreatePort(_ context.Context, portID, publicName string) (*virtualserial.VirtualPair, error) {
+	return &virtualserial.VirtualPair{ID: portID, Port1: publicName, Port2: publicName + "-peer"}, nil
 }
 
 func TestServiceHelpersCoverNilVirtualManagerAndTokenFallbacks(t *testing.T) {

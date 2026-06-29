@@ -95,6 +95,54 @@ describe('GlobalSettingsPanel global settings and examples', () => {
     expect(exampleSelect.attributes('data-placeholder')).toContain('搜索')
   })
 
+  it('shows selected demo purpose, hardware requirement, and docs path before loading', async () => {
+    const wrapper = mount(GlobalSettingsPanel)
+
+    expect(wrapper.text()).toContain('展示虚拟串口和打开串口操作的基础配置。')
+    expect(wrapper.text()).toContain('无需外接硬件')
+    expect(wrapper.text()).toContain('docs/examples.md#serial-open-demo')
+
+    await wrapper.findAll('select')[1].setValue('remote-serial-demo')
+
+    expect(wrapper.text()).toContain('展示一个图内 raw TCP server/client 远端串口链路')
+    expect(wrapper.text()).toContain('docs/examples.md#remote-serial-demo')
+  })
+
+  it('renders optional example metadata for hardware-backed demos without docs links', () => {
+    const workspace = useWorkspaceFileStore()
+    vi.spyOn(workspace, 'listDemos').mockReturnValue([
+      ...workspace.listDemos(),
+      {
+        id: 'hardware-demo',
+        title: '硬件串口演示',
+        description: '需要连接物理设备。',
+        difficulty: 'advanced',
+        requiresHardware: true,
+      },
+    ])
+    workspace.selectedDemoId = 'hardware-demo'
+
+    const wrapper = mount(GlobalSettingsPanel)
+
+    expect(wrapper.text()).toContain('需要连接物理设备。')
+    expect(wrapper.text()).toContain('需要外接硬件')
+    expect(wrapper.text()).toContain('难度：高级')
+    expect(wrapper.find('[data-testid="selected-demo-docs-path"]').exists()).toBe(false)
+  })
+
+  it('keeps the load action idle when no example is selected', async () => {
+    const workspace = useWorkspaceFileStore()
+    const loadDemo = vi.spyOn(workspace, 'loadDemo')
+    workspace.selectedDemoId = ''
+
+    const wrapper = mount(GlobalSettingsPanel)
+
+    expect(wrapper.find('[data-testid="selected-demo-details"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="load-demo"]').attributes('disabled')).toBeDefined()
+    await (wrapper.vm as any).loadExampleWorkspace()
+    expect(loadDemo).not.toHaveBeenCalled()
+  })
+
   it('keeps the selected example after switching away from settings', async () => {
     const workspace = useWorkspaceFileStore()
     const loadDemo = vi.spyOn(workspace, 'loadDemo').mockResolvedValue({ graphIds: ['graph-1'], activeGraphId: 'graph-1' })

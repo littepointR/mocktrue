@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildGraphTabSnapshot, buildWorkspaceSnapshot, graphTabSnapshotsFromUnknown, restoreGraphTabSnapshot, restoreWorkspaceSnapshot } from './workspaceSession'
-import { base64ToBytes } from './workspaceSnapshot'
+import { base64ToBytes, graphTabKind } from './workspaceSnapshot'
 import { useSettingsStore } from '../settings/stores/settingsStore'
 import { useSerialStore } from '../serial/stores/serialStore'
 import { useBufferStore } from '../serial/stores/bufferStore'
@@ -364,6 +364,76 @@ describe('workspace session snapshot', () => {
 
     expect(fallback.graphIds.length).toBeGreaterThan(0)
     expect(fallback.activeGraphId).toBe(fallback.graphIds[fallback.graphIds.length - 1])
+  })
+
+  it('preserves graph, node, edge, and runtime identities across graph tab export and restore', async () => {
+    const graphStore = useSerialGraphStore()
+    const graph = {
+      id: 'identity-graph',
+      name: 'Identity Graph',
+      nodes: [
+        {
+          id: 'identity-generator',
+          type: 'serial.script.generator',
+          position: { x: 20, y: 40 },
+          config: { script: 'output.text("id", "utf-8")', autoRun: true },
+        },
+        {
+          id: 'identity-virtual',
+          type: 'serial.virtual',
+          position: { x: 260, y: 40 },
+          config: { portName: 'identity-vport' },
+        },
+      ],
+      edges: [{
+        id: 'identity-edge-generator-virtual',
+        source: 'identity-generator',
+        sourceHandle: 'out',
+        target: 'identity-virtual',
+        targetHandle: 'tx',
+      }],
+      selectedNodeId: 'identity-virtual',
+      selectedEdgeId: 'identity-edge-generator-virtual',
+      nodeTabs: [
+        { nodeId: 'identity-generator', title: 'Generator' },
+        { nodeId: 'identity-virtual', title: 'Virtual' },
+      ],
+      activeNodeTabId: 'identity-virtual',
+    }
+    graphStore.restoreState({ graphs: [graph], activeGraphId: graph.id })
+    graphStore.restoreRuntimeSnapshot(graph.id, {
+      nodeBuffers: { 'identity-virtual': new Uint8Array([1, 2, 3]) },
+      nodeFrames: { 'identity-virtual': [{ Seq: 9, Direction: 'rx', Length: 3, DisplayHex: '01 02 03' } as any] },
+    })
+
+    const snapshot = buildGraphTabSnapshot(graph.id)
+
+    expect(snapshot.kind).toBe(graphTabKind)
+    expect(snapshot.graph.id).toBe('identity-graph')
+    expect(snapshot.graph.nodes.map(node => node.id)).toEqual(['identity-generator', 'identity-virtual'])
+    expect(snapshot.graph.edges.map(edge => edge.id)).toEqual(['identity-edge-generator-virtual'])
+    expect(snapshot.runtime.nodeBuffers['identity-virtual'].map(chunk => Array.from(base64ToBytes(chunk.data)))).toEqual([[1, 2, 3]])
+
+    graphStore.resetWorkspace()
+    const restored = await restoreGraphTabSnapshot(snapshot)
+    const restoredGraph = graphStore.graphById('identity-graph')
+    const restoredRuntime = graphStore.exportRuntimeSnapshot('identity-graph')
+
+    expect(restored).toEqual({ graphIds: ['identity-graph'], activeGraphId: 'identity-graph' })
+    expect(graphStore.activeGraphId).toBe('identity-graph')
+    expect(restoredGraph?.nodes.map(node => node.id)).toEqual(['identity-generator', 'identity-virtual'])
+    expect(restoredGraph?.edges).toEqual([expect.objectContaining({
+      id: 'identity-edge-generator-virtual',
+      source: 'identity-generator',
+      sourceHandle: 'out',
+      target: 'identity-virtual',
+      targetHandle: 'tx',
+    })])
+    expect(restoredGraph?.selectedNodeId).toBe('identity-virtual')
+    expect(restoredGraph?.selectedEdgeId).toBe('identity-edge-generator-virtual')
+    expect(restoredGraph?.activeNodeTabId).toBe('identity-virtual')
+    expect(Array.from(restoredRuntime.nodeBuffers['identity-virtual'])).toEqual([1, 2, 3])
+    expect(restoredRuntime.nodeFrames['identity-virtual']).toEqual([expect.objectContaining({ Seq: 9, DisplayHex: '01 02 03' })])
   })
 
   it('normalizes sparse graph tab snapshots and workspace graph state fallbacks', async () => {

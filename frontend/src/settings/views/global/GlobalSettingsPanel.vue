@@ -8,11 +8,13 @@ import { useRegistry } from '../../../core/registry'
 const store = useSettingsStore()
 const workspaceFile = useWorkspaceFileStore()
 const registry = useRegistry()
-const exampleOptions = workspaceFile.listDemos().map(demo => ({
+const demos = workspaceFile.listDemos()
+const exampleOptions = demos.map(demo => ({
   label: demo.title,
   value: demo.id,
 }))
 const selectedExampleId = computed(() => workspaceFile.selectedDemoId)
+const selectedExample = computed(() => demos.find(demo => demo.id === selectedExampleId.value) ?? null)
 
 const themeOptions = [
   { label: '深色', value: 'dark' },
@@ -27,6 +29,19 @@ const theme = computed({
 const pendingAction = ref<string | null>(null)
 
 const isBusy = computed(() => pendingAction.value !== null)
+
+function difficultyLabel(difficulty: string): string {
+  switch (difficulty) {
+    case 'beginner':
+      return '入门'
+    case 'intermediate':
+      return '进阶'
+    case 'advanced':
+      return '高级'
+    default:
+      return difficulty
+  }
+}
 
 async function runWorkspaceAction(action: string, callback: () => Promise<unknown>) {
   pendingAction.value = action
@@ -84,6 +99,21 @@ async function loadExampleWorkspace() {
             加载示例
           </NButton>
         </NInputGroup>
+        <div
+          v-if="selectedExample"
+          class="settings-panel__demo-details"
+          data-testid="selected-demo-details"
+        >
+          <p class="settings-panel__demo-description">{{ selectedExample.description }}</p>
+          <div class="settings-panel__demo-meta">
+            <span v-if="selectedExample.requiresHardware === false">无需外接硬件</span>
+            <span v-else-if="selectedExample.requiresHardware === true">需要外接硬件</span>
+            <span v-if="selectedExample.difficulty">难度：{{ difficultyLabel(selectedExample.difficulty) }}</span>
+            <span v-if="selectedExample.docsPath">
+              文档：<code data-testid="selected-demo-docs-path">{{ selectedExample.docsPath }}</code>
+            </span>
+          </div>
+        </div>
         <p class="settings-panel__hint">示例会作为只读拓扑图标签页打开，修改后可在拓扑图工具栏另存为文件。</p>
       </NFormItem>
       <NAlert v-if="workspaceFile.lastError" type="error" closable @close="workspaceFile.setError(null)">
@@ -118,6 +148,31 @@ async function loadExampleWorkspace() {
 .settings-panel__demo-select {
   flex: 1 1 auto;
   min-width: 0;
+}
+.settings-panel__demo-details {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 6px;
+  background: var(--app-surface, #252526);
+}
+.settings-panel__demo-description {
+  margin: 0;
+  color: var(--app-text, #d4d4d4);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.settings-panel__demo-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
+}
+.settings-panel__demo-meta code {
+  color: var(--app-text, #d4d4d4);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .settings-panel__hint {
   margin: 8px 0 0;

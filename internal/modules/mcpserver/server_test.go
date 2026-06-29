@@ -816,6 +816,193 @@ func TestRegisterToolsExposesSerialRuntimeTools(t *testing.T) {
 	}
 }
 
+func TestRegisterToolsExposesDocsCriticalMCPTools(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	tools := callMCP(t, handler, `{"jsonrpc":"2.0","id":11,"method":"tools/list","params":{}}`)
+	names := extractToolNames(t, tools)
+	docsCriticalToolGroups := map[string][]string{
+		"protocol templates": {
+			"protocol_template_catalog",
+			"protocol_template_describe",
+		},
+		"serial graph": {
+			"serial_graph_provider_catalog",
+			"serial_graph_demo_catalog",
+			"serial_graph_demo_template",
+			"serial_graph_validate",
+			"serial_graph_start",
+			"serial_graph_stop",
+			"serial_graph_status",
+			"serial_graph_send",
+			"serial_graph_query_node_buffer",
+			"serial_graph_query_node_frames",
+			"serial_graph_clear_node_buffer",
+			"serial_graph_reset_node_counters",
+		},
+		"virtual and monitor": {
+			"serial_create_virtual_port",
+			"serial_delete_virtual_port",
+			"serial_list_virtual_ports",
+			"serial_create_virtual_pair",
+			"serial_delete_virtual_pair",
+			"serial_list_virtual_pairs",
+			"serial_create_bridge",
+			"serial_delete_bridge",
+			"serial_list_bridges",
+			"serial_cleanup_virtual",
+			"serial_start_monitor",
+			"serial_stop_monitor",
+			"serial_delete_monitor",
+			"serial_list_monitors",
+			"serial_query_monitor_frames",
+			"serial_clear_monitor_frames",
+		},
+		"modbus": {
+			"modbus_open_session",
+			"modbus_close_session",
+			"modbus_list_sessions",
+			"modbus_master_request",
+			"modbus_start_slave",
+			"modbus_stop_slave",
+			"modbus_update_slave_data",
+			"modbus_add_slave_unit",
+			"modbus_remove_slave_unit",
+			"modbus_list_slave_units",
+			"modbus_update_slave_unit_data",
+			"modbus_read_registers",
+			"modbus_scan_unit_ids",
+			"modbus_scan_registers",
+		},
+		"fecbus": {
+			"fecbus_function_catalog",
+			"fecbus_open_session",
+			"fecbus_close_session",
+			"fecbus_list_sessions",
+			"fecbus_send_request",
+			"fecbus_start_slave",
+			"fecbus_stop_slave",
+			"fecbus_update_slave_state",
+			"fecbus_add_slave_unit",
+			"fecbus_remove_slave_unit",
+			"fecbus_list_slave_units",
+			"fecbus_query_frames",
+			"fecbus_clear_frames",
+		},
+	}
+
+	for group, wants := range docsCriticalToolGroups {
+		group, wants := group, wants
+		t.Run(group, func(t *testing.T) {
+			for _, want := range wants {
+				if !names[want] {
+					t.Fatalf("docs-critical MCP tool %s missing from tools/list; available tools: %#v", want, names)
+				}
+			}
+		})
+	}
+}
+
+func TestMCPToolAnnotations(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	tools := extractToolsByName(t, callMCP(t, handler, `{"jsonrpc":"2.0","id":12,"method":"tools/list","params":{}}`))
+	for _, name := range []string{"protocol_template_catalog", "protocol_template_describe"} {
+		annotations := requireToolAnnotations(t, tools, name)
+		if !annotationBool(t, annotations, "readOnlyHint", true) {
+			t.Fatalf("%s readOnlyHint = %v, want true", name, annotations["readOnlyHint"])
+		}
+	}
+
+	writeToolDestructiveHints := map[string]bool{
+		"serial_open_port":                 false,
+		"serial_close_port":                true,
+		"serial_send":                      false,
+		"serial_reset_counters":            true,
+		"serial_create_virtual_port":       false,
+		"serial_delete_virtual_port":       true,
+		"serial_create_virtual_pair":       false,
+		"serial_delete_virtual_pair":       true,
+		"serial_create_bridge":             false,
+		"serial_delete_bridge":             true,
+		"serial_cleanup_virtual":           true,
+		"serial_graph_start":               false,
+		"serial_graph_stop":                true,
+		"serial_graph_send":                false,
+		"serial_graph_clear_node_buffer":   true,
+		"serial_graph_reset_node_counters": true,
+		"serial_start_monitor":             false,
+		"serial_stop_monitor":              true,
+		"serial_delete_monitor":            true,
+		"serial_clear_monitor_frames":      true,
+		"modbus_open_session":              false,
+		"modbus_close_session":             true,
+		"modbus_master_request":            false,
+		"modbus_start_slave":               false,
+		"modbus_stop_slave":                true,
+		"modbus_update_slave_data":         false,
+		"modbus_add_slave_unit":            false,
+		"modbus_remove_slave_unit":         true,
+		"modbus_update_slave_unit_data":    false,
+		"fecbus_open_session":              false,
+		"fecbus_close_session":             true,
+		"fecbus_send_request":              false,
+		"fecbus_start_slave":               false,
+		"fecbus_stop_slave":                true,
+		"fecbus_update_slave_state":        false,
+		"fecbus_add_slave_unit":            false,
+		"fecbus_remove_slave_unit":         true,
+		"fecbus_clear_frames":              true,
+	}
+	for name, destructive := range writeToolDestructiveHints {
+		annotations := requireToolAnnotations(t, tools, name)
+		if annotationBool(t, annotations, "readOnlyHint", false) {
+			t.Fatalf("%s readOnlyHint = true, want false or omitted", name)
+		}
+		if got := annotationBool(t, annotations, "destructiveHint", true); got != destructive {
+			t.Fatalf("%s destructiveHint = %v, want %v", name, got, destructive)
+		}
+	}
+}
+
+func TestProtocolTemplateMCPToolsExposeReadOnlyCatalog(t *testing.T) {
+	t.Parallel()
+	handler := mcpHTTPHandler(newMCPServer(&fakeSerialService{}), true)
+
+	catalog := callMCPTool(t, handler, 70, "protocol_template_catalog", map[string]any{})
+	templates := catalog["structuredContent"].(map[string]any)["templates"].([]any)
+	seen := map[string]bool{}
+	for _, raw := range templates {
+		item := raw.(map[string]any)
+		seen[item["name"].(string)] = true
+		if item["description"] == "" || item["kind"] == "" {
+			t.Fatalf("catalog item missing metadata: %#v", item)
+		}
+	}
+	for _, want := range []string{"Modbus RTU", "AA55 自定义帧", "NMEA"} {
+		if !seen[want] {
+			t.Fatalf("protocol_template_catalog missing %q in %#v", want, templates)
+		}
+	}
+
+	described := callMCPTool(t, handler, 71, "protocol_template_describe", map[string]any{"name": "AA55 自定义帧"})
+	template := described["structuredContent"].(map[string]any)["template"].(map[string]any)
+	if template["name"] != "AA55 自定义帧" || template["kind"] != "visual" || template["config"] == nil {
+		t.Fatalf("protocol_template_describe template = %#v, want AA55 visual template with config", template)
+	}
+	visual := template["config"].(map[string]any)["visual"].(map[string]any)
+	if visual["header_hex"] != "aa55" || visual["checksum_type"] != "sum8" {
+		t.Fatalf("AA55 visual summary = %#v, want header_hex aa55 and sum8 checksum", visual)
+	}
+
+	missing := callMCPToolAllowError(t, handler, 72, "protocol_template_describe", map[string]any{"name": "not-a-template"})
+	if missing["isError"] != true {
+		t.Fatalf("missing template result = %#v, want MCP tool error", missing)
+	}
+}
+
 func TestSerialVirtualLifecycleToolsCallSerialService(t *testing.T) {
 	t.Parallel()
 	svc := &fakeSerialService{
@@ -890,8 +1077,8 @@ func TestSerialGraphToolsExposeCatalogAndValidateTopology(t *testing.T) {
 	catalogContent := catalog["structuredContent"].(map[string]any)
 	providers := catalogContent["providers"].([]any)
 	rules := catalogContent["rules"].(map[string]any)
-	if !strings.Contains(fmt.Sprint(rules["resource_owners"]), "serial.remote") || !strings.Contains(fmt.Sprint(rules["resource_owners"]), "raw TCP endpoint") {
-		t.Fatalf("resource owner rules = %#v, want remote endpoint guidance", rules["resource_owners"])
+	if !strings.Contains(fmt.Sprint(rules["resource_owners"]), "serial.remote") || !strings.Contains(fmt.Sprint(rules["resource_owners"]), "normalized raw TCP endpoint + role") {
+		t.Fatalf("resource owner rules = %#v, want remote endpoint + role guidance", rules["resource_owners"])
 	}
 	if !strings.Contains(fmt.Sprint(rules["remote_security"]), "raw TCP") || !strings.Contains(fmt.Sprint(rules["remote_security"]), "trusted") {
 		t.Fatalf("remote security rules = %#v, want raw TCP trusted-network guidance", rules["remote_security"])
@@ -2248,6 +2435,53 @@ func extractToolNames(t *testing.T, result map[string]any) map[string]bool {
 		names[name] = true
 	}
 	return names
+}
+
+func extractToolsByName(t *testing.T, result map[string]any) map[string]map[string]any {
+	t.Helper()
+	tools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools result = %#v", result["tools"])
+	}
+	byName := make(map[string]map[string]any, len(tools))
+	for _, item := range tools {
+		tool, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("tool = %#v, want object", item)
+		}
+		name, ok := tool["name"].(string)
+		if !ok {
+			t.Fatalf("tool name = %#v, want string", tool["name"])
+		}
+		byName[name] = tool
+	}
+	return byName
+}
+
+func requireToolAnnotations(t *testing.T, tools map[string]map[string]any, name string) map[string]any {
+	t.Helper()
+	tool, ok := tools[name]
+	if !ok {
+		t.Fatalf("tools/list missing %s in %#v", name, tools)
+	}
+	annotations, ok := tool["annotations"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s annotations = %#v, want object", name, tool["annotations"])
+	}
+	return annotations
+}
+
+func annotationBool(t *testing.T, annotations map[string]any, key string, defaultValue bool) bool {
+	t.Helper()
+	raw, ok := annotations[key]
+	if !ok {
+		return defaultValue
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		t.Fatalf("annotation %s = %#v, want bool", key, raw)
+	}
+	return value
 }
 
 func freeTCPPort(t *testing.T) int {

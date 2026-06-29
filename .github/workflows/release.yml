@@ -56,16 +56,28 @@ jobs:
           mkdir -p dist
           ditto -c -k --keepParent bin/portweave.app dist/portweave-macos.zip
 
+      - name: Smoke-check macOS artifact and checksums
+        run: |
+          set -euo pipefail
+          test -s dist/portweave-macos.zip
+          unzip -l dist/portweave-macos.zip | grep -E 'portweave\.app/Contents/MacOS/portweave'
+          shasum -a 256 dist/portweave-macos.zip > dist/checksums.txt
+          grep 'portweave-macos.zip' dist/checksums.txt
+
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: portweave-macos
-          path: dist/portweave-macos.zip
+          path: |
+            dist/portweave-macos.zip
+            dist/checksums.txt
           if-no-files-found: error
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/portweave-macos.zip
+          files: |
+            dist/portweave-macos.zip
+            dist/checksums.txt
           generate_release_notes: true

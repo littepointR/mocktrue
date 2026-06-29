@@ -15,7 +15,7 @@ func TestFrameSpecStruct(t *testing.T) {
 			Endianness: "le",
 		},
 		Checksum: &ChecksumSpec{
-			Type:  "sum8",
+			Type:   "sum8",
 			Offset: 4,
 			Width:  1,
 		},

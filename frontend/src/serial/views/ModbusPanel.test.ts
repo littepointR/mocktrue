@@ -197,7 +197,7 @@ describe('ModbusPanel', () => {
 
     await wrapper.find('[data-testid="modbus-master-unit-tab-2"]').trigger('click')
     expect(store.masterRegisterTables.find(table => table.type === 'holding_registers')?.rows[0].value).toBe('22')
-  })
+  }, slowCoverageTestTimeoutMs)
 
   it('uses the same header layout for every master register card', () => {
     const store = useModbusStore()

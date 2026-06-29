@@ -48,6 +48,101 @@ func TestSerialScriptRuntimeFunctionAPI(t *testing.T) {
 	assertScriptField(t, second.Fields, "runs", "2")
 }
 
+func TestSerialScriptRuntimeDocumentationExamples(t *testing.T) {
+	t.Run("line generator", func(t *testing.T) {
+		runtime := newSerialScriptRuntimeForNode("serial.script.generator", map[string]any{
+			"script":    `output.text("tick\n", "utf-8");`,
+			"timeoutMs": 100,
+		})
+		result, err := runtime.run(serialScriptRunInput{})
+		if err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+		if string(result.Output) != "tick\n" {
+			t.Fatalf("generator output = %q, want tick newline", string(result.Output))
+		}
+	})
+
+	t.Run("pass through transform", func(t *testing.T) {
+		runtime := newSerialScriptRuntimeForNode("serial.script.transform", map[string]any{
+			"script":    `output.bytes(input.bytes());`,
+			"timeoutMs": 100,
+		})
+		input := []byte{0xde, 0xad, 0x01, 0x02}
+		result, err := runtime.run(serialScriptRunInput{Data: input})
+		if err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+		if string(result.Output) != string(input) {
+			t.Fatalf("transform output = % x, want % x", result.Output, input)
+		}
+	})
+
+	t.Run("text analyzer with JavaScript string APIs", func(t *testing.T) {
+		runtime := newSerialScriptRuntimeForNode("serial.script.analyzer", map[string]any{
+			"script": `
+				var text = input.text("utf-8");
+				var match = text.match(/^TEMP=(-?\d+(?:\.\d+)?)$/);
+				if (match) {
+					field("temperature_c", Number(match[1]), match[1] + " °C");
+				} else {
+					error("expected TEMP=<number>");
+				}
+			`,
+			"timeoutMs": 100,
+		})
+		result, err := runtime.run(serialScriptRunInput{Data: []byte("TEMP=21.5")})
+		if err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+		if len(result.Errors) != 0 {
+			t.Fatalf("errors = %#v, want none", result.Errors)
+		}
+		assertScriptField(t, result.Fields, "temperature_c", "21.5")
+	})
+
+	t.Run("binary length and checksum analyzer", func(t *testing.T) {
+		runtime := newSerialScriptRuntimeForNode("serial.script.analyzer", map[string]any{
+			"script": `
+				var bytes = input.bytes();
+				field("length", bytes.length);
+				if (bytes.length < 2) {
+					error("frame too short");
+				} else {
+					var payload = [];
+					for (var i = 0; i < bytes.length - 1; i++) {
+						payload.push(bytes[i]);
+					}
+					var actual = sum8(payload);
+					var expected = bytes[bytes.length - 1];
+					field("checksum", actual, actual === expected ? "OK" : "mismatch");
+					if (actual !== expected) {
+						error("checksum mismatch");
+					}
+				}
+			`,
+			"timeoutMs": 100,
+		})
+		result, err := runtime.run(serialScriptRunInput{Data: []byte{0x01, 0x02, 0x03}})
+		if err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+		if len(result.Errors) != 0 {
+			t.Fatalf("errors = %#v, want none", result.Errors)
+		}
+		assertScriptField(t, result.Fields, "length", "3")
+		assertScriptField(t, result.Fields, "checksum", "3")
+
+		result, err = runtime.run(serialScriptRunInput{Data: []byte{0x01, 0x02, 0x00}})
+		if err != nil {
+			t.Fatalf("bad checksum run returned Go error: %v", err)
+		}
+		if len(result.Errors) != 1 || result.Errors[0] != "checksum mismatch" {
+			t.Fatalf("bad checksum errors = %#v, want checksum mismatch", result.Errors)
+		}
+	})
+}
+
 func TestSerialScriptRuntimeEnforcesOutputAndStateLimits(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

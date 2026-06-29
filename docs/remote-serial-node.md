@@ -20,7 +20,7 @@ The current graph runtime implements raw TCP **client** and **server** roles:
 - Use it only on trusted LANs, VPNs, SSH tunnels, lab networks, or other access-controlled networks.
 - Do not expose raw TCP serial ports directly to the public Internet.
 - Keep passwords, tokens, and private tunnel credentials out of graph configs and documentation.
-- Configure baud rate, parity, stop bits, flow control, and line discipline on the remote serial server or adapter. Phase 1 stores those fields as PortWeave-side intent/notes only.
+- Configure baud rate, parity, stop bits, flow control, and line discipline on the remote serial server or adapter. The current raw TCP runtime stores those fields as PortWeave-side intent/notes only.
 
 ## ser2net raw TCP example
 
@@ -45,9 +45,9 @@ With the tunnel above, set `host = 127.0.0.1` and `port = 3001` in PortWeave.
 PortWeave includes a frontend demo workspace named `remote-serial-demo` / `远端串口演示`. It builds a safe example topology without pre-opening runtime resources:
 
 ```text
-serial.script.generator -> serial.remote(client)
-serial.remote(server).rx -> serial.monitor
-serial.remote(client).rx -> serial.monitor
+serial.script.generator.out -> serial.remote(client).tx
+serial.remote(server).rx -> serial.monitor.in
+serial.remote(client).rx -> serial.monitor.in
 ```
 
 The demo starts a graph-owned raw TCP server and client on `host = 127.0.0.1`, `port = 3001`, `protocol = raw-tcp`. It does not require an external ser2net endpoint or a process outside PortWeave; the client generator sends startup traffic into the client endpoint, and both remote endpoint buffers plus monitor branches can be inspected.
@@ -71,7 +71,7 @@ Use the returned `nodes` and `edges` directly with `serial_graph_validate`, then
 
 ## PortWeave node configuration
 
-Recommended Phase 1 configuration:
+Recommended client configuration:
 
 ```text
 protocol = raw-tcp
@@ -93,13 +93,13 @@ parity = none
 flowMode = none
 ```
 
-`serial.remote` intentionally does **not** use a `mode` config key. Other graph node types already use `mode` for payload encoding, filter mode, and protocol framing; remote serial uses `protocol` and `role` to avoid that collision.
+For a graph-owned listener, set `role = server` with the same `protocol`, `host`, `port`, timeout, and display fields. `serial.remote` intentionally does **not** use a `mode` config key. Other graph node types already use `mode` for payload encoding, filter mode, and protocol framing; remote serial uses `protocol` and `role` to avoid that collision.
 
 ## Configuration reference
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `protocol` | `raw-tcp` | Only `raw-tcp` is supported in Phase 1. |
+| `protocol` | `raw-tcp` | Only `raw-tcp` is currently supported. |
 | `role` | `client` | `client` connects to an existing endpoint; `server` listens in the graph runtime. |
 | `host` | empty | Required before validation/start succeeds; use a hostname or IP without URL scheme. |
 | `port` | `3001` | TCP port, `1..65535`. |
@@ -109,7 +109,7 @@ flowMode = none
 | `reconnectIntervalMs` | `1000` | Delay between reconnect attempts, `100..60000` ms. |
 | `allowStartDisconnected` | `false` | If false, graph start fails when the TCP endpoint is unavailable; if true, the node starts as `reconnecting`. |
 | `readBufKB` | `32` | TCP read buffer size, `1..1024` KiB; runtime still clamps defensively. |
-| `baudRate`, `dataBits`, `stopBits`, `parity`, `flowMode` | serial metadata defaults | Kept for future RFC2217/serial metadata compatibility; Phase 1 raw TCP does not negotiate them. |
+| `baudRate`, `dataBits`, `stopBits`, `parity`, `flowMode` | serial metadata defaults | Kept for future RFC2217/serial metadata compatibility; current raw TCP does not negotiate them. |
 | `viewMode`, `autoScroll`, `showTimestamp` | endpoint buffer display defaults | Controls node buffer rendering in the frontend. |
 
 ## Suggested topologies
@@ -117,15 +117,15 @@ flowMode = none
 Use `serial.remote` as the graph-owned resource node that bridges a remote TCP byte stream with ordinary graph nodes:
 
 ```text
-serial.script.generator -> serial.remote.tx
-serial.remote.rx -> serial.monitor
+serial.script.generator.out -> serial.remote.tx
+serial.remote.rx -> serial.monitor.in
 ```
 
 For inspection and fan-out, connect the `rx` output directly to multiple downstream inputs; endpoint buffers are also queryable directly:
 
 ```text
-serial.remote.rx -> serial.monitor
-                 \-> serial.monitor
+serial.remote.rx -> serial.monitor.in
+                 \-> serial.monitor.in
 ```
 
 For protocol flows, connect protocol-node transmit output into `serial.remote.tx`, then route `serial.remote.rx` directly to the protocol receive input and any monitor nodes that need the same bytes. Keep the graph acyclic by using the existing protocol response-cycle pattern rather than drawing a direct cycle.
@@ -138,18 +138,18 @@ The frontend graph model, backend runtime, and MCP tools all validate the same c
 - `host` must not include a URL scheme such as `tcp://`.
 - `port` must be an integer in `1..65535`.
 - `protocol` must be `raw-tcp`.
-- `role` must be `client`.
+- `role` must be `client` or `server`.
 - `connectTimeoutMs`, `writeTimeoutMs`, and `reconnectIntervalMs` must be integers in `100..60000`.
 - `readBufKB` must be an integer in `1..1024`.
-- Two remote nodes cannot use the same computed endpoint identity in one graph.
+- Two remote nodes cannot use the same computed endpoint identity with the same role in one graph.
 
-Remote resource identity is computed as the normalized raw TCP endpoint, for example:
+The runtime resource ID is the normalized raw TCP endpoint, for example:
 
 ```text
 raw-tcp://127.0.0.1:3001
 ```
 
-Normalization is intentionally conservative: trim whitespace, lowercase host names, format with host/port joining, and do not resolve DNS. `localhost` and `127.0.0.1` remain distinct identities. Hosts must be entered without URL schemes.
+Resource uniqueness additionally includes the node role, so the built-in loopback demo can use one `server` node and one `client` node on the same endpoint. Normalization is intentionally conservative: trim whitespace, lowercase host names, format with host/port joining, and do not resolve DNS. `localhost` and `127.0.0.1` remain distinct identities. Hosts must be entered without URL schemes.
 
 This is deliberately different from physical/virtual serial nodes, which use `portName` as their resource key.
 
@@ -179,7 +179,7 @@ This is deliberately different from physical/virtual serial nodes, which use `po
 
 ### Writes fail while disconnected
 
-- This is expected. Phase 1 does not maintain an unlimited offline TX queue.
+- This is expected. The current raw TCP runtime does not maintain an unlimited offline TX queue.
 - Wait for status `running`, then send again.
 - If the node is `error` with `reconnect=false`, stop/start the graph after restoring the endpoint or enable reconnect.
 
@@ -194,10 +194,9 @@ This is deliberately different from physical/virtual serial nodes, which use `po
 - Raw TCP carries bytes only. It does not negotiate serial line parameters.
 - Update the ser2net/adapter configuration on the remote host and restart that service if needed.
 
-## Non-goals for Phase 1
+## Current non-goals
 
 - RFC2217 negotiation.
-- TCP server/listener mode.
 - TLS, authentication, SSH tunneling, or proxy management inside PortWeave.
 - Serial line control negotiation over raw TCP.
 - Cross-graph global endpoint locking beyond the active graph runtime lifecycle.

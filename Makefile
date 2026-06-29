@@ -1,4 +1,4 @@
-.PHONY: build build-all build-darwin build-linux build-windows test test-race vet lint coverage coverage-gate-test clean bindings frontend full
+.PHONY: build build-all build-darwin build-linux build-windows test test-race vet lint coverage coverage-gate-test clean bindings frontend frontend-test frontend-coverage frontend-typecheck frontend-build frontend-e2e-smoke ci ci-strict full
 
 APP_NAME := portweave
 BUILD_DIR := bin
@@ -49,6 +49,12 @@ coverage: coverage-gate-test
 	GO_COVERAGE_PROFILE="$(GO_COVERAGE_PROFILE)" ./scripts/check-go-coverage.sh
 	go tool cover -html="$(GO_COVERAGE_PROFILE)" -o "$(GO_COVERAGE_HTML)"
 
+# Run a local CI-like command set without requiring golangci-lint.
+ci: vet test coverage frontend-coverage frontend-typecheck frontend-build
+
+# Run the CI-like set plus optional strict checks that may require local tools/browsers.
+ci-strict: ci lint frontend-e2e-smoke
+
 # Clean build artifacts
 clean:
 	rm -rf $(BUILD_DIR) coverage.out coverage.html
@@ -60,6 +66,26 @@ bindings:
 # Build frontend
 frontend:
 	cd frontend && pnpm run build
+
+# Run frontend unit tests without coverage.
+frontend-test:
+	cd frontend && pnpm test -- --run
+
+# Run frontend unit tests with the configured coverage gate.
+frontend-coverage:
+	cd frontend && pnpm run test:coverage
+
+# Run frontend TypeScript/Vue type checks.
+frontend-typecheck:
+	cd frontend && pnpm exec vue-tsc --noEmit
+
+# Run the CI frontend development build.
+frontend-build:
+	cd frontend && pnpm run build:dev
+
+# Run the GUI smoke test used by CI after Playwright browser install.
+frontend-e2e-smoke:
+	cd frontend && pnpm run e2e:smoke
 
 # Full build (frontend + Go)
 full: frontend build

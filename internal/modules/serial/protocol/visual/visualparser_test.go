@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/littepointR/portweave/internal/modules/serial/protocol"
+	"github.com/littepointR/portweave/internal/modules/serial/protocol/templates"
 )
 
 func TestVisualParserAA55Frame(t *testing.T) {
@@ -50,6 +51,38 @@ func TestVisualParserAA55Frame(t *testing.T) {
 	}
 	if len(result.Fields) != 2 {
 		t.Fatalf("Fields len = %d, want 2", len(result.Fields))
+	}
+}
+
+func TestVisualParserParsesAA55TemplateExample(t *testing.T) {
+	t.Parallel()
+	tmpl := templates.GetTemplate("AA55 自定义帧")
+	if tmpl == nil || tmpl.Config.Visual == nil {
+		t.Fatalf("AA55 template visual config = %#v", tmpl)
+	}
+	parser := NewVisualParser(*tmpl.Config.Visual)
+
+	// Template shape: AA 55 + little-endian length including checksum + sum8 + payload.
+	frame := []byte{0xaa, 0x55, 0x04, 0x00, 0x03, 0x01}
+	result, err := parser.Parse(frame)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if !result.OK || result.Consumed != len(frame) || result.NeedMore != 0 {
+		t.Fatalf("Parse result = %#v, want complete OK AA55 template frame", result)
+	}
+	if len(result.Fields) != 1 || result.Fields[0].Name != "cmd" {
+		t.Fatalf("Fields = %#v, want documented cmd field", result.Fields)
+	}
+
+	badChecksum := append([]byte(nil), frame...)
+	badChecksum[4] = 0x00
+	result, err = parser.Parse(badChecksum)
+	if err != nil {
+		t.Fatalf("Parse bad checksum returned error: %v", err)
+	}
+	if result.OK || len(result.Errors) == 0 {
+		t.Fatalf("bad checksum result = %#v, want checksum mismatch", result)
 	}
 }
 

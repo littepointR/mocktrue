@@ -4,6 +4,23 @@ import { matchSerialFilter } from '../serial/utils/serialFilter'
 import { createDemoWorkspaceSnapshot, getDemoWorkspace, listDemoWorkspaces } from './demoWorkspaces'
 import { workspaceKind } from './workspaceSnapshot'
 
+const demoIds = [
+  'serial-open-demo',
+  'virtual-port-demo',
+  'bridge-demo',
+  'monitor-demo',
+  'script-transform-demo',
+  'script-analyzer-demo',
+  'modbus-demo',
+  'fecbus-demo',
+  'serial-graph-demo',
+  'serial-observability-demo',
+  'remote-serial-demo',
+  'full-workspace-demo',
+]
+
+const removedDemoNodeTypes = ['serial.sender', 'serial.receiver', 'serial.tap', 'serial.tee']
+
 const expectedDemoNodeTypes: Record<string, string[]> = {
   'serial-open-demo': ['serial.script.generator', 'serial.virtual'],
   'virtual-port-demo': ['serial.script.generator', 'serial.virtual'],
@@ -47,21 +64,30 @@ describe('demoWorkspaces', () => {
     const ids = demos.map(demo => demo.id)
 
     expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toEqual([
-      'serial-open-demo',
-      'virtual-port-demo',
-      'bridge-demo',
-      'monitor-demo',
-      'script-transform-demo',
-      'script-analyzer-demo',
-      'modbus-demo',
-      'fecbus-demo',
-      'serial-graph-demo',
-      'serial-observability-demo',
-      'remote-serial-demo',
-      'full-workspace-demo',
-    ])
+    expect(ids).toEqual(demoIds)
     expect(demos.every(demo => !('readonly' in demo))).toBe(true)
+  })
+
+  it('provides serializable optional catalog metadata for every demo id', () => {
+    for (const demo of listDemoWorkspaces()) {
+      expect(demo.title.trim(), demo.id).not.toBe('')
+      expect(demo.description.trim(), demo.id).not.toBe('')
+      expect(demo.requiresHardware, demo.id).toBe(false)
+      expect(['beginner', 'intermediate', 'advanced'], demo.id).toContain(demo.difficulty)
+      expect(demo.docsPath, demo.id).toBe(`docs/examples.md#${demo.id}`)
+      expect(demo.tags?.length, demo.id).toBeGreaterThan(0)
+      expect(demo.tags?.every(tag => tag.trim().length > 0), demo.id).toBe(true)
+      expect(JSON.parse(JSON.stringify(demo))).toEqual(demo)
+    }
+
+    expect(listDemoWorkspaces().map(demo => demo.id)).toEqual(Object.keys(expectedDemoNodeTypes))
+  })
+
+  it('returns cloned metadata arrays so callers cannot mutate the catalog', () => {
+    const demo = getDemoWorkspace('serial-open-demo')
+    demo?.tags?.push('mutated')
+
+    expect(getDemoWorkspace('serial-open-demo')?.tags).not.toContain('mutated')
   })
 
   it('returns null for an unknown demo id', () => {
@@ -349,8 +375,9 @@ describe('demoWorkspaces', () => {
       const nodeTypes = graph.nodes.map(node => node.type)
 
       expect(nodeTypes, demo.id).toEqual(expect.arrayContaining(expectedDemoNodeTypes[demo.id]))
-      expect(nodeTypes, demo.id).not.toContain('serial.tap')
-      expect(nodeTypes, demo.id).not.toContain('serial.tee')
+      for (const removedType of removedDemoNodeTypes) {
+        expect(nodeTypes, `${demo.id} ${removedType}`).not.toContain(removedType)
+      }
       expect(graph.nodes.every(node => providerTypes.has(node.type)), demo.id).toBe(true)
       expect(validateGraph(graph).errors, demo.id).toEqual([])
       expect(graph.nodeTabs.map(tab => tab.nodeId), demo.id).toEqual(graph.nodes.map(node => node.id))

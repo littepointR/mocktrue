@@ -2,20 +2,20 @@ package protocol
 
 // FrameSpec defines a frame format for the visual parser.
 type FrameSpec struct {
-	Name        string         `json:"name"`
-	Header      []byte         `json:"header,omitempty"`
-	Footer      []byte         `json:"footer,omitempty"`
-	LengthField *LengthField   `json:"lengthField,omitempty"`
-	Checksum    *ChecksumSpec  `json:"checksum,omitempty"`
-	Fields      []FieldSpec    `json:"fields"`
-	MaxFrameLen int            `json:"maxFrameLen"`
-	MinFrameLen int            `json:"minFrameLen"`
+	Name        string        `json:"name"`
+	Header      []byte        `json:"header,omitempty"`
+	Footer      []byte        `json:"footer,omitempty"`
+	LengthField *LengthField  `json:"lengthField,omitempty"`
+	Checksum    *ChecksumSpec `json:"checksum,omitempty"`
+	Fields      []FieldSpec   `json:"fields"`
+	MaxFrameLen int           `json:"maxFrameLen"`
+	MinFrameLen int           `json:"minFrameLen"`
 }
 
 // LengthField describes how the frame length is encoded.
 type LengthField struct {
 	Offset           int    `json:"offset"`
-	Width            int    `json:"width"` // 1/2/4
+	Width            int    `json:"width"`      // 1/2/4
 	Endianness       string `json:"endianness"` // "le"|"be"
 	IncludesHeader   bool   `json:"includesHeader"`
 	IncludesChecksum bool   `json:"includesChecksum"`

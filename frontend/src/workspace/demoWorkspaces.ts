@@ -12,6 +12,10 @@ export interface DemoWorkspace {
   id: string
   title: string
   description: string
+  difficulty?: 'beginner' | 'intermediate' | 'advanced'
+  tags?: string[]
+  requiresHardware?: boolean
+  docsPath?: string
 }
 
 interface DemoWorkspaceDefinition extends DemoWorkspace {
@@ -25,89 +29,144 @@ const demoDefinitions: DemoWorkspaceDefinition[] = [
     id: 'serial-open-demo',
     title: '串口收发演示',
     description: '展示虚拟串口和打开串口操作的基础配置。',
+    difficulty: 'beginner',
+    tags: ['serial', 'virtual-port', 'generator'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#serial-open-demo',
     snapshotFactory: createSerialOpenDemo,
   },
   {
     id: 'virtual-port-demo',
     title: '虚拟串口演示',
     description: '展示多个自动创建的单端虚拟串口，适合验证虚拟串口资源管理。',
+    difficulty: 'beginner',
+    tags: ['serial', 'virtual-port', 'resources'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#virtual-port-demo',
     snapshotFactory: createVirtualPortDemo,
   },
   {
     id: 'bridge-demo',
     title: '串口桥接演示',
     description: '展示拓扑图中两路虚拟串口字节流的桥接配置。',
+    difficulty: 'intermediate',
+    tags: ['serial', 'bridge', 'monitor'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#bridge-demo',
     snapshotFactory: createBridgeDemo,
   },
   {
     id: 'monitor-demo',
     title: '串口监控演示',
     description: '展示串口监听操作和可监听的虚拟串口配置。',
+    difficulty: 'beginner',
+    tags: ['serial', 'monitor', 'virtual-port'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#monitor-demo',
     snapshotFactory: createMonitorDemo,
   },
   {
     id: 'script-transform-demo',
     title: '脚本转换演示',
     description: '展示脚本生成、脚本转换和监控帧组成的自动数据链路。',
+    difficulty: 'intermediate',
+    tags: ['script', 'transform', 'monitor'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#script-transform-demo',
     snapshotFactory: createScriptTransformDemo,
   },
   {
     id: 'script-analyzer-demo',
     title: '脚本分析演示',
     description: '展示脚本分析节点从真实数据链路中提取字段。',
+    difficulty: 'intermediate',
+    tags: ['script', 'analyzer', 'fields'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#script-analyzer-demo',
     snapshotFactory: createScriptAnalyzerDemo,
   },
   {
     id: 'modbus-demo',
     title: 'Modbus 调试演示',
     description: '展示拓扑图中的 Modbus RTU/ASCII 主站和多 Unit ID 从站。',
+    difficulty: 'intermediate',
+    tags: ['modbus', 'protocol', 'virtual-port'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#modbus-demo',
     snapshotFactory: createModbusDemo,
   },
   {
     id: 'fecbus-demo',
     title: 'FECbus 调试演示',
     description: '展示拓扑图中的 FECbus 主控发送和从机应答配置。',
+    difficulty: 'intermediate',
+    tags: ['fecbus', 'protocol', 'virtual-port'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#fecbus-demo',
     snapshotFactory: createFecbusDemo,
   },
   {
     id: 'serial-graph-demo',
     title: '串口拓扑演示',
     description: '展示串口端点、直接多路输出、监控和协议节点的图形化连接。',
+    difficulty: 'intermediate',
+    tags: ['graph', 'fan-out', 'modbus'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#serial-graph-demo',
     snapshotFactory: createSerialGraphDemo,
   },
   {
     id: 'serial-observability-demo',
     title: '串口过滤与日志演示',
     description: '展示串口过滤器、端点缓冲区、监控帧和运行后操作日志。',
+    difficulty: 'advanced',
+    tags: ['observability', 'filter', 'monitor'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#serial-observability-demo',
     snapshotFactory: createSerialObservabilityDemo,
   },
   {
     id: 'remote-serial-demo',
     title: '远端串口演示',
     description: '展示一个图内 raw TCP server/client 远端串口链路，并把端点字节流分发到监控节点。',
+    difficulty: 'advanced',
+    tags: ['remote', 'raw-tcp', 'monitor'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#remote-serial-demo',
     snapshotFactory: createRemoteSerialDemo,
   },
   {
     id: 'full-workspace-demo',
     title: '完整工作区演示',
     description: '展示设置以及拓扑图中的虚拟串口、桥接、监控、Modbus 和 FECbus 配置。',
+    difficulty: 'advanced',
+    tags: ['workspace', 'graph', 'protocols'],
+    requiresHardware: false,
+    docsPath: 'docs/examples.md#full-workspace-demo',
     snapshotFactory: createFullWorkspaceDemo,
   },
 ]
 
 export function listDemoWorkspaces(): DemoWorkspace[] {
-  return demoDefinitions.map(({ snapshotFactory: _snapshotFactory, ...demo }) => ({ ...demo }))
+  return demoDefinitions.map(demoMetadata)
 }
 
 export function getDemoWorkspace(id: string): DemoWorkspace | null {
   const demo = demoDefinitions.find(item => item.id === id)
   if (!demo) return null
-  const { snapshotFactory: _snapshotFactory, ...metadata } = demo
-  return { ...metadata }
+  return demoMetadata(demo)
 }
 
 export function createDemoWorkspaceSnapshot(id: string): WorkspaceSnapshot | null {
   return demoDefinitions.find(item => item.id === id)?.snapshotFactory() ?? null
+}
+
+function demoMetadata(demo: DemoWorkspaceDefinition): DemoWorkspace {
+  const { snapshotFactory: _snapshotFactory, tags, ...metadata } = demo
+  return {
+    ...metadata,
+    ...(tags ? { tags: [...tags] } : {}),
+  }
 }
 
 function createSerialOpenDemo(): WorkspaceSnapshot {

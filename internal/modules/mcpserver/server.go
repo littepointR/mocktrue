@@ -22,6 +22,7 @@ import (
 	mb "github.com/littepointR/portweave/internal/modules/serial/modbus"
 	"github.com/littepointR/portweave/internal/modules/serial/monitor"
 	"github.com/littepointR/portweave/internal/modules/serial/port"
+	protocoltemplates "github.com/littepointR/portweave/internal/modules/serial/protocol/templates"
 )
 
 // SerialRuntime is the serial surface exposed through MCP tools.
@@ -419,6 +420,10 @@ type serialGraphDemoTemplateArgs struct {
 	AllowStartDisconnected bool   `json:"allow_start_disconnected,omitempty"`
 }
 
+type protocolTemplateDescribeArgs struct {
+	Name string `json:"name"`
+}
+
 type serialGraphIDArgs struct {
 	GraphID string `json:"graph_id"`
 }
@@ -630,6 +635,22 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 		return nil, map[string]any{"cleaned": true}, nil
 	})
 
+	addReadTool[noArgs, map[string]any](server, "protocol_template_catalog", "List read-only protocol parser templates available for serial validation.", func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"templates": protocolTemplateCatalog()}, nil
+	})
+
+	addReadTool[protocolTemplateDescribeArgs, map[string]any](server, "protocol_template_describe", "Return a read-only protocol parser template config by name.", func(ctx context.Context, req *mcp.CallToolRequest, args protocolTemplateDescribeArgs) (*mcp.CallToolResult, map[string]any, error) {
+		name := strings.TrimSpace(args.Name)
+		if name == "" {
+			return nil, nil, errors.New(errors.CodeInvalid, "protocol template name is required")
+		}
+		template := protocoltemplates.GetTemplate(name)
+		if template == nil {
+			return nil, nil, errors.New(errors.CodeInvalid, "protocol template not found: "+name)
+		}
+		return nil, map[string]any{"template": protocolTemplateDetail(template)}, nil
+	})
+
 	addReadTool[noArgs, map[string]any](server, "serial_graph_provider_catalog", "List serial topology node providers and connection rules.", func(ctx context.Context, req *mcp.CallToolRequest, args noArgs) (*mcp.CallToolResult, map[string]any, error) {
 		return nil, map[string]any{
 			"providers": serialGraphProviders(),
@@ -637,7 +658,7 @@ func registerTools(server *mcp.Server, serialService SerialRuntime) {
 				"compatible_kinds": []string{"bytes", "frame", "registers", "status", "control"},
 				"fan_out":          "Output ports may feed multiple inputs; input ports remain single-source unless explicitly marked multiple.",
 				"cycles":           "Directed cycles are rejected.",
-				"resource_owners":  "Nodes that own a local serial resource must not reuse the same configured port_name; serial.remote nodes must not reuse the same normalized raw TCP endpoint in one graph.",
+				"resource_owners":  "Nodes that own a local serial resource must not reuse the same configured port_name; serial.remote nodes must not reuse the same normalized raw TCP endpoint + role in one graph.",
 				"remote_security":  "serial.remote raw TCP has no authentication, authorization, encryption, or serial parameter negotiation; use trusted LAN/VPN/SSH tunnel endpoints only.",
 			},
 		}, nil
@@ -1140,6 +1161,59 @@ func addWriteTool[In, Out any](server *mcp.Server, name, description string, des
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func protocolTemplateCatalog() []map[string]any {
+	items := protocoltemplates.ListTemplates()
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, map[string]any{
+			"name":        item.Name,
+			"description": item.Description,
+			"kind":        string(item.Kind),
+		})
+	}
+	return out
+}
+
+func protocolTemplateDetail(template *protocoltemplates.Template) map[string]any {
+	return map[string]any{
+		"name":        template.Name,
+		"description": template.Description,
+		"kind":        string(template.Kind),
+		"config":      protocolTemplateConfig(template),
+	}
+}
+
+func protocolTemplateConfig(template *protocoltemplates.Template) map[string]any {
+	config := template.Config
+	out := map[string]any{"kind": string(config.Kind)}
+	if config.Template != "" {
+		out["template"] = config.Template
+	}
+	if config.Script != "" {
+		out["script"] = config.Script
+	}
+	if config.Visual != nil {
+		visual := config.Visual
+		visualOut := map[string]any{
+			"name":          visual.Name,
+			"header_hex":    hex.EncodeToString(visual.Header),
+			"footer_hex":    hex.EncodeToString(visual.Footer),
+			"fields":        visual.Fields,
+			"max_frame_len": visual.MaxFrameLen,
+			"min_frame_len": visual.MinFrameLen,
+		}
+		if visual.LengthField != nil {
+			visualOut["length_field"] = visual.LengthField
+		}
+		if visual.Checksum != nil {
+			visualOut["checksum"] = visual.Checksum
+			visualOut["checksum_type"] = visual.Checksum.Type
+		}
+		out["visual"] = visualOut
+	}
+	return out
 }
 
 func serialGraphProviders() []serialGraphProvider {

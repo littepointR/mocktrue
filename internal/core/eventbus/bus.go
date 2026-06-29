@@ -15,10 +15,10 @@ type Bridge interface {
 // EventBus is an in-process pub/sub bus that optionally forwards every
 // Publish to the frontend through a Bridge.
 type EventBus struct {
-	mu         sync.RWMutex
-	subs       map[string][]handler
-	bridge     Bridge
-	logger     *slog.Logger
+	mu     sync.RWMutex
+	subs   map[string][]handler
+	bridge Bridge
+	logger *slog.Logger
 }
 
 type handler struct {

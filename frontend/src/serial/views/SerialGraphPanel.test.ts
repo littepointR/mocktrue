@@ -140,6 +140,31 @@ describe('SerialGraphPanel', () => {
     wrapper.unmount()
   })
 
+  it('shows selected node docs help that points to the current node catalog anchor', async () => {
+    const store = useSerialGraphStore()
+    const remote = store.addNode('serial.remote')
+    const monitor = store.addNode('serial.monitor')
+    store.selectNode(remote.id)
+    const wrapper = mount(SerialGraphPanel)
+
+    expect(wrapper.find('[data-testid="serial-graph-node-docs-help"]').text()).toContain('docs/serial-graph-node-catalog.md#serialremote')
+    expect(wrapper.find('[data-testid="serial-graph-node-docs-help"]').text()).toContain('raw TCP')
+
+    store.selectNode(monitor.id)
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-graph-node-docs-help"]').text()).toContain('docs/serial-graph-node-catalog.md#serialmonitor')
+    expect(wrapper.find('[data-testid="serial-graph-node-docs-help"]').text()).toContain('监听一路串口字节流')
+    expect(wrapper.find('[data-testid="serial-graph-node-docs-help"]').text()).not.toContain('serial.sender')
+
+    store.selectNode(null)
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="serial-graph-node-docs-help"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('manages graphs from the workbench toolbar', async () => {
     const wrapper = mount(SerialGraphPanel)
     const store = useSerialGraphStore()

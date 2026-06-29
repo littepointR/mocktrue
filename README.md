@@ -2,120 +2,162 @@
 
 [![CI](https://github.com/littepointR/portweave/actions/workflows/ci.yml/badge.svg)](https://github.com/littepointR/portweave/actions/workflows/ci.yml)
 
-PortWeave 是一个跨平台高性能嵌入式调试工具，面向串口、协议调试、虚拟设备模拟和自动化验证场景。
+PortWeave 是面向嵌入式调试和自动化验证的开源串口拓扑工作台，可用图形化节点连接物理串口、虚拟串口、远端 raw TCP 串口、脚本处理器和协议模拟器。
 
-PortWeave is a cross-platform embedded debugging toolkit for serial communication, protocol debugging, virtual device simulation, and automated validation workflows.
+PortWeave is an open-source serial topology workbench for embedded debugging and automated validation, connecting physical serial ports, virtual ports, remote raw TCP endpoints, scripts, and protocol simulators as graph nodes.
 
-## 功能特性 / Features
+## 5-minute no-hardware quick start
 
-- 串口拓扑图：通过节点和连接线组织物理串口、虚拟串口、远端 raw TCP 串口、桥接、监控、分流、过滤器、脚本节点和协议节点。远端串口配置、安全边界、内置示例和 MCP 模板详见 [Remote Serial Graph Node](docs/remote-serial-node.md)。
-- 自动收发与演示工作区：示例配置基于真实功能构建，可使用虚拟串口循环运行数据，并内置串口过滤与日志、远端 raw TCP 串口演示。
-- 串口监控：自动创建虚拟监听端口，按实际时间记录收发帧。
-- Modbus 支持：支持 Modbus RTU/ASCII 主站、从站、多 Unit ID、寄存器表格和原始帧显示。
-- FECbus 支持：支持 FECbus 主从站、多从站、数据帧分段标注和自定义功能码。
-- 脚本节点：提供受限 PortWeave 脚本 API，用于生成、转换和分析串口数据。
-- MCP 服务：暴露串口和运行时能力，便于外部工具和自动化流程集成；串口拓扑 MCP 工具提供 provider catalog、校验/启动/缓冲区查询，以及只读 demo template（包含过滤器与日志、远端 raw TCP 示例）。
-- 配置工作区：每个标签页可独立保存、加载和恢复配置。
+Start with a demo that does not require external serial hardware:
 
-## 技术栈 / Tech Stack
+1. Install frontend dependencies: `cd frontend && pnpm install`.
+2. Start the Wails dev app: `wails3 dev -config ./build/config.yml -port 9245`.
+3. Open Settings -> Global / 全局设置 -> 示例配置.
+4. Load `serial-observability-demo` or `remote-serial-demo`.
+5. Open the loaded graph tab, start the graph runtime, and inspect node buffers, monitor frames, and status.
 
-- Desktop: Wails v3
-- Backend: Go
-- Frontend: Vue 3, TypeScript, Vite, Naive UI, Pinia, Monaco Editor
-- Tests: Vitest, Playwright, Go test
-- CI: GitHub Actions
+Detailed walkthrough: [Getting Started](docs/getting-started.md). Full demo list: [Examples](docs/examples.md). Documentation map: [docs/index.md](docs/index.md).
 
-## 环境要求 / Requirements
+## Why PortWeave?
 
-- Go `1.26.0`，以 `go.mod` 为准
-- Node.js `22`，与 CI 配置一致
-- pnpm `10.32.1`
-- Wails CLI v3 alpha
+- Build serial topologies visually: model endpoints, filters, scripts, protocol nodes, and monitor branches as a graph.
+- Simulate devices without hardware: use generated virtual ports, script generators, Modbus/FECbus nodes, and localhost raw TCP loopback demos.
+- Automate validation through MCP: inspect catalogs, validate/start graphs, send/query data, collect evidence, and stop resources repeatably.
 
-安装 Wails CLI：
+PortWeave is not a generic dashboard widget clone. It focuses on topology-native debugging, protocol simulation, runtime evidence, and agent/CI-friendly automation.
+
+## Features
+
+- Serial graph topology: current nodes include `serial.physical`, `serial.virtual`, `serial.remote`, `serial.bridge`, `serial.monitor`, `serial.filter`, script nodes, Modbus nodes, and FECbus nodes. See [Serial Graph Node Catalog](docs/serial-graph-node-catalog.md).
+- No-hardware demo workspaces: generated examples use graph-owned virtual endpoints, script generators, filters, protocol nodes, and raw TCP loopback paths. See [Examples](docs/examples.md).
+- Runtime observability: node status, RX/TX counters, endpoint buffers, monitor frames, protocol frames, and script analyzer fields. See [Serial Graph Runtime Flow](docs/serial-graph-runtime-flow.md).
+- Remote raw TCP serial: `serial.remote` supports raw TCP client/server roles for trusted LAN/VPN/SSH-tunnel scenarios. Raw TCP has no auth, encryption, or serial negotiation. See [Remote Serial Graph Node](docs/remote-serial-node.md).
+- Modbus support: Modbus RTU/ASCII master/slave graph nodes plus existing session tools for register and Unit ID workflows.
+- FECbus support: FECbus master/slave graph nodes, function catalog, frame querying, and device-state simulation workflows.
+- Script nodes: safe script generation, transformation, and analysis with timeout/output/state limits.
+- MCP automation: 64 current tools for serial resources, serial graph runtime, monitors, Modbus, and FECbus. See [MCP API and Recipes](docs/mcp-api.md) and [AI Automation Guide](docs/ai-automation.md).
+- Workspace snapshots: whole-workspace and graph-tab snapshot formats for repeatable demos and saved graphs. See [Workspace and Graph Schema](docs/workspace-graph-schema.md).
+
+## Documentation
+
+Start here:
+
+- [Documentation index](docs/index.md)
+- [Getting Started](docs/getting-started.md)
+- [Workflows](docs/workflows.md)
+- [Use Cases](docs/use-cases.md)
+- [Examples](docs/examples.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
+Developer/architecture docs:
+
+- [Architecture](docs/architecture.md)
+- [Architecture Decisions](docs/development/architecture-decisions.md)
+- [Testing](docs/development/testing.md)
+- [Windows Serial Testing](docs/development/windows-serial-testing.md)
+
+## Tech stack
+
+- Desktop shell: Wails v3 alpha.
+- Backend: Go services/modules.
+- Frontend: Vue 3, TypeScript, Vite, Naive UI, Pinia, Monaco Editor.
+- Automation: Go MCP SDK, local MCP server.
+- Tests: Go test, Vitest, Playwright.
+- CI: GitHub Actions with frontend, coverage, backend matrix, and backend aggregate jobs.
+
+The current architecture intentionally keeps Go + Wails + Vue/TypeScript, defers gRPC until evidence requires it, and does not plan a Qt/C++ rewrite. See [Architecture Decisions](docs/development/architecture-decisions.md).
+
+## Requirements
+
+- Go `1.26.0`, from `go.mod`.
+- Node.js `22`, matching CI.
+- pnpm `10.32.1`, matching CI.
+- Wails CLI v3 alpha.
+
+Install Wails CLI:
 
 ```bash
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.103
 ```
 
-安装前端依赖：
+Install frontend dependencies:
 
 ```bash
 cd frontend
 pnpm install
 ```
 
-## 开发 / Development
+## Development
 
-从仓库根目录启动桌面应用：
+Start the desktop development app from the repository root:
 
 ```bash
 wails3 dev -config ./build/config.yml -port 9245
 ```
 
-也可以使用 Taskfile：
+Taskfile alternatives:
 
 ```bash
 wails3 task dev
-```
-
-构建和打包：
-
-```bash
 wails3 task build
 wails3 task package
-```
-
-运行服务端模式：
-
-```bash
 wails3 task run:server
 ```
 
-## 测试 / Tests
+## Tests and verification
 
-前端测试：
+Frontend:
 
 ```bash
 cd frontend
 pnpm test -- --run
+pnpm run test:coverage
 pnpm exec vue-tsc --noEmit
 pnpm run build:dev
+pnpm run e2e:smoke
 ```
 
-后端串口模块测试：
-
-```bash
-go test ./internal/modules/serial/... -count=1
-```
-
-完整 Go 测试：
+Backend:
 
 ```bash
 go test ./... -count=1
+go test ./internal/core/... ./internal/modules/serial/... -count=1
+go test -tags integration -timeout 120s ./tests/go/integration ./tests/automation/integration -count=1
 ```
 
-Windows 虚拟 COM 集成测试是可选流程，详见 [Windows Serial Testing](docs/development/windows-serial-testing.md)。
+Coverage and Makefile:
 
-## 项目结构 / Project Structure
+```bash
+./scripts/test-check-go-coverage.sh
+./scripts/check-go-coverage.sh
+make test
+make coverage
+make lint
+make build
+```
+
+Frontend and Go coverage gates default to 90% in CI. `make lint` requires `golangci-lint` to be installed. More detail: [Testing](docs/development/testing.md).
+
+## Project structure
 
 ```text
 .
 ├── build/                 # Wails build configuration and platform tasks
-├── docs/                  # Design notes and planning documents
+├── docs/                  # User, architecture, automation, and development docs
 ├── frontend/              # Vue/TypeScript frontend
-├── internal/modules/      # Backend modules, including serial, Modbus, FECbus, MCP
+├── internal/modules/      # Backend modules: serial, Modbus, FECbus, MCP
 ├── main.go                # Application entry point
-├── Taskfile.yml           # Development, build, package, and server tasks
+├── Makefile               # Backend/build/coverage targets
+├── Taskfile.yml           # Wails development, build, package, and server tasks
 └── README.md
 ```
 
-## 贡献 / Contributing
+## Contributing
 
-请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。提交变更前至少运行与改动相关的测试；涉及前端或后端公共能力时，同时运行类型检查和构建检查。
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Run the tests relevant to your change; for frontend/backend public behavior, also run typecheck/build checks.
 
-安全问题请按 [SECURITY.md](SECURITY.md) 报告，不要在公开 issue 中披露敏感细节。
+Security issues should be reported through [SECURITY.md](SECURITY.md). Do not disclose sensitive details in public issues.
 
-## 许可证 / License
+## License
 
 PortWeave is licensed under the [MIT License](LICENSE).

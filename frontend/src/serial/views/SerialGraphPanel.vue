@@ -114,6 +114,9 @@ const selectedEdge = computed(() => (
 const selectedProvider = computed(() => (
   selectedNode.value ? providerByType(selectedNode.value.type) : null
 ))
+const selectedNodeDocsPath = computed(() => (
+  selectedNode.value ? nodeDocsPath(selectedNode.value.type) : ''
+))
 const selectedConfigEntries = computed(() => {
   if (!selectedNode.value) return []
   return Object.entries({
@@ -212,6 +215,26 @@ function renameGraph(value: string) {
 
 function nodeTitle(node: SerialGraphNode): string {
   return providerByType(node.type)?.title ?? node.type
+}
+
+function nodeDocsPath(type: string): string {
+  const anchors: Record<string, string> = {
+    'serial.physical': 'serialphysical',
+    'serial.virtual': 'serialvirtual',
+    'serial.remote': 'serialremote',
+    'serial.bridge': 'serialbridge',
+    'serial.monitor': 'serialmonitor',
+    'serial.filter': 'serialfilter',
+    'serial.script.transform': 'serialscripttransform',
+    'serial.script.generator': 'serialscriptgenerator',
+    'serial.script.analyzer': 'serialscriptanalyzer',
+    'serial.modbus.master': 'serialmodbusmaster',
+    'serial.modbus.slave': 'serialmodbusslave',
+    'serial.fecbus.master': 'serialfecbusmaster',
+    'serial.fecbus.slave': 'serialfecbusslave',
+  }
+  const anchor = anchors[type]
+  return anchor ? `docs/serial-graph-node-catalog.md#${anchor}` : 'docs/serial-graph-node-catalog.md'
 }
 
 function inputsFor(node: SerialGraphNode): SerialGraphPortSpec[] {
@@ -1551,6 +1574,13 @@ onUnmounted(() => {
               <p>{{ selectedProvider?.description ?? selectedNode.type }}</p>
             </div>
           </div>
+          <p
+            v-if="selectedNodeDocsPath"
+            class="serial-graph__docs-help"
+            data-testid="serial-graph-node-docs-help"
+          >
+            节点帮助：{{ selectedProvider?.description ?? selectedNode.type }}；文档：<code>{{ selectedNodeDocsPath }}</code>
+          </p>
           <div class="serial-graph__status-grid serial-graph__status-grid--content">
             <span>状态</span>
             <strong>{{ selectedStatus?.Status ?? selectedNode.status ?? 'idle' }}</strong>
@@ -2213,6 +2243,20 @@ onUnmounted(() => {
   color: var(--app-text-muted, #858585);
   font-size: 12px;
   line-height: 1.4;
+}
+.serial-graph__docs-help {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border, #2d2d2d);
+  border-radius: 6px;
+  background: var(--app-surface, #252526);
+  color: var(--app-text-muted, #858585);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.serial-graph__docs-help code {
+  color: var(--app-text, #cccccc);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .serial-graph__send-content {
   display: grid;

@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import { injectWailsMock } from './fixtures/wails-mock.helper';
 import { emitSerialData, openPort } from './fixtures/app.helper';
 
-test.describe('Serial Basic E2E', () => {
+// Legacy tests for the removed serial tab/operation-panel UI. Replace with graph-node flow tests before re-enabling.
+test.describe.skip('Serial Basic E2E legacy serial-tab flow', () => {
   test.beforeEach(async ({ page }) => {
     await injectWailsMock(page);
   });

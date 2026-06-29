@@ -9,7 +9,8 @@ import {
 } from './fixtures/app.helper';
 import { injectWailsMock } from './fixtures/wails-mock.helper';
 
-test.describe('Virtual Serial and Flow Control E2E', () => {
+// Legacy tests for the removed serial tab/operation-panel UI. Replace with graph-node flow tests before re-enabling.
+test.describe.skip('Virtual Serial and Flow Control E2E legacy serial-tab flow', () => {
   test.beforeEach(async ({ page }) => {
     await injectWailsMock(page);
   });

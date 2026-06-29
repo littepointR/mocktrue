@@ -62,7 +62,8 @@ test.describe('App Shell Smoke', () => {
 
     // The sidebar should now show the serial module's current contributed view.
     await expect(page.locator('.sidebar__title')).toContainText('串口调试');
-    await expect(page.getByRole('button', { name: '串口拓扑' })).toBeVisible();
+    await expect(page.locator('[data-testid="sidebar-view-serial.graph"]')).toBeVisible();
+    await expect(page.locator('[data-testid="sidebar-view-serial.graph"]')).toContainText('串口拓扑');
   });
 
   test('should update status bar with active module id', async ({ page }) => {

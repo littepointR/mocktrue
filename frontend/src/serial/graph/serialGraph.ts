@@ -148,7 +148,7 @@ export const serialGraphProviders: SerialGraphNodeProvider[] = [
     description: '由 PortWeave 创建和管理的单端虚拟串口。',
     inputs: [{ id: 'tx', label: '发送', kind: 'bytes', direction: 'input' }],
     outputs: [{ id: 'rx', label: '接收', kind: 'bytes', direction: 'output' }],
-    defaultConfig: { ...serialDefaults, portName: 'portweave-vport' },
+    defaultConfig: { ...serialDefaults },
     resourceOwner: true,
     resourceKeys: ['portName'],
   },

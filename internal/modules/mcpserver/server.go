@@ -1269,7 +1269,7 @@ func serialGraphProviders() []serialGraphProvider {
 			Description:   "由 PortWeave 创建和管理的单端虚拟串口。",
 			Inputs:        []serialGraphPortSpec{{ID: "tx", Label: "发送", Kind: "bytes", Direction: "input"}},
 			Outputs:       []serialGraphPortSpec{{ID: "rx", Label: "接收", Kind: "bytes", Direction: "output"}},
-			DefaultConfig: withConfig(serialDefaults, map[string]any{"portName": "portweave-vport"}),
+			DefaultConfig: serialDefaults,
 			ResourceOwner: true,
 			ResourceKeys:  []string{"portName"},
 		},
@@ -1448,9 +1448,6 @@ func serialGraphObservabilityDemoTemplate(args serialGraphDemoTemplateArgs) map[
 		graphID = "serial-observability-mcp-demo"
 	}
 	portName := strings.TrimSpace(args.PortName)
-	if portName == "" {
-		portName = "portweave-mcp-demo"
-	}
 
 	generatorConfig := withConfig(scriptDefaultsForTemplate(), map[string]any{"script": "output.text(\"OK TEMP=42\\r\\n\", \"utf-8\")", "autoRun": true, "intervalMs": 1000})
 	nodes := []serialGraphNodeArg{

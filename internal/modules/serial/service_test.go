@@ -288,6 +288,9 @@ func TestServiceHelpersCoverNilVirtualManagerAndTokenFallbacks(t *testing.T) {
 	if svc.bridgePortInUse("COM1") {
 		t.Fatalf("bridgePortInUse without virtual manager must be false")
 	}
+	if svc.graphVirtualPortInUse("") {
+		t.Fatalf("graphVirtualPortInUse must ignore empty port names")
+	}
 	if id := autoVirtualPortID("!!!"); id == "" {
 		t.Fatalf("autoVirtualPortID must fall back to a non-empty monitor token")
 	}

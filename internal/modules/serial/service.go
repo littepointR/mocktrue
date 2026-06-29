@@ -659,6 +659,25 @@ func (s *Service) bridgePortInUse(portName string) bool {
 	return false
 }
 
+func (s *Service) graphVirtualPortInUse(portName string) bool {
+	if portName == "" {
+		return false
+	}
+	s.mu.RLock()
+	graphs := make([]*serialGraphRuntime, 0, len(s.graphs))
+	for _, runtime := range s.graphs {
+		graphs = append(graphs, runtime)
+	}
+	s.mu.RUnlock()
+
+	for _, runtime := range graphs {
+		if runtime.ownsVirtualPortName(portName) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) cleanupAutoMonitorVirtual(monitorID string) error {
 	s.mu.RLock()
 	virtualID := s.autoMonitorVirtuals[monitorID]

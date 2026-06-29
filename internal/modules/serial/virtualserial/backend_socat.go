@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/littepointR/portweave/internal/core/errors"
@@ -45,16 +46,21 @@ func (socatBackend) CreatePair(ctx context.Context, pairID, port1Name, port2Name
 		}
 	}
 
-	port1Path := socatEndpointPath(port1Name)
-	port2Path := socatEndpointPath(port2Name)
-
-	_ = os.Remove(port1Path)
-	_ = os.Remove(port2Path)
+	port1Path, port2Path, pairDir, err := socatEndpointPaths(port1Name, port2Name)
+	if err != nil {
+		return nil, err
+	}
+	cleanup := func() {
+		_ = os.Remove(port1Path)
+		_ = os.Remove(port2Path)
+		_ = os.Remove(pairDir)
+	}
 
 	cmd := exec.Command("socat", "-d", "-d",
 		fmt.Sprintf("pty,raw,echo=0,link=%s", port1Path),
 		fmt.Sprintf("pty,raw,echo=0,link=%s", port2Path))
 	if err := cmd.Start(); err != nil {
+		cleanup()
 		return nil, errors.Wrap(errors.CodeIO, "start socat", err)
 	}
 
@@ -64,6 +70,7 @@ func (socatBackend) CreatePair(ctx context.Context, pairID, port1Name, port2Name
 			return newVirtualPair(pairID, port1Path, port2Path, socatPairHandle{
 				cmd:   cmd,
 				paths: []string{port1Path, port2Path},
+				dir:   pairDir,
 			}), nil
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -71,8 +78,7 @@ func (socatBackend) CreatePair(ctx context.Context, pairID, port1Name, port2Name
 
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	_ = os.Remove(port1Path)
-	_ = os.Remove(port2Path)
+	cleanup()
 	return nil, errors.New(errors.CodeIO, "timeout waiting for socat symlinks")
 }
 
@@ -80,16 +86,59 @@ func (b socatBackend) CreatePort(ctx context.Context, portID, publicName string)
 	return b.CreatePair(ctx, portID, publicName, publicName+"-peer")
 }
 
-func socatEndpointPath(name string) string {
-	if filepath.IsAbs(name) {
-		return name
+func socatEndpointPaths(port1Name, port2Name string) (string, string, string, error) {
+	port1Base, err := socatEndpointName(port1Name)
+	if err != nil {
+		return "", "", "", err
 	}
-	return filepath.Join(os.TempDir(), name)
+	port2Base, err := socatEndpointName(port2Name)
+	if err != nil {
+		return "", "", "", err
+	}
+	if port1Base == port2Base {
+		return "", "", "", errors.New(errors.CodeInvalid, "virtual serial endpoint names must be distinct")
+	}
+
+	pairDir, err := os.MkdirTemp("", "portweave-virtualserial-*")
+	if err != nil {
+		return "", "", "", errors.Wrap(errors.CodeIO, "create virtual serial temp directory", err)
+	}
+	return filepath.Join(pairDir, port1Base), filepath.Join(pairDir, port2Base), pairDir, nil
+}
+
+func socatEndpointName(name string) (string, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "", errors.New(errors.CodeInvalid, "virtual serial endpoint name must not be empty")
+	}
+	if filepath.IsAbs(trimmed) {
+		return "", errors.New(errors.CodeInvalid, "virtual serial endpoint name must be relative")
+	}
+	if strings.Contains(trimmed, "..") {
+		return "", errors.New(errors.CodeInvalid, "virtual serial endpoint name must not contain '..'")
+	}
+	if strings.ContainsAny(trimmed, `/\`) {
+		return "", errors.New(errors.CodeInvalid, "virtual serial endpoint name must not contain path separators")
+	}
+	if filepath.Clean(trimmed) != trimmed || trimmed == "." {
+		return "", errors.New(errors.CodeInvalid, "virtual serial endpoint name must be a simple file name")
+	}
+	for _, r := range trimmed {
+		allowed := (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' || r == '-' || r == '.'
+		if !allowed {
+			return "", errors.New(errors.CodeInvalid, "virtual serial endpoint name contains unsupported characters")
+		}
+	}
+	return trimmed, nil
 }
 
 type socatPairHandle struct {
 	cmd   *exec.Cmd
 	paths []string
+	dir   string
 }
 
 func (h socatPairHandle) Stop() error {
@@ -99,6 +148,9 @@ func (h socatPairHandle) Stop() error {
 	}
 	for _, path := range h.paths {
 		_ = os.Remove(path)
+	}
+	if h.dir != "" {
+		_ = os.Remove(h.dir)
 	}
 	return nil
 }

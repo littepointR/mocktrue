@@ -357,6 +357,9 @@ func (s *Service) ensureGraphPortAvailable(portName string) error {
 	if s.bridgePortInUse(portName) {
 		return errors.New(errors.CodeConflict, "graph port already used by serial bridge: "+portName)
 	}
+	if s.graphVirtualPortInUse(portName) {
+		return errors.New(errors.CodeConflict, "graph port already used by another serial graph: "+portName)
+	}
 	if s.modbus != nil && s.modbus.PortInUse(portName) {
 		return errors.New(errors.CodeConflict, "graph port already open in modbus session: "+portName)
 	}
@@ -1319,6 +1322,23 @@ func (r *serialGraphRuntime) addOwnedVirtualPort(portID string) {
 	r.mu.Lock()
 	r.ownedVPorts = append(r.ownedVPorts, portID)
 	r.mu.Unlock()
+}
+
+func (r *serialGraphRuntime) ownsVirtualPortName(portName string) bool {
+	if portName == "" {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, node := range r.nodes {
+		if node.spec.Type != "serial.virtual" {
+			continue
+		}
+		if graphStringConfig(node.spec.Config, "portName") == portName && node.resource() != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *serialGraphRuntime) sortedNodes() []*serialGraphRuntimeNode {

@@ -1,4 +1,4 @@
-.PHONY: build build-all build-darwin build-linux build-windows test test-race vet lint coverage coverage-gate-test clean bindings frontend frontend-test frontend-coverage frontend-typecheck frontend-build frontend-e2e-smoke ci ci-strict full
+.PHONY: build build-all build-darwin build-linux build-windows test test-race vet lint coverage coverage-gate-test qt-rust-env-check migration-matrix-check migration-preflight clean bindings frontend frontend-test frontend-coverage frontend-typecheck frontend-build frontend-e2e-smoke ci ci-strict full
 
 APP_NAME := portweave
 BUILD_DIR := bin
@@ -43,6 +43,17 @@ lint:
 # Run the coverage gate regression checks.
 coverage-gate-test:
 	./scripts/test-check-go-coverage.sh
+
+# Validate local Qt/Rust toolchain availability for the migration skeleton.
+qt-rust-env-check:
+	powershell -ExecutionPolicy Bypass -File scripts/check-qt-rust-env.ps1
+
+# Validate migration feature matrix coverage and schema.
+migration-matrix-check:
+	python scripts/check-migration-matrix.py
+
+# Run all migration preparation checks required before skeleton development.
+migration-preflight: qt-rust-env-check migration-matrix-check
 
 # Run backend/internal tests with coverage and enforce the 90% coverage floor.
 coverage: coverage-gate-test

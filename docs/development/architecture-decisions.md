@@ -132,11 +132,79 @@ Keep Wails boundaries narrow, and treat binding/release changes as explicit arti
 - Add artifact smoke before widening release targets.
 - Keep release/package docs explicit about Wails version assumptions.
 
+## ADR-0006: Prepare a controlled Qt/QML + Rust migration
+
+### Status
+
+Accepted for migration preparation and skeleton development.
+
+### Context
+
+PortWeave has hit Windows desktop-shell reliability problems in the Wails
+WebView2 host boundary, especially around cross-screen movement, DPI changes,
+and WebView2 controller state. The product core remains serial topology,
+protocol simulation, virtual/remote serial resources, workspace compatibility,
+and MCP automation.
+
+The migration risk is not primarily UI repainting. The larger risk is losing
+behavior that currently exists across Vue stores, Wails bindings, Go services,
+MCP tools, documentation, and tests.
+
+### Decision
+
+Prepare and start a controlled migration path to a Qt/QML desktop shell with a
+Rust core. Broad feature migration must not start until the migration playbook,
+feature matrix, contracts, readiness checklist, gap report, QML design handoff,
+and matrix completeness gate are in place.
+
+The intended target layering is:
+
+```text
+QML UI
+  -> Qt/C++ shell, ViewModels, native window lifecycle, Qt models
+  -> Rust core
+```
+
+The first skeleton will use a C ABI bridge from Qt/C++ to a Rust `staticlib`.
+This is the first-stage bridge only: it keeps Qt ownership natural and avoids
+committing the product to generated binding frameworks before the window
+lifecycle and no-hardware smoke are proven.
+
+First development is limited to:
+
+- Qt application entry and QML main window.
+- Rust core crate exporting one C ABI smoke function and one event/result path.
+- Qt/C++ bridge wrapper and ViewModel proof.
+- Windows cross-screen, resize, minimize, restore, and DPI smoke.
+- No product feature implementation beyond the smoke path.
+
+Full feature migration requires every old capability to have an explicit matrix
+row and acceptance evidence.
+
+### Consequences
+
+- ADR-0001 remains the description of the current shipped architecture until
+  the new skeleton is buildable and release scope is redefined.
+- A migration PR must reference feature IDs from
+  `migration-feature-matrix.csv`.
+- QML must not call Rust directly.
+- Rust must not depend on Qt/QML UI concepts.
+- Qt/C++ owns native windows, DPI, screens, file dialogs, ViewModels, and
+  UI-thread handoff.
+- Rust owns workspace, serial, virtual serial, graph runtime, protocols, MCP
+  behavior, and core tests.
+- The first skeleton must prove Windows cross-screen/DPI/minimize/restore
+  behavior before broader migration work begins.
+- The first-stage C ABI must stay narrow. If it becomes hard to maintain before
+  first-wave feature implementation, write a follow-up ADR comparing C ABI,
+  `cxx-qt`, and IPC with concrete evidence.
+
 ## Non-decisions
 
 These are intentionally not decided in this phase:
 
-- A Qt/C++ migration.
+- A fully accepted release cutover from Wails to Qt/QML + Rust beyond the
+  skeleton and first-wave migration path in ADR-0006.
 - A gRPC service layer.
 - A dashboard widget parity roadmap.
 - A public raw TCP or public MCP hosting model.

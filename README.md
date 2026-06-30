@@ -65,7 +65,7 @@ Developer/architecture docs:
 - Tests: Go test, Vitest, Playwright.
 - CI: GitHub Actions with frontend, coverage, backend matrix, and backend aggregate jobs.
 
-The current architecture intentionally keeps Go + Wails + Vue/TypeScript, defers gRPC until evidence requires it, and does not plan a Qt/C++ rewrite. See [Architecture Decisions](docs/development/architecture-decisions.md).
+The current shipped architecture is Go + Wails + Vue/TypeScript and still defers gRPC until evidence requires it. ADR-0006 now accepts a controlled Qt/QML + Rust migration path for skeleton development. See [Architecture Decisions](docs/development/architecture-decisions.md).
 
 ## Requirements
 

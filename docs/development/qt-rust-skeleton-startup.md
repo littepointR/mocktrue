@@ -13,11 +13,26 @@ exit gates in this document pass.
 
 ## Load Environment
 
-Run all Qt/Rust development commands from a PowerShell session that has loaded:
+Run all Qt/Rust development commands from a shell where the Qt/Rust
+prerequisites are available.
+
+Each developer may either configure the environment directly or point the
+preflight script at a private machine-local bootstrap script:
 
 ```powershell
-. D:\Tools\portweave-env.ps1
+$env:PORTWEAVE_QT_RUST_ENV_SCRIPT = "<path-to-local-bootstrap.ps1>"
 ```
+
+The bootstrap script is not part of the repository and must not be referenced by
+absolute path in shared docs. It should set or load whatever is needed for:
+
+- `QT_ROOT`
+- `CMAKE_PREFIX_PATH`
+- Rust/Cargo on `PATH`
+- Qt tools on `PATH`
+- CMake on `PATH`
+- MSVC C++ build tools on `PATH`
+- Ninja on `PATH`
 
 Before editing the skeleton, run:
 
@@ -34,10 +49,8 @@ make migration-preflight
 
 Expected environment:
 
-- `QT_ROOT=D:\Qt\6.11.0\msvc2022_64`
-- `CMAKE_PREFIX_PATH=D:\Qt\6.11.0\msvc2022_64`
-- `RUSTUP_HOME=D:\Tools\rustup`
-- `CARGO_HOME=D:\Tools\cargo`
+- `QT_ROOT` points to a Qt 6 compiler kit root.
+- `CMAKE_PREFIX_PATH` includes `QT_ROOT`.
 - `rustc`, `cargo`, `cmake`, `qmake`, `cl.exe`, and `ninja` are available.
 
 ## Skeleton Directory
@@ -144,7 +157,6 @@ native there. CMake may invoke Cargo for the Rust `staticlib`.
 Recommended first command shape after files exist:
 
 ```powershell
-. D:\Tools\portweave-env.ps1
 cmake -S desktop\qt-rust -B build\qt-rust -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build\qt-rust
 ```

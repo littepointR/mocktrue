@@ -14,8 +14,8 @@ waived by the migration lead and verification owner.
 - [x] Existing source anchors for UI, bindings, Go services, MCP, docs, and
   tests are documented.
 - [x] New ADR is accepted and supersedes the old no-migration non-decision.
-- [x] Rust toolchain is available through `D:\Tools\portweave-env.ps1`.
-- [x] Qt 6.11.0 compiler kit is confirmed through `D:\Tools\portweave-env.ps1`.
+- [x] Rust toolchain can be verified through `make migration-preflight`.
+- [x] Qt 6 compiler kit can be verified through `make migration-preflight`.
 - [x] `opus-qml-design-lead` first-wave screen inventory and state model are
   reviewed.
 - [x] New stack skeleton PR scope is approved.
@@ -29,7 +29,9 @@ waived by the migration lead and verification owner.
 Development may start for the skeleton only when:
 
 - The ADR is accepted.
-- Rust and Qt build prerequisites are loaded with `D:\Tools\portweave-env.ps1`.
+- Rust and Qt build prerequisites are available in the current shell or loaded
+  through a machine-local bootstrap script referenced by
+  `PORTWEAVE_QT_RUST_ENV_SCRIPT`.
 - `make migration-preflight` passes locally.
 - The skeleton scope is limited to launch, QML rendering, Rust event delivery,
   and Windows window lifecycle smoke.

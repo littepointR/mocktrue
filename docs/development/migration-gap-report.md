@@ -5,20 +5,17 @@ blocked, and what must be resolved before implementation begins.
 
 ## Current environment
 
-Confirmed:
+Confirmed on the preparation machine through repository commands:
 
-- Repository root: `D:\Users\pc\Documents\WorkSpace\git\mocktrue`.
-- Qt installations exist under `D:\Qt`, including `D:\Qt\6.11.0`.
-- CMake is available as `C:\Python314\Scripts\cmake.exe`, version `4.3.1`.
-- Rust is installed under `D:\Tools`:
-  - `RUSTUP_HOME=D:\Tools\rustup`
-  - `CARGO_HOME=D:\Tools\cargo`
-  - active toolchain `stable-x86_64-pc-windows-msvc`, `rustc 1.96.0`.
-- Visual Studio 2022 Build Tools are available through
-  `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat`.
-- Qt 6.11.0 MSVC kit is available at `D:\Qt\6.11.0\msvc2022_64`.
-- Reusable environment bootstrap script: `D:\Tools\portweave-env.ps1`.
-- Reusable local preflight script: `scripts\check-qt-rust-env.ps1`.
+- Repository root is this checkout.
+- Qt 6 is available through `QT_ROOT` and `CMAKE_PREFIX_PATH`.
+- CMake is available on `PATH`.
+- Rust is available on `PATH` through a stable MSVC toolchain.
+- Visual Studio 2022 C++ build tools are available on `PATH`.
+- Ninja is available on `PATH`.
+- Optional machine-local bootstrap is supported through
+  `PORTWEAVE_QT_RUST_ENV_SCRIPT`.
+- Reusable repository preflight script: `scripts\check-qt-rust-env.ps1`.
 - Existing generated Wails bindings are under `frontend/bindings`.
 - Existing frontend stack remains Vue/TypeScript under `frontend/src`.
 - Existing backend stack remains Go/Wails under `internal`.
@@ -35,11 +32,12 @@ Baseline checks passed during preparation:
 
 Toolchain smoke passed:
 
-- `. D:\Tools\portweave-env.ps1; rustc --version`
-- `. D:\Tools\portweave-env.ps1; cargo --version`
-- `. D:\Tools\portweave-env.ps1; cl`
-- `. D:\Tools\portweave-env.ps1; qmake -query QT_VERSION`
-- `. D:\Tools\portweave-env.ps1; cargo new --bin $env:TEMP\portweave-rust-msvc-smoke --name portweave_rust_msvc_smoke; cargo run --manifest-path $env:TEMP\portweave-rust-msvc-smoke\Cargo.toml`
+- `rustc --version`
+- `cargo --version`
+- `cmake --version`
+- `qmake -query QT_VERSION`
+- `cl.exe` compile smoke
+- `rustc` compile smoke
 
 ## Inventory coverage
 
@@ -128,7 +126,8 @@ Not ready:
 
 Before implementation:
 
-1. Load `D:\Tools\portweave-env.ps1` before Rust/Qt development commands.
+1. Load machine-local Rust/Qt prerequisites into the current shell, or set
+   `PORTWEAVE_QT_RUST_ENV_SCRIPT` to a private bootstrap script.
 2. Run `make migration-preflight`.
 3. Create the skeleton PR:
    - Qt app entry.

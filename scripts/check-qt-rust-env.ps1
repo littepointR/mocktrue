@@ -1,22 +1,26 @@
 param(
+    [string]$EnvScript = $env:PORTWEAVE_QT_RUST_ENV_SCRIPT,
     [switch]$SkipCompileSmoke
 )
 
 $ErrorActionPreference = "Stop"
 
-$envScript = "D:\Tools\portweave-env.ps1"
-if (-not (Test-Path -LiteralPath $envScript)) {
-    throw "PortWeave environment bootstrap not found: $envScript"
+if ($EnvScript) {
+    if (-not (Test-Path -LiteralPath $EnvScript)) {
+        throw "PortWeave environment bootstrap not found: $EnvScript"
+    }
+    . $EnvScript
+    Write-Host "Loaded local environment bootstrap: $EnvScript"
+} else {
+    Write-Host "No local environment bootstrap provided; using current shell environment"
 }
-
-. $envScript
 
 function Require-Command {
     param([string]$Name)
 
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if (-not $cmd) {
-        throw "Required command not found on PATH after loading ${envScript}: $Name"
+        throw "Required command not found on PATH: $Name"
     }
     return $cmd.Source
 }
@@ -36,11 +40,16 @@ function Run-And-Print {
 }
 
 if (-not (Test-Path -LiteralPath $env:QT_ROOT)) {
-    throw "QT_ROOT does not exist: $env:QT_ROOT"
+    throw "QT_ROOT must be set to a Qt 6 kit root and must exist. Current QT_ROOT=$env:QT_ROOT"
 }
 
-if ($env:CMAKE_PREFIX_PATH -ne $env:QT_ROOT) {
-    throw "CMAKE_PREFIX_PATH must point at QT_ROOT. QT_ROOT=$env:QT_ROOT CMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH"
+if (-not $env:CMAKE_PREFIX_PATH) {
+    throw "CMAKE_PREFIX_PATH must include QT_ROOT. Current CMAKE_PREFIX_PATH is empty"
+}
+
+$cmakePrefixEntries = $env:CMAKE_PREFIX_PATH -split ";"
+if ($env:QT_ROOT -notin $cmakePrefixEntries) {
+    throw "CMAKE_PREFIX_PATH must include QT_ROOT. QT_ROOT=$env:QT_ROOT CMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH"
 }
 
 $rustcPath = Require-Command "rustc"

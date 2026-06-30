@@ -34,6 +34,18 @@ Layer responsibilities:
 - The bridge owns type conversion, error conversion, async invocation, thread
   handoff, and event delivery only.
 
+Rust is used only where it buys concrete product value: resource lifetime,
+protocol parsing/encoding, graph runtime state, workspace compatibility,
+automation contracts, and headless tests. It is not used to implement windows,
+QML controls, Qt object models, menus, dialogs, or presentation behavior.
+
+A pure Qt/QML + Qt/C++ core remains the fallback architecture if the Rust bridge
+cost is higher than its maintainability and testability benefit. The skeleton
+must prove this before product features move. Treat Rust as accepted only after
+the bridge can deliver a narrow C ABI smoke call, a Rust-originated event into
+QML through Qt/C++ ViewModels, reliable clean builds, and core tests that run
+without Qt.
+
 Keep data flow one-way:
 
 ```text

@@ -170,6 +170,30 @@ This is the first-stage bridge only: it keeps Qt ownership natural and avoids
 committing the product to generated binding frameworks before the window
 lifecycle and no-hardware smoke are proven.
 
+Rust is a provisional core choice, not an irreversible commitment. The expected
+benefit is stronger ownership, parser/state-machine safety, concurrency safety,
+and reusable headless tests for serial resources, protocol encoding/decoding,
+graph runtime, workspace compatibility, and MCP automation. The expected cost is
+an extra language boundary, C ABI type conversion, async/thread handoff,
+debugging complexity, and build/CI integration complexity.
+
+The alternative remains a pure Qt/QML + Qt/C++ core. It is simpler to build and
+debug because all ViewModels, models, lifecycle, and core behavior live in one
+Qt toolchain. Its risk is that long-lived resource ownership, protocol parsing,
+graph runtime state, and automation/headless reuse become more coupled to Qt and
+more exposed to C++ lifetime and concurrency mistakes.
+
+The skeleton is the decision gate for keeping Rust. Rust should continue only if
+the skeleton proves that a narrow bridge can be built, tested, and debugged
+without letting QML call Rust directly or making Rust depend on Qt. If the smoke
+bridge becomes broad, fragile, hard to test, or hard to build before first-wave
+feature implementation starts, stop feature work and write a follow-up ADR that
+compares:
+
+- Continuing with Qt/QML + Qt/C++ shell + Rust core.
+- Switching to Qt/QML + Qt/C++ core without Rust.
+- Replacing the C ABI with `cxx-qt` or IPC.
+
 First development is limited to:
 
 - Qt application entry and QML main window.
@@ -193,6 +217,8 @@ row and acceptance evidence.
   UI-thread handoff.
 - Rust owns workspace, serial, virtual serial, graph runtime, protocols, MCP
   behavior, and core tests.
+- Rust ownership is accepted only after the skeleton proves the bridge cost is
+  justified by concrete maintainability and testability benefits.
 - The first skeleton must prove Windows cross-screen/DPI/minimize/restore
   behavior before broader migration work begins.
 - The first-stage C ABI must stay narrow. If it becomes hard to maintain before

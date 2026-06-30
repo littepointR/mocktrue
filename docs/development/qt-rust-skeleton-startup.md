@@ -187,6 +187,35 @@ The skeleton is complete only when:
 These gates allow first-wave product feature work to begin. They do not accept
 any product feature row by themselves.
 
+## Rust Core Decision Gate
+
+After the skeleton exit gates pass, the migration lead must make an explicit
+decision before first-wave product feature implementation starts.
+
+Continue with Rust core only when all of these are true:
+
+- Qt/C++ can call a narrow Rust C ABI without generated bridge sprawl.
+- A Rust-originated event/result reaches a Qt ViewModel and QML without Rust
+  depending on Qt/QML.
+- CMake/Cargo integration rebuilds repeatably from a clean `build/qt-rust`
+  directory.
+- The bridge code remains limited to type conversion, error conversion,
+  async/thread handoff, and event delivery.
+- Rust unit tests can exercise the smoke core without launching Qt.
+- Debugging a failed smoke event has a clear path in both Rust and Qt/C++.
+
+Reconsider Rust before feature work if any of these are true:
+
+- The C ABI requires broad generated binding code or large manual wrappers.
+- QML needs to call Rust directly to keep the UI usable.
+- Rust needs Qt/QML types to report state.
+- The build cannot be made reliable on the developer machines and CI target.
+- The bridge adds more failure modes than it removes for the first-wave scope.
+
+If Rust is rejected at this gate, write a follow-up ADR before continuing. The
+ADR must compare continuing Rust core, switching to pure Qt/QML + Qt/C++ core,
+and changing the bridge to `cxx-qt` or IPC.
+
 After the skeleton build command exists, add CI coverage for
 `make migration-preflight` and the new Qt/Rust configure/build command. Do not
 wire Qt/Rust CI before the build target exists.

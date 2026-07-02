@@ -56,15 +56,20 @@ $rustcPath = Require-Command "rustc"
 $cargoPath = Require-Command "cargo"
 $cmakePath = Require-Command "cmake"
 $qmakePath = Require-Command "qmake"
-$clPath = Require-Command "cl.exe"
 $ninjaPath = Require-Command "ninja"
+$hasCl = [bool](Get-Command "cl.exe" -ErrorAction SilentlyContinue)
 
 Write-Host "Resolved tools:"
 Write-Host "  rustc=$rustcPath"
 Write-Host "  cargo=$cargoPath"
 Write-Host "  cmake=$cmakePath"
 Write-Host "  qmake=$qmakePath"
-Write-Host "  cl.exe=$clPath"
+if ($hasCl) {
+    $clPath = (Get-Command "cl.exe").Source
+    Write-Host "  cl.exe=$clPath"
+} else {
+    Write-Host "  cl.exe=not found (skipping Windows compiler smoke on this host)"
+}
 Write-Host "  ninja=$ninjaPath"
 
 Run-And-Print "rustc" { rustc --version }
@@ -82,6 +87,12 @@ Write-Host "qmake QT_VERSION: $qtVersion"
 
 if ($SkipCompileSmoke) {
     Write-Host "Compile smoke skipped"
+    Write-Host "Qt/Rust environment preflight OK"
+    exit 0
+}
+
+if (-not $IsWindows) {
+    Write-Host "Windows compiler smoke skipped on non-Windows host"
     Write-Host "Qt/Rust environment preflight OK"
     exit 0
 }

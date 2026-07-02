@@ -5,6 +5,8 @@ frontend/node_modules
 frontend/test-results
 frontend/playwright-report
 frontend/.playwright-cache
+build/qt-rust/
+desktop/qt-rust/rust/target/
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 # Mobile generated (per-machine; overlays hold absolute paths)

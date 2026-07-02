@@ -46,4 +46,3 @@ Updated: 2026-07-02 21:21:06 +08:00
 2. Provide a private bootstrap via `PORTWEAVE_QT_RUST_ENV_SCRIPT`, or set `PATH`, `QT_ROOT`, and `CMAKE_PREFIX_PATH` so Qt 6, Rust, and MSVC tools are available.
 3. Fix T10 first: update `desktop/qt-rust/scripts/final-scope-fidelity.ps1` so the path-leak scan no longer feeds an invalid regex to `rg`, then rerun the T10 smoke commands in the plan.
 4. Only after T10 verifier confirms, mark T10 complete and continue T3/T4/T6/T8/T9/T11 and final verification from the plan.
-

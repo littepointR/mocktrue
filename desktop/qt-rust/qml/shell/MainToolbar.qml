@@ -25,10 +25,10 @@ Rectangle {
 
         Repeater {
             model: [
-                { "label": "New", "featureId": "workspace.new" },
-                { "label": "Open", "featureId": "workspace.open" },
-                { "label": "Save", "featureId": "workspace.save" },
-                { "label": "Save As", "featureId": "workspace.save_as" }
+                { "label": "New", "featureId": "shell.smoke.new" },
+                { "label": "Open", "featureId": "shell.smoke.open" },
+                { "label": "Save", "featureId": "shell.smoke.save" },
+                { "label": "Save As", "featureId": "shell.smoke.save_as" }
             ]
 
             delegate: Rectangle {

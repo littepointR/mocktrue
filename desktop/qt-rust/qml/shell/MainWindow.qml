@@ -12,17 +12,17 @@ Window {
     color: "#111318"
 
     function handleToolbarAction(actionId) {
-        if (actionId === "workspace.new") {
+        if (actionId === "shell.smoke.new") {
             appBridge.newWorkspace()
-        } else if (actionId === "workspace.open") {
+        } else if (actionId === "shell.smoke.open") {
             openDialog.open()
-        } else if (actionId === "workspace.save") {
+        } else if (actionId === "shell.smoke.save") {
             if (appBridge.currentPath.length === 0) {
                 saveAsDialog.open()
             } else {
                 appBridge.saveFile()
             }
-        } else if (actionId === "workspace.save_as") {
+        } else if (actionId === "shell.smoke.save_as") {
             saveAsDialog.open()
         }
     }

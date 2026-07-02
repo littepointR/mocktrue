@@ -5,6 +5,10 @@ This directory contains the first Qt/QML + Rust skeleton required by the
 migration plan. It intentionally proves only the shell, the Rust C ABI smoke
 call, and the window lifecycle probe.
 
+Toolbar file actions are smoke-only shell controls identified as
+`shell.smoke.*`. They exercise QML-to-Qt state flow and file dialogs without
+marking the contracted `workspace.*` migration rows as implemented.
+
 ## Prerequisites
 
 On macOS with Homebrew Qt:

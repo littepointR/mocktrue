@@ -5,9 +5,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if ($EnvScript) {
+function Fail-Preflight {
+    param([string]$Message)
+
+    Write-Host $Message
+    exit 1
+}
+
+if (-not [string]::IsNullOrWhiteSpace($EnvScript)) {
     if (-not (Test-Path -LiteralPath $EnvScript)) {
-        throw "PortWeave environment bootstrap not found: $EnvScript"
+        Fail-Preflight "PortWeave environment bootstrap not found: $EnvScript"
     }
     . $EnvScript
     Write-Host "Loaded local environment bootstrap: $EnvScript"
@@ -39,12 +46,16 @@ function Run-And-Print {
     Write-Host "${Label}: $firstLine"
 }
 
-if (-not (Test-Path -LiteralPath $env:QT_ROOT)) {
-    throw "QT_ROOT must be set to a Qt 6 kit root and must exist. Current QT_ROOT=$env:QT_ROOT"
+if ([string]::IsNullOrWhiteSpace($env:QT_ROOT)) {
+    Fail-Preflight "QT_ROOT must be set to a Qt 6 kit root and must exist. Current QT_ROOT is empty"
 }
 
-if (-not $env:CMAKE_PREFIX_PATH) {
-    throw "CMAKE_PREFIX_PATH must include QT_ROOT. Current CMAKE_PREFIX_PATH is empty"
+if (-not (Test-Path -LiteralPath $env:QT_ROOT)) {
+    Fail-Preflight "QT_ROOT must be set to a Qt 6 kit root and must exist. Current QT_ROOT=$env:QT_ROOT"
+}
+
+if ([string]::IsNullOrWhiteSpace($env:CMAKE_PREFIX_PATH)) {
+    Fail-Preflight "CMAKE_PREFIX_PATH must include QT_ROOT. Current CMAKE_PREFIX_PATH is empty"
 }
 
 $cmakePrefixEntries = $env:CMAKE_PREFIX_PATH -split ";"
